@@ -1,0 +1,37 @@
+[package]
+authors = ["Francis Lalonde <fralalonde@gmail.com>"]
+edition = "2018"
+name = "usbmidi-route"
+readme = "README.md"
+version = "0.1.0"
+
+[[bin]]
+bench = false
+name = "usbmidi-route"
+test = false
+
+[dependencies]
+cortex-m = "0.6.0"
+cortex-m-rt = "0.6.10"
+cortex-m-rtic = "0.5"
+cortex-m-semihosting = "0.3.3"
+panic-halt = "0.2.0"
+panic-semihosting = "*"
+
+embedded-hal = "0.2.4"
+ssd1306 = "0.4.0"
+embedded-graphics = "0.6.2"
+heapless = "0.5.6"
+usb-device = "0.2.7"
+usbd-serial = "0.1"
+
+
+[dependencies.stm32f1xx-hal]
+version = "0.6.1"
+features = ["rt", "stm32f103", "medium", "stm32-usbd"]
+
+[profile.release]
+codegen-units = 1
+debug = true
+lto = true
+
