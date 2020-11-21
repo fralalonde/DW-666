@@ -1,13 +1,8 @@
-use rtic::cyccnt::{Instant, U32Ext as _, Duration};
-use stm32f1xx_hal::gpio::gpioa::{PA5, PA6, PA7};
-use stm32f1xx_hal::gpio::{Input, PullDown, PullUp};
-use embedded_hal::digital::v2::InputPin;
-use alloc::vec::Vec;
 use alloc::boxed::Box;
+use embedded_hal::digital::v2::InputPin;
+use rtic::cyccnt::{Duration, Instant};
 
-const CYCLES_STEPPING: u32 = 2_000_000;
-
-pub type Result<T: InputPin> = core::result::Result<T, T::Error>;
+const CYCLES_STEPPING: u64 = 1024 * 1024;
 
 pub enum ScanEvent {
     ButtonDown,
@@ -15,16 +10,16 @@ pub enum ScanEvent {
 }
 
 pub trait Scan {
-    fn scan(&mut self, now: Instant) -> Option<ScanEvent>;
+    fn scan(&mut self, now: u64) -> Option<ScanEvent>;
 }
 
 struct Observed<T> {
     state: T,
-    time: Instant,
+    time: u64,
 }
 
-impl <T> Observed<T> {
-    fn init(now: Instant, init: T) -> Self {
+impl<T> Observed<T> {
+    fn init(now: u64, init: T) -> Self {
         Observed {
             state: init,
             time: now,
@@ -41,43 +36,58 @@ pub struct Encoder<DT, CLK> {
     prev: Observed<EncoderState>,
 }
 
-pub fn encoder<DT, CLK>(now: Instant, dt_pin: DT, clk_pin: CLK) -> Box<(dyn Scan + Sync + Send)>
-    where DT: 'static + InputPin + Sync + Send, CLK: 'static +  InputPin + Sync + Send
+pub fn encoder<DT, CLK>(now: u64, dt_pin: DT, clk_pin: CLK) -> Box<(dyn Scan + Sync + Send)>
+where
+    DT: 'static + InputPin + Sync + Send,
+    CLK: 'static + InputPin + Sync + Send,
 {
-    Box::new(Encoder{
-        prev: (Observed::init(now, (dt_pin.is_low().unwrap_or(false), clk_pin.is_low().unwrap_or(false)))),
+    Box::new(Encoder {
+        prev: (Observed::init(
+            now,
+            (
+                dt_pin.is_low().unwrap_or(false),
+                clk_pin.is_low().unwrap_or(false),
+            ),
+        )),
         dt_pin,
         clk_pin,
     })
 }
 
-impl <DT: InputPin, CLK: InputPin> Scan for Encoder<DT, CLK> {
-    fn scan(&mut self, now: Instant) -> Option<ScanEvent> {
-        let enc_code = (self.dt_pin.is_low().unwrap_or(false), self.clk_pin.is_low().unwrap_or(false));
+impl<DT: InputPin, CLK: InputPin> Scan for Encoder<DT, CLK> {
+    fn scan(&mut self, now: u64) -> Option<ScanEvent> {
+        let enc_code = (
+            self.dt_pin.is_low().unwrap_or(false),
+            self.clk_pin.is_low().unwrap_or(false),
+        );
         if enc_code != self.prev.state {
-            let elapsed: Duration = now - self.prev.time;
+            let elapsed: u64 = now - self.prev.time;
             // exponential stepping based on rotation speed
-            let steps = match elapsed.as_cycles() / CYCLES_STEPPING {
+            let stonks = elapsed / CYCLES_STEPPING;
+            let steps = match stonks {
                 // TODO proportional stepping
-                // 0 => 16,
-                0..=1 => 16,
-                2..=4 => 4,
-                // 4..=6 => 2,
+                0 => return None, // too fast, debouncing
+                1..=2 => 16,
+                3..=4 => 8,
+                5..=8 => 4,
+                9..=16 => 2,
                 _ => 1,
             };
             match (self.prev.state, enc_code) {
                 ((false, true), (true, true)) => {
                     self.prev.time = now;
-                    return Some(ScanEvent::Encoder(steps))
+                    self.prev.state = enc_code;
+                    return Some(ScanEvent::Encoder(steps));
                 }
                 ((true, false), (true, true)) => {
                     self.prev.time = now;
-                    return Some(ScanEvent::Encoder(-steps))
+                    self.prev.state = enc_code;
+                    return Some(ScanEvent::Encoder(-steps));
                 }
-                // TODO differential subcode speed stepping hint
-                _ => {}
+
+                // TODO differential subcode speed stepping hint?
+                _ => self.prev.state = enc_code,
             };
-            self.prev.state = enc_code;
         }
         None
     }
@@ -89,13 +99,13 @@ struct ButtonState {
     pushed: bool,
 }
 
-pub struct Button<BTN_PIN> {
-    btn_pin: BTN_PIN,
+pub struct Button<PIN> {
+    btn_pin: PIN,
     prev: Observed<ButtonState>,
 }
 
-impl <T: InputPin> Scan for Button<T> {
-    fn scan(&mut self, now: Instant) -> Option<ScanEvent> {
+impl<T: InputPin> Scan for Button<T> {
+    fn scan(&mut self, now: u64) -> Option<ScanEvent> {
         let pushed: bool = self.btn_pin.is_low().unwrap_or(false);
         if pushed != self.prev.state.pushed {
             self.prev.state.pushed = pushed;

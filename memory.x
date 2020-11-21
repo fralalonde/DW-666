@@ -2,5 +2,9 @@
 MEMORY
 {
   FLASH : ORIGIN = 0x08000000, LENGTH = 64K
-  RAM : ORIGIN = 0x20000000, LENGTH = 20K
+
+  /* first 10k reserved for heap alloc */
+  /* RAM : ORIGIN = 0x20000000, LENGTH = 20K */
+
+  RAM : ORIGIN = 0x20002800, LENGTH = 10K
 }

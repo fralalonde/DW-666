@@ -4,74 +4,45 @@
 #![no_std]
 #![feature(alloc_error_handler)]
 
+extern crate alloc;
 extern crate cortex_m;
 extern crate panic_semihosting;
-extern crate alloc;
 
-mod gnalloc;
-mod state;
+mod clock;
+mod global;
 mod input;
 mod output;
+mod state;
 
-use embedded_hal::digital::v2::{OutputPin, InputPin};
+use embedded_hal::digital::v2::OutputPin;
 use rtic::app;
-use rtic::cyccnt::{Instant, U32Ext as _, Duration};
+use rtic::cyccnt::U32Ext as _;
 
-use stm32f1xx_hal::gpio::{gpioc::PC13, Output, PushPull, State, Input, PullDown, Alternate, OpenDrain, PullUp};
+use stm32f1xx_hal::gpio::State;
+use stm32f1xx_hal::i2c::{BlockingI2c, DutyCycle, Mode};
 use stm32f1xx_hal::prelude::*;
-use stm32f1xx_hal::i2c::{DutyCycle, Mode, BlockingI2c};
-
-use embedded_graphics::{
-    style::TextStyleBuilder,
-    fonts::{Text},
-    // image::{Image, ImageRaw},
-    pixelcolor::BinaryColor,
-    prelude::*,
-};
-use embedded_graphics::fonts::Font24x32;
 
 use ssd1306::{prelude::*, Builder, I2CDIBuilder};
-use stm32f1xx_hal::gpio::gpioa::{PA5, PA6, PA7};
-use stm32f1xx_hal::pac::I2C1;
-use stm32f1xx_hal::gpio::gpiob::{PB8, PB9};
 use stm32f1xx_hal::usb::{Peripheral, UsbBus, UsbBusType};
 
 use usb_device::bus;
 use usb_device::prelude::*;
-use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
-use core::fmt::Write;
 use cortex_m::asm::delay;
 
-use usb_device::bus::UsbBusAllocator;
+use crate::input::Scan;
 use usbd_midi::data::usb::constants::USB_CLASS_NONE;
-use usbd_midi::{
-    data::usb_midi::usb_midi_event_packet::UsbMidiEventPacket,
-    midi_device::MidiClass,
-};
-use crate::state::{ApplicationState};
-use crate::input::{Encoder, Scan};
+use usbd_midi::midi_device::MidiClass;
 
 const SCAN_PERIOD: u32 = 200_000;
-const PRINT_PERIOD: u32 = 2_000_000;
 const BLINK_PERIOD: u32 = 20_000_000;
 
-// Bump pointer allocator implementation
-
-use core::alloc::{GlobalAlloc, Layout};
-use core::{ptr, mem};
-
-use cortex_m::interrupt;
-
-use alloc::vec::Vec;
-use cortex_m::asm;
-use alloc::string::String;
+use crate::state::StateChange;
 use alloc::boxed::Box;
-use core::cell::UnsafeCell;
-use embedded_graphics::image::{ImageRaw, Image};
-use stm32f1xx_hal::delay::Delay;
-
-
+use alloc::string::String;
+use alloc::vec::Vec;
+use cortex_m::peripheral::DWT;
+use embedded_graphics::image::{Image, ImageRaw};
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -94,13 +65,14 @@ const APP: () = {
         let mut core = ctx.core;
         core.DWT.enable_cycle_counter();
 
-        let device: stm32f1xx_hal::stm32::Peripherals = ctx.device;
+        let peripherals: stm32f1xx_hal::stm32::Peripherals = ctx.device;
 
         // Setup clocks
-        let mut flash = device.FLASH.constrain();
-        let mut rcc = device.RCC.constrain();
-        let mut afio = device.AFIO.constrain(&mut rcc.apb2);
-        let clocks = rcc.cfgr
+        let mut flash = peripherals.FLASH.constrain();
+        let mut rcc = peripherals.RCC.constrain();
+        let mut afio = peripherals.AFIO.constrain(&mut rcc.apb2);
+        let clocks = rcc
+            .cfgr
             .use_hse(8.mhz())
             // maximum CPU overclock
             .sysclk(72.mhz())
@@ -110,44 +82,58 @@ const APP: () = {
         assert!(clocks.usbclk_valid());
 
         // Get GPIO busses
-        let mut gpioa = device.GPIOA.split(&mut rcc.apb2);
-        let mut gpiob = device.GPIOB.split(&mut rcc.apb2);
-        let mut gpioc = device.GPIOC.split(&mut rcc.apb2);
+        let mut gpioa = peripherals.GPIOA.split(&mut rcc.apb2);
+        let mut gpiob = peripherals.GPIOB.split(&mut rcc.apb2);
+        let mut gpioc = peripherals.GPIOC.split(&mut rcc.apb2);
 
         // // Setup LED
-        let mut onboard_led = gpioc.pc13.into_push_pull_output_with_state(&mut gpioc.crh, State::Low);
+        let mut onboard_led = gpioc
+            .pc13
+            .into_push_pull_output_with_state(&mut gpioc.crh, State::Low);
         onboard_led.set_low().unwrap();
-        ctx.schedule.blink(ctx.start + BLINK_PERIOD.cycles()).unwrap();
+        ctx.schedule
+            .blink(ctx.start + BLINK_PERIOD.cycles())
+            .unwrap();
 
         // // Setup Encoder
         let mut inputs = Vec::with_capacity(5);
-        inputs.push(input::encoder(
-            ctx.start,
+        let mut encoder = input::encoder(
+            0,
             gpioa.pa6.into_pull_up_input(&mut gpioa.crl),
             gpioa.pa7.into_pull_up_input(&mut gpioa.crl),
-        ));
+        );
+        inputs.push(encoder);
 
-        let enc_push = gpioa.pa5.into_pull_down_input(&mut gpioa.crl);
-        ctx.schedule.input_scan(ctx.start + SCAN_PERIOD.cycles()).unwrap();
+        let _enc_push = gpioa.pa5.into_pull_down_input(&mut gpioa.crl);
+        ctx.schedule
+            .input_scan(ctx.start + SCAN_PERIOD.cycles())
+            .unwrap();
 
         // Setup Display
         let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
         let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
+
+        // TODO extract i2c, oled builders
         let i2c = BlockingI2c::i2c1(
-            device.I2C1, (scl, sda), &mut afio.mapr,
+            peripherals.I2C1,
+            (scl, sda),
+            &mut afio.mapr,
             Mode::Fast {
                 frequency: 400_000.hz(),
                 duty_cycle: DutyCycle::Ratio2to1,
             },
-            clocks, &mut rcc.apb1, 1000, 10, 1000, 1000,);
-        let interface = I2CDIBuilder::new().init(i2c);
-        let mut disp: GraphicsMode<_> = Builder::new().connect(interface).into();
-        disp.init().unwrap();
+            clocks,
+            &mut rcc.apb1,
+            1000,
+            10,
+            1000,
+            1000,
+        );
+        let oled_i2c = I2CDIBuilder::new().init(i2c);
+        let mut oled: GraphicsMode<_> = Builder::new().connect(oled_i2c).into();
+        oled.init().unwrap();
 
-        let raw: ImageRaw<BinaryColor> = ImageRaw::new(include_bytes!("./rust.raw"), 64, 64);
-        let im = Image::new(&raw, Point::new(32, 0));
-        im.draw(&mut disp).unwrap();
-        disp.flush().unwrap();
+        output::draw_logo(&mut oled);
 
         // BluePill board has a pull-up resistor on the D+ line.
         // Pull the D+ pin down to send a RESET condition to the USB bus.
@@ -162,7 +148,7 @@ const APP: () = {
         let usb_dp = usb_dp.into_floating_input(&mut gpioa.crh);
 
         let usb = Peripheral {
-            usb: device.USB,
+            usb: peripherals.USB,
             pin_dm: usb_dm,
             pin_dp: usb_dp,
         };
@@ -177,16 +163,13 @@ const APP: () = {
             .device_class(USB_CLASS_NONE)
             .build();
 
-        /////
-
         init::LateResources {
             inputs,
 
             // Devices
-            // onboard_led,
             output: output::Display {
                 onboard_led,
-                disp,
+                oled,
                 strbuf: String::with_capacity(32),
             },
 
@@ -197,10 +180,9 @@ const APP: () = {
         }
     }
 
-
     // Process usb events straight away from High priority interrupts
     #[task(binds = USB_HP_CAN_TX,resources = [midi_dev, midi_class], priority=3)]
-    fn usb_hp_can_tx(mut ctx: usb_hp_can_tx::Context) {
+    fn usb_hp_can_tx(ctx: usb_hp_can_tx::Context) {
         if !ctx.resources.midi_dev.poll(&mut [ctx.resources.midi_class]) {
             return;
         }
@@ -208,7 +190,7 @@ const APP: () = {
 
     // Process usb events straight away from Low priority interrupts
     #[task(binds= USB_LP_CAN_RX0, resources = [midi_dev, midi_class], priority=3)]
-    fn usb_lp_can_rx0(mut ctx: usb_lp_can_rx0::Context) {
+    fn usb_lp_can_rx0(ctx: usb_lp_can_rx0::Context) {
         if !ctx.resources.midi_dev.poll(&mut [ctx.resources.midi_class]) {
             return;
         }
@@ -216,13 +198,16 @@ const APP: () = {
 
     #[task(resources = [inputs], spawn = [update], schedule = [input_scan])]
     fn input_scan(ctx: input_scan::Context) {
+        let long_now = clock::long_now(DWT::get_cycle_count());
         for i in ctx.resources.inputs {
-            if let Some(event) = i.scan(ctx.scheduled) {
-                ctx.spawn.update(event);
+            if let Some(event) = i.scan(long_now) {
+                let _err = ctx.spawn.update(event);
             }
         }
 
-        ctx.schedule.input_scan(ctx.scheduled + SCAN_PERIOD.cycles()).unwrap();
+        ctx.schedule
+            .input_scan(ctx.scheduled + SCAN_PERIOD.cycles())
+            .unwrap();
     }
 
     #[task(resources = [state, output], spawn = [update], schedule = [blink])]
@@ -234,36 +219,25 @@ const APP: () = {
             ctx.resources.output.onboard_led.set_low().unwrap();
             ctx.resources.state.led_on = true;
         }
-        ctx.schedule.blink(ctx.scheduled + BLINK_PERIOD.cycles()).unwrap();
+        ctx.schedule
+            .blink(ctx.scheduled + BLINK_PERIOD.cycles())
+            .unwrap();
     }
 
     #[task( spawn = [redraw], resources = [state], capacity = 5)]
     fn update(ctx: update::Context, event: input::ScanEvent) {
         match event {
-            input::ScanEvent::Encoder(z) => ctx.resources.state.enc_count += z,
+            input::ScanEvent::Encoder(z) => {
+                ctx.resources.state.enc_count += z;
+                ctx.spawn.redraw(StateChange::Value(ctx.resources.state.enc_count));
+            }
             _ => {}
         }
     }
 
     #[task(resources = [output])]
     fn redraw(ctx: redraw::Context, change: state::StateChange) {
-        if let state::StateChange::Value(current_count) = change {
-            let text_style = TextStyleBuilder::new(Font24x32)
-                .text_color(BinaryColor::On)
-                .build();
-
-            ctx.resources.output.strbuf.clear();
-            write!(ctx.resources.output.strbuf, "{}", current_count).unwrap();
-
-            ctx.resources.output.disp.clear();
-
-            Text::new(&ctx.resources.output.strbuf, Point::zero())
-                .into_styled(text_style)
-                .draw(&mut ctx.resources.output.disp)
-                .unwrap();
-
-            ctx.resources.output.disp.flush().unwrap();
-        }
+        output::redraw(ctx.resources.output, change);
     }
 
     extern "C" {

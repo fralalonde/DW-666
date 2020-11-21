@@ -1,17 +1,21 @@
 //! Bump pointer allocator for *single* core systems
 //! Taken from the embedded Rust book. Whatever.
 
-use core::cell::UnsafeCell;
 use core::alloc::{GlobalAlloc, Layout};
-use cortex_m::{interrupt, asm};
+use core::cell::UnsafeCell;
 use core::ptr;
+use cortex_m::{asm, interrupt};
 
 // Global memory allocator
 // NOTE ensure that the memory region `[0x2000_0100, 0x2000_0200]` is not used anywhere else
+const RAM_START: usize = 0x2000_0000;
+const HEAP_START: usize = RAM_START;
+const HEAP_END: usize = RAM_START + (10 * 1024); // 8k Heap Size
+
 #[global_allocator]
 static HEAP: BumpPointerAlloc = BumpPointerAlloc {
-    head: UnsafeCell::new(0x2000_0100),
-    end: 0x2000_0200,
+    head: UnsafeCell::new(HEAP_START),
+    end: HEAP_END, // ens of 48k
 };
 
 #[alloc_error_handler]
@@ -39,7 +43,7 @@ unsafe impl GlobalAlloc for BumpPointerAlloc {
             // move start up to the next alignment boundary
             let start = (*head + align - 1) & align_mask;
 
-            if start + size > self.end {
+            if start + size >= self.end {
                 // a null pointer signal an Out Of Memory condition
                 ptr::null_mut()
             } else {

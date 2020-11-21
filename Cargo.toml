@@ -29,8 +29,14 @@ usbd-midi = "0.2"
 version = "0.6"
 features = ["rt", "stm32f103", "medium", "stm32-usbd"]
 
+[profile.dev]
+debug = true
+opt-level = "s"
+lto = true
+
 [profile.release]
 codegen-units = 1
-debug = true
+opt-level = "s"
+debug = false
 lto = true
 

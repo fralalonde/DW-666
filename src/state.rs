@@ -1,14 +1,15 @@
-use usbd_midi::data::byte::u7::U7;
-use usbd_midi::data::midi::channel::Channel;
-use usbd_midi::data::midi::message::Message as MidiMessage;
-use usbd_midi::data::midi::notes::Note;
-use usbd_midi::data::usb_midi::cable_number::CableNumber;
-use usbd_midi::data::usb_midi::usb_midi_event_packet::UsbMidiEventPacket;
+// use usbd_midi::data::byte::u7::U7;
+// use usbd_midi::data::midi::channel::Channel;
+// use usbd_midi::data::midi::message::Message as MidiMessage;
+// use usbd_midi::data::midi::notes::Note;
+// use usbd_midi::data::usb_midi::cable_number::CableNumber;
+// use usbd_midi::data::usb_midi::usb_midi_event_packet::UsbMidiEventPacket;
 // use heapless::Vec;
 // use heapless::consts::*;
 
 pub enum StateChange {
     Value(i32),
+    Switch(bool),
 }
 
 #[derive(Clone, Default)]
