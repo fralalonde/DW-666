@@ -4,13 +4,18 @@ use rtic::cyccnt::{Duration, Instant};
 
 const CYCLES_STEPPING: u64 = 1024 * 1024;
 
-pub enum ScanEvent {
-    ButtonDown,
-    Encoder(i32),
+#[derive(Copy, Clone)]
+pub enum Source {
+    Encoder1,
+}
+
+pub enum Event {
+    ButtonDown(Source),
+    Encoder(Source, i32),
 }
 
 pub trait Scan {
-    fn scan(&mut self, now: u64) -> Option<ScanEvent>;
+    fn scan(&mut self, now: u64) -> Option<Event>;
 }
 
 struct Observed<T> {
@@ -31,19 +36,21 @@ impl<T> Observed<T> {
 type EncoderState = (bool, bool);
 
 pub struct Encoder<DT, CLK> {
+    source: Source,
     dt_pin: DT,
     clk_pin: CLK,
     prev: Observed<EncoderState>,
 }
 
-pub fn encoder<DT, CLK>(now: u64, dt_pin: DT, clk_pin: CLK) -> Box<(dyn Scan + Sync + Send)>
+pub fn encoder<DT, CLK>(source: Source, dt_pin: DT, clk_pin: CLK) -> Box<(dyn Scan + Sync + Send)>
 where
     DT: 'static + InputPin + Sync + Send,
     CLK: 'static + InputPin + Sync + Send,
 {
     Box::new(Encoder {
+        source,
         prev: (Observed::init(
-            now,
+            0,
             (
                 dt_pin.is_low().unwrap_or(false),
                 clk_pin.is_low().unwrap_or(false),
@@ -55,7 +62,7 @@ where
 }
 
 impl<DT: InputPin, CLK: InputPin> Scan for Encoder<DT, CLK> {
-    fn scan(&mut self, now: u64) -> Option<ScanEvent> {
+    fn scan(&mut self, now: u64) -> Option<Event> {
         let enc_code = (
             self.dt_pin.is_low().unwrap_or(false),
             self.clk_pin.is_low().unwrap_or(false),
@@ -77,12 +84,12 @@ impl<DT: InputPin, CLK: InputPin> Scan for Encoder<DT, CLK> {
                 ((false, true), (true, true)) => {
                     self.prev.time = now;
                     self.prev.state = enc_code;
-                    return Some(ScanEvent::Encoder(steps));
+                    return Some(Event::Encoder(self.source, steps));
                 }
                 ((true, false), (true, true)) => {
                     self.prev.time = now;
                     self.prev.state = enc_code;
-                    return Some(ScanEvent::Encoder(-steps));
+                    return Some(Event::Encoder(self.source, -steps));
                 }
 
                 // TODO differential subcode speed stepping hint?
@@ -100,18 +107,19 @@ struct ButtonState {
 }
 
 pub struct Button<PIN> {
+    source: Source,
     btn_pin: PIN,
     prev: Observed<ButtonState>,
 }
 
 impl<T: InputPin> Scan for Button<T> {
-    fn scan(&mut self, now: u64) -> Option<ScanEvent> {
+    fn scan(&mut self, now: u64) -> Option<Event> {
         let pushed: bool = self.btn_pin.is_low().unwrap_or(false);
         if pushed != self.prev.state.pushed {
             self.prev.state.pushed = pushed;
             self.prev.time = now;
             // TODO button up, double click
-            Some(ScanEvent::ButtonDown)
+            Some(Event::ButtonDown(self.source))
         } else {
             None
         }

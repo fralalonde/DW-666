@@ -13,6 +13,8 @@ mod global;
 mod input;
 mod output;
 mod state;
+mod midi;
+mod usb;
 
 use embedded_hal::digital::v2::OutputPin;
 use rtic::app;
@@ -33,6 +35,7 @@ use cortex_m::asm::delay;
 use crate::input::Scan;
 use usbd_midi::data::usb::constants::USB_CLASS_NONE;
 use usbd_midi::midi_device::MidiClass;
+use midi::Midi;
 
 const SCAN_PERIOD: u32 = 200_000;
 const BLINK_PERIOD: u32 = 20_000_000;
@@ -43,18 +46,21 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use cortex_m::peripheral::DWT;
 use embedded_graphics::image::{Image, ImageRaw};
+use core::result::Result;
+use usbd_midi::data::usb_midi::usb_midi_event_packet::UsbMidiEventPacket;
+use usbd_midi::data::usb_midi::cable_number::CableNumber::Cable0;
+use usbd_midi::data::midi::message::Message;
+use usbd_midi::data::midi::channel::Channel::Channel1;
+use usbd_midi::data::byte::u7::U7;
+use usbd_midi::data::byte::from_traits::FromClamped;
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
         inputs: Vec<Box<(dyn Scan + Sync + Send)>>,
-
         state: state::ApplicationState,
-
-        output: output::Display,
-
-        midi_dev: UsbDevice<'static, UsbBusType>,
-        midi_class: MidiClass<'static, UsbBusType>,
+        display: output::Display,
+        usb_midi: midi::UsbMidi,
     }
 
     #[init(schedule = [input_scan, blink])]
@@ -95,10 +101,10 @@ const APP: () = {
             .blink(ctx.start + BLINK_PERIOD.cycles())
             .unwrap();
 
-        // // Setup Encoder
+        // Setup Encoders
         let mut inputs = Vec::with_capacity(5);
         let mut encoder = input::encoder(
-            0,
+            input::Source::Encoder1,
             gpioa.pa6.into_pull_up_input(&mut gpioa.crl),
             gpioa.pa7.into_pull_up_input(&mut gpioa.crl),
         );
@@ -113,7 +119,6 @@ const APP: () = {
         let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
         let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
 
-        // TODO extract i2c, oled builders
         let i2c = BlockingI2c::i2c1(
             peripherals.I2C1,
             (scl, sda),
@@ -135,65 +140,46 @@ const APP: () = {
 
         output::draw_logo(&mut oled);
 
-        // BluePill board has a pull-up resistor on the D+ line.
-        // Pull the D+ pin down to send a RESET condition to the USB bus.
-        // This forced reset is needed only for development, without it host
-        // will not reset your device when you upload new firmware.
-        // let mut delay = Delay::new(cp.SYST, clocks);
+        // force USB reset for dev mode (BluePill)
         let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
         usb_dp.set_low().unwrap();
         delay(clocks.sysclk().0 / 100);
 
-        let usb_dm = gpioa.pa11;
-        let usb_dp = usb_dp.into_floating_input(&mut gpioa.crh);
-
         let usb = Peripheral {
             usb: peripherals.USB,
-            pin_dm: usb_dm,
-            pin_dp: usb_dp,
+            pin_dm: gpioa.pa11,
+            pin_dp: usb_dp.into_floating_input(&mut gpioa.crh),
         };
 
         *USB_BUS = Some(UsbBus::new(usb));
-
         let midi_class = MidiClass::new(USB_BUS.as_ref().unwrap());
-        let midi_dev = UsbDeviceBuilder::new(USB_BUS.as_ref().unwrap(), UsbVidPid(0x16c0, 0x27dd))
-            .manufacturer("Roto")
-            .product("USB MIDI Router")
-            .serial_number("123")
-            .device_class(USB_CLASS_NONE)
-            .build();
+        let usb_dev = usb::configure_usb(USB_BUS.as_ref().unwrap());
 
         init::LateResources {
             inputs,
-
-            // Devices
-            output: output::Display {
+            state: state::ApplicationState::default(),
+            display: output::Display {
                 onboard_led,
                 oled,
                 strbuf: String::with_capacity(32),
             },
-
-            midi_class,
-            midi_dev,
-
-            state: state::ApplicationState::default(),
+            usb_midi: midi::UsbMidi {
+                midi_class,
+                usb_dev,
+            },
         }
     }
 
-    // Process usb events straight away from High priority interrupts
-    #[task(binds = USB_HP_CAN_TX,resources = [midi_dev, midi_class], priority=3)]
+    // High priority USB interrupts
+    #[task(binds = USB_HP_CAN_TX, resources = [usb_midi], priority=3)]
     fn usb_hp_can_tx(ctx: usb_hp_can_tx::Context) {
-        if !ctx.resources.midi_dev.poll(&mut [ctx.resources.midi_class]) {
-            return;
-        }
+        ctx.resources.usb_midi.poll()
     }
 
-    // Process usb events straight away from Low priority interrupts
-    #[task(binds= USB_LP_CAN_RX0, resources = [midi_dev, midi_class], priority=3)]
+    // Low priority USB interrupts
+    #[task(binds= USB_LP_CAN_RX0, resources = [usb_midi], priority=3)]
     fn usb_lp_can_rx0(ctx: usb_lp_can_rx0::Context) {
-        if !ctx.resources.midi_dev.poll(&mut [ctx.resources.midi_class]) {
-            return;
-        }
+        ctx.resources.usb_midi.poll()
     }
 
     #[task(resources = [inputs], spawn = [update], schedule = [input_scan])]
@@ -210,13 +196,13 @@ const APP: () = {
             .unwrap();
     }
 
-    #[task(resources = [state, output], spawn = [update], schedule = [blink])]
+    #[task(resources = [state, display], spawn = [update], schedule = [blink])]
     fn blink(ctx: blink::Context) {
         if ctx.resources.state.led_on {
-            ctx.resources.output.onboard_led.set_high().unwrap();
+            ctx.resources.display.onboard_led.set_high().unwrap();
             ctx.resources.state.led_on = false;
         } else {
-            ctx.resources.output.onboard_led.set_low().unwrap();
+            ctx.resources.display.onboard_led.set_low().unwrap();
             ctx.resources.state.led_on = true;
         }
         ctx.schedule
@@ -224,25 +210,26 @@ const APP: () = {
             .unwrap();
     }
 
-    #[task( spawn = [redraw], resources = [state], capacity = 5)]
-    fn update(ctx: update::Context, event: input::ScanEvent) {
-        match event {
-            input::ScanEvent::Encoder(z) => {
-                ctx.resources.state.enc_count += z;
-                ctx.spawn.redraw(StateChange::Value(ctx.resources.state.enc_count));
-            }
-            _ => {}
+    #[task( spawn = [redraw, send_midi], resources = [state], capacity = 5)]
+    fn update(ctx: update::Context, event: input::Event) {
+        if let Some(change) = ctx.resources.state.update(event) {
+            ctx.spawn.redraw(change);
+            ctx.spawn.send_midi(UsbMidiEventPacket::from_midi(Cable0, Message::ProgramChange(Channel1, U7::from_clamped(7))));
         }
     }
 
-    #[task(resources = [output])]
+    #[task(resources = [usb_midi], priority=3)]
+    fn send_midi(ctx: send_midi::Context, message: UsbMidiEventPacket) {
+        ctx.resources.usb_midi.send(message)
+    }
+
+    #[task(resources = [display])]
     fn redraw(ctx: redraw::Context, change: state::StateChange) {
-        output::redraw(ctx.resources.output, change);
+        output::redraw(ctx.resources.display, change);
     }
 
     extern "C" {
-        // fn EXTI0();
-        // Divert DMA1_CHANNELX interrupts for software task scheduling.
+        // Reuse some DMA interrupts for software task scheduling.
         fn DMA1_CHANNEL1();
         fn DMA1_CHANNEL2();
     }

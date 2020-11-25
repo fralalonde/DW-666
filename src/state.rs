@@ -1,11 +1,4 @@
-// use usbd_midi::data::byte::u7::U7;
-// use usbd_midi::data::midi::channel::Channel;
-// use usbd_midi::data::midi::message::Message as MidiMessage;
-// use usbd_midi::data::midi::notes::Note;
-// use usbd_midi::data::usb_midi::cable_number::CableNumber;
-// use usbd_midi::data::usb_midi::usb_midi_event_packet::UsbMidiEventPacket;
-// use heapless::Vec;
-// use heapless::consts::*;
+use crate::input;
 
 pub enum StateChange {
     Value(i32),
@@ -17,6 +10,19 @@ pub enum StateChange {
 pub struct ApplicationState {
     pub enc_count: i32,
     pub led_on: bool,
+}
+
+impl ApplicationState {
+    pub fn update(&mut self, event: input::Event) -> Option<StateChange> {
+        match event {
+            input::Event::Encoder(_, z) => {
+                self.enc_count += z;
+                Some(StateChange::Value(self.enc_count))
+            }
+            _ => None
+        }
+    }
+
 }
 
 // /// Converts a button press into a usb midi packet
