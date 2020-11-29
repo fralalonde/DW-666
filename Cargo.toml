@@ -22,8 +22,10 @@ embedded-hal = "0.2"
 ssd1306 = "0.4"
 embedded-graphics = "0.6"
 usb-device = "0.2"
-usbd-serial = "0.1"
-usbd-midi = "0.2"
+#usbd-serial = "0.1"
+#usbd-midi = "0.2"
+spin = "0.7.0"
+num_enum = "0.5.1"
 
 [dependencies.stm32f1xx-hal]
 version = "0.6"

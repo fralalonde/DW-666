@@ -14,7 +14,6 @@ mod input;
 mod output;
 mod state;
 mod midi;
-mod usb;
 
 use embedded_hal::digital::v2::OutputPin;
 use rtic::app;
@@ -33,9 +32,7 @@ use usb_device::prelude::*;
 use cortex_m::asm::delay;
 
 use crate::input::Scan;
-use usbd_midi::data::usb::constants::USB_CLASS_NONE;
-use usbd_midi::midi_device::MidiClass;
-use midi::Midi;
+use midi::{usb};
 
 const SCAN_PERIOD: u32 = 200_000;
 const BLINK_PERIOD: u32 = 20_000_000;
@@ -47,12 +44,10 @@ use alloc::vec::Vec;
 use cortex_m::peripheral::DWT;
 use embedded_graphics::image::{Image, ImageRaw};
 use core::result::Result;
-use usbd_midi::data::usb_midi::usb_midi_event_packet::UsbMidiEventPacket;
-use usbd_midi::data::usb_midi::cable_number::CableNumber::Cable0;
-use usbd_midi::data::midi::message::Message;
-use usbd_midi::data::midi::channel::Channel::Channel1;
-use usbd_midi::data::byte::u7::U7;
-use usbd_midi::data::byte::from_traits::FromClamped;
+use stm32f1xx_hal::dma::CircBuffer;
+use crate::midi::usb::device::MidiClass;
+use stm32f1xx_hal::serial;
+use crate::midi::serial::{MidiOut, MidiIn};
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -140,6 +135,22 @@ const APP: () = {
 
         output::draw_logo(&mut oled);
 
+        // Configure serial
+        let tx_pin = gpioa.pa2.into_alternate_push_pull(&mut gpioa.crl);
+        let rx_pin = gpioa.pa3;
+
+        // Configure Midi
+        let (mut tx, mut rx) = Serial::usart2(
+            dp.USART2,
+            (tx_pin, rx_pin),
+            &mut afio.mapr,
+            serial::Config::default().baudrate(31250.bps()).parity_none(),
+            clocks,
+            &mut rcc.apb1,
+        ).split();
+        let mut din_midi_out = MidiOut::new(tx);
+        let mut din_midi_in = MidiIn::new(rx);
+
         // force USB reset for dev mode (BluePill)
         let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
         usb_dp.set_low().unwrap();
@@ -176,9 +187,16 @@ const APP: () = {
         ctx.resources.usb_midi.poll()
     }
 
+
     // Low priority USB interrupts
     #[task(binds= USB_LP_CAN_RX0, resources = [usb_midi], priority=3)]
     fn usb_lp_can_rx0(ctx: usb_lp_can_rx0::Context) {
+        ctx.resources.usb_midi.poll()
+    }
+
+    // DIN MIDI interrupts
+    #[task(binds= USART1, resources = [usb_midi], priority=3)]
+    fn serial_rx0(ctx: serial_rx0::Context) {
         ctx.resources.usb_midi.poll()
     }
 
