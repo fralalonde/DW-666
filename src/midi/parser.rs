@@ -1,8 +1,8 @@
 //! Parse midi messages
-use crate::midi::{Channel, Control, Status};
-use crate::midi::notes::Note;
-use alloc::vec::Vec;
 use crate::midi::message::MidiCommand;
+use crate::midi::notes::Note;
+use crate::midi::{Channel, Control, Status};
+use alloc::vec::Vec;
 
 /// Keeps state for parsing Midi messages
 #[derive(Debug, Clone, PartialEq)]
@@ -26,7 +26,6 @@ pub struct Parser {
 //     ChannelPressure(channel, value),
 //     PitchBendChange(channel, value),
 // }
-
 
 #[derive(Debug, Clone, PartialEq)]
 enum ParserState {
@@ -270,10 +269,11 @@ mod tests {
 
     #[test]
     fn should_parse_note_off() {
-        Parser::new().assert_result(
-            &[0x82, 0x76, 0x34],
-            &[MidiMessage::NoteOff(2.into(), 0x76.into(), 0x34.into())],
-        );
+        Parser::new().assert_result(&[0x82, 0x76, 0x34], &[MidiMessage::NoteOff(
+            2.into(),
+            0x76.into(),
+            0x34.into(),
+        )]);
     }
 
     #[test]
@@ -292,10 +292,11 @@ mod tests {
 
     #[test]
     fn should_parse_note_on() {
-        Parser::new().assert_result(
-            &[0x91, 0x04, 0x34],
-            &[MidiMessage::NoteOn(1.into(), 4.into(), 0x34.into())],
-        );
+        Parser::new().assert_result(&[0x91, 0x04, 0x34], &[MidiMessage::NoteOn(
+            1.into(),
+            4.into(),
+            0x34.into(),
+        )]);
     }
 
     #[test]
@@ -314,14 +315,11 @@ mod tests {
 
     #[test]
     fn should_parse_keypressure() {
-        Parser::new().assert_result(
-            &[0xAA, 0x13, 0x34],
-            &[MidiMessage::KeyPressure(
-                10.into(),
-                0x13.into(),
-                0x34.into(),
-            )],
-        );
+        Parser::new().assert_result(&[0xAA, 0x13, 0x34], &[MidiMessage::KeyPressure(
+            10.into(),
+            0x13.into(),
+            0x34.into(),
+        )]);
     }
 
     #[test]
@@ -340,14 +338,11 @@ mod tests {
 
     #[test]
     fn should_parse_control_change() {
-        Parser::new().assert_result(
-            &[0xB2, 0x76, 0x34],
-            &[MidiMessage::ControlChange(
-                2.into(),
-                0x76.into(),
-                0x34.into(),
-            )],
-        );
+        Parser::new().assert_result(&[0xB2, 0x76, 0x34], &[MidiMessage::ControlChange(
+            2.into(),
+            0x76.into(),
+            0x34.into(),
+        )]);
     }
 
     #[test]
@@ -366,10 +361,10 @@ mod tests {
 
     #[test]
     fn should_parse_program_change() {
-        Parser::new().assert_result(
-            &[0xC9, 0x15],
-            &[MidiMessage::ProgramChange(9.into(), 0x15.into())],
-        );
+        Parser::new().assert_result(&[0xC9, 0x15], &[MidiMessage::ProgramChange(
+            9.into(),
+            0x15.into(),
+        )]);
     }
 
     #[test]
@@ -388,10 +383,10 @@ mod tests {
 
     #[test]
     fn should_parse_channel_pressure() {
-        Parser::new().assert_result(
-            &[0xDD, 0x37],
-            &[MidiMessage::ChannelPressure(13.into(), 0x37.into())],
-        );
+        Parser::new().assert_result(&[0xDD, 0x37], &[MidiMessage::ChannelPressure(
+            13.into(),
+            0x37.into(),
+        )]);
     }
 
     #[test]
@@ -410,10 +405,10 @@ mod tests {
 
     #[test]
     fn should_parse_pitchbend() {
-        Parser::new().assert_result(
-            &[0xE8, 0x14, 0x56],
-            &[MidiMessage::PitchBendChange(8.into(), (0x14, 0x56).into())],
-        );
+        Parser::new().assert_result(&[0xE8, 0x14, 0x56], &[MidiMessage::PitchBendChange(
+            8.into(),
+            (0x14, 0x56).into(),
+        )]);
     }
 
     #[test]
@@ -451,10 +446,9 @@ mod tests {
 
     #[test]
     fn should_parse_song_position_pointer() {
-        Parser::new().assert_result(
-            &[0xf2, 0x7f, 0x68],
-            &[MidiMessage::SongPositionPointer((0x7f, 0x68).into())],
-        );
+        Parser::new().assert_result(&[0xf2, 0x7f, 0x68], &[MidiMessage::SongPositionPointer(
+            (0x7f, 0x68).into(),
+        )]);
     }
 
     #[test]

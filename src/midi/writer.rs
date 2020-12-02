@@ -1,6 +1,6 @@
-use crate::midi::serial::MidiOut;
-use crate::midi::message::ChannelMessage::*;
 use crate::midi::message::ChannelMessage;
+use crate::midi::message::ChannelMessage::*;
+use crate::midi::serial::MidiOut;
 
 fn write_channel_message<T>(message: ChannelMessage, out: &mut MidiOut<T>) {
     match message {
@@ -40,25 +40,12 @@ fn write_channel_message<T>(message: ChannelMessage, out: &mut MidiOut<T>) {
             out.tx.write(0xF3)?;
             out.tx.write(value.into());
         }
-        TuneRequest => {
-            out.tx.write(0xF6)
-        }
-        TimingClock => {
-            out.tx.write(0xF8)
-        }
-        Start => {
-            out.tx.write(0xFA)
-        }
-        Continue => {
-            out.tx.write(0xFB)
-        }
-        Stop => {
-            out.tx.write(0xFC)
-        }
-        ActiveSensing => {
-            out.tx.write(0xFE)
-        }
-        Reset => {
-            out.tx.write(0xFF)        }
+        TuneRequest => out.tx.write(0xF6),
+        TimingClock => out.tx.write(0xF8),
+        Start => out.tx.write(0xFA),
+        Continue => out.tx.write(0xFB),
+        Stop => out.tx.write(0xFC),
+        ActiveSensing => out.tx.write(0xFE),
+        Reset => out.tx.write(0xFF),
     }
 }

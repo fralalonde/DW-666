@@ -11,9 +11,9 @@ extern crate panic_semihosting;
 mod clock;
 mod global;
 mod input;
+mod midi;
 mod output;
 mod state;
-mod midi;
 
 use embedded_hal::digital::v2::OutputPin;
 use rtic::app;
@@ -32,22 +32,25 @@ use usb_device::prelude::*;
 use cortex_m::asm::delay;
 
 use crate::input::Scan;
-use midi::{usb};
+use midi::usb;
 
 const SCAN_PERIOD: u32 = 200_000;
 const BLINK_PERIOD: u32 = 20_000_000;
 
+use core::convert::TryFrom;
+
+use crate::midi::serial::{MidiIn, MidiOut};
+use crate::midi::usb::MidiClass;
 use crate::state::StateChange;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::result::Result;
 use cortex_m::peripheral::DWT;
 use embedded_graphics::image::{Image, ImageRaw};
-use core::result::Result;
 use stm32f1xx_hal::dma::CircBuffer;
-use crate::midi::usb::device::MidiClass;
 use stm32f1xx_hal::serial;
-use crate::midi::serial::{MidiOut, MidiIn};
+use crate::midi::event::{Packet, CableNumber};
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -55,7 +58,7 @@ const APP: () = {
         inputs: Vec<Box<(dyn Scan + Sync + Send)>>,
         state: state::ApplicationState,
         display: output::Display,
-        usb_midi: midi::UsbMidi,
+        usb_midi: midi::usb::UsbMidi,
     }
 
     #[init(schedule = [input_scan, blink])]
@@ -140,16 +143,19 @@ const APP: () = {
         let rx_pin = gpioa.pa3;
 
         // Configure Midi
-        let (mut tx, mut rx) = Serial::usart2(
-            dp.USART2,
+        let (mut tx, mut rx) = serial::Serial::usart2(
+            peripherals.USART2,
             (tx_pin, rx_pin),
             &mut afio.mapr,
-            serial::Config::default().baudrate(31250.bps()).parity_none(),
+            serial::Config::default()
+                .baudrate(31250.bps())
+                .parity_none(),
             clocks,
             &mut rcc.apb1,
-        ).split();
+        )
+        .split();
         let mut din_midi_out = MidiOut::new(tx);
-        let mut din_midi_in = MidiIn::new(rx);
+        let mut din_midi_in = MidiIn::new(rx, CableNumber::MIN);
 
         // force USB reset for dev mode (BluePill)
         let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
@@ -174,7 +180,7 @@ const APP: () = {
                 oled,
                 strbuf: String::with_capacity(32),
             },
-            usb_midi: midi::UsbMidi {
+            usb_midi: midi::usb::UsbMidi {
                 midi_class,
                 usb_dev,
             },
@@ -184,20 +190,23 @@ const APP: () = {
     // High priority USB interrupts
     #[task(binds = USB_HP_CAN_TX, resources = [usb_midi], priority=3)]
     fn usb_hp_can_tx(ctx: usb_hp_can_tx::Context) {
-        ctx.resources.usb_midi.poll()
+        if ctx.resources.usb_midi.poll() {
+            // TODO read & dispatch packets
+        }
     }
-
 
     // Low priority USB interrupts
     #[task(binds= USB_LP_CAN_RX0, resources = [usb_midi], priority=3)]
     fn usb_lp_can_rx0(ctx: usb_lp_can_rx0::Context) {
-        ctx.resources.usb_midi.poll()
+        if ctx.resources.usb_midi.poll() {
+            // TODO read & dispatch packets
+        }
     }
 
     // DIN MIDI interrupts
     #[task(binds= USART1, resources = [usb_midi], priority=3)]
     fn serial_rx0(ctx: serial_rx0::Context) {
-        ctx.resources.usb_midi.poll()
+       // TODO read & dispatch packet
     }
 
     #[task(resources = [inputs], spawn = [update], schedule = [input_scan])]
@@ -232,13 +241,17 @@ const APP: () = {
     fn update(ctx: update::Context, event: input::Event) {
         if let Some(change) = ctx.resources.state.update(event) {
             ctx.spawn.redraw(change);
-            ctx.spawn.send_midi(UsbMidiEventPacket::from_midi(Cable0, Message::ProgramChange(Channel1, U7::from_clamped(7))));
+            // TODO midi packet writer
+            // ctx.spawn.send_midi(UsbMidiEventPacket::from_midi(
+            //     Cable0,
+            //     Message::ProgramChange(Channel1, U7::from_clamped(7)),
+            // ));
         }
     }
 
     #[task(resources = [usb_midi], priority=3)]
-    fn send_midi(ctx: send_midi::Context, message: UsbMidiEventPacket) {
-        ctx.resources.usb_midi.send(message)
+    fn send_midi(ctx: send_midi::Context, packet: Packet) {
+        ctx.resources.usb_midi.send(packet)
     }
 
     #[task(resources = [display])]

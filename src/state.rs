@@ -19,10 +19,9 @@ impl ApplicationState {
                 self.enc_count += z;
                 Some(StateChange::Value(self.enc_count))
             }
-            _ => None
+            _ => None,
         }
     }
-
 }
 
 // /// Converts a button press into a usb midi packet

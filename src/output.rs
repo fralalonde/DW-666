@@ -47,7 +47,7 @@ pub fn redraw(disp: &mut Display, change: super::state::StateChange) {
 
 pub fn draw_logo(
     oled: &mut GraphicsMode<
-        I2CInterface<BlockingI2c<I2C1, (PB8<Alternate<OpenDrain>>, PB9<Alternate<OpenDrain>>)>>
+        I2CInterface<BlockingI2c<I2C1, (PB8<Alternate<OpenDrain>>, PB9<Alternate<OpenDrain>>)>>,
     >,
 ) {
     let raw: ImageRaw<BinaryColor> = ImageRaw::new(include_bytes!("./rust.raw"), 64, 64);
