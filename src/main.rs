@@ -4,12 +4,11 @@
 #![no_std]
 #![feature(alloc_error_handler)]
 
-#![feature(const_mut_refs, array_chunks)]
+#![feature(const_mut_refs, slice_as_chunks)]
 
 extern crate alloc;
 extern crate cortex_m;
 extern crate panic_semihosting;
-// extern crate ruspiro_allocator;
 
 mod clock;
 mod global;
@@ -181,10 +180,10 @@ const APP: () = {
                 oled,
                 strbuf: String::with_capacity(32),
             },
-            usb_midi: midi::usb::UsbMidi {
-                midi_class,
+            usb_midi: midi::usb::UsbMidi::new(
                 usb_dev,
-            },
+                midi_class,
+            ),
             din_midi_in,
             din_midi_out,
         }
@@ -203,7 +202,11 @@ const APP: () = {
     fn usb_lp_can_rx0(ctx: usb_lp_can_rx0::Context) {
         if ctx.resources.usb_midi.poll() {
             match ctx.resources.usb_midi.receive() {
-                Ok(Some(packet)) => { ctx.spawn.send_usb_midi(packet); }
+                Ok(Some(packet)) => {
+                    if let Err(err) = ctx.spawn.send_usb_midi(packet) {
+                        defmt::warn!("usb midi echo failed {:?}", err)
+                    }
+                }
                 _ => {}
             }
         }

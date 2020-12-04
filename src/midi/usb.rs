@@ -50,11 +50,26 @@ pub fn configure_usb<B: UsbBus>(usb_bus: &UsbBusAllocator<B>) -> UsbDevice<B> {
 }
 
 pub struct UsbMidi {
-    pub usb_dev: UsbDevice<'static, UsbBusType>,
-    pub midi_class: MidiClass<'static, UsbBusType>,
+    usb_dev: UsbDevice<'static, UsbBusType>,
+    midi_class: MidiClass<'static, UsbBusType>,
+    buffer: [u8; 64],
+    buf_len: usize,
+    buf_idx: usize,
 }
 
 impl UsbMidi {
+    pub fn new(usb_dev: UsbDevice<'static, UsbBusType>,
+               midi_class: MidiClass<'static, UsbBusType>,
+    ) -> Self {
+        UsbMidi {
+            midi_class,
+            usb_dev,
+            buffer: [0; 64],
+            buf_len: 0,
+            buf_idx: 0,
+        }
+    }
+
     pub fn poll(&mut self) -> bool {
         self.usb_dev.poll(&mut [&mut self.midi_class])
     }
@@ -69,25 +84,28 @@ impl midi::Transmit for UsbMidi {
     }
 }
 
+const PACKET_LEN: usize = 4;
+
 impl midi::Receive for UsbMidi {
     fn receive(&mut self) -> Result<Option<Packet>, MidiError> {
-        if self.usb_dev.state() != UsbDeviceState::Configured {
-            return Ok(None);
-        }
-        let mut buffer: [u8; 64] = [0; 64];
-        match self.midi_class.receive(&mut buffer) {
-            Ok(Some(size)) if size > 0 => {
-                if let Some(raw) = buffer.array_chunks().next() {
-                    Ok(Some(Packet::from_raw(*raw)?))
-                } else {
-                    Ok(None)
+        if self.buf_idx > self.buf_len {
+            if self.usb_dev.state() != UsbDeviceState::Configured {
+                return Ok(None);
+            }
+            match self.midi_class.receive(&mut self.buffer) {
+                Ok(Some(size)) if size >= PACKET_LEN => {
+                    self.buf_len = size / PACKET_LEN;
+                    self.buf_idx = 0;
                 }
-            },
-            Ok(Some(_)) => Ok(None),
-            Ok(None) => Ok(None),
-            Err(UsbError::WouldBlock) => Ok(None),
-            Err(err) => Err(err.into()),
+                Ok(Some(_)) => return Ok(None),
+                Ok(None) => return Ok(None),
+                Err(UsbError::WouldBlock) => return Ok(None),
+                Err(err) => return Err(err.into()),
+            }
         }
+        let raw = self.buffer.as_chunks().0[self.buf_idx];
+        self.buf_idx += 1;
+        Ok(Some(Packet::from_raw(raw)?))
     }
 }
 

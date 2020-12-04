@@ -34,7 +34,7 @@ pub enum MidiError {
     NotAChanelCommand,
     NotASystemCommand,
     UnhandledDecode,
-    SysexOutofBounds,
+    SysexOutOfBounds,
     InvalidU4,
     SerialError,
     UsbError,

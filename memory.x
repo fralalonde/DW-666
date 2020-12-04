@@ -5,6 +5,4 @@ MEMORY
 
   RAM : ORIGIN = 0x20000000, LENGTH = 20K
 
-  /* first 10k reserved for dumb heap alloc */
-  /* RAM : ORIGIN = 0x20002800, LENGTH = 10K */
 }

@@ -6,6 +6,7 @@ use crate::midi::u4::U4;
 use core::convert::{TryFrom, TryInto};
 use crate::midi::MidiError;
 use core::ops::{Deref};
+use defmt::Format;
 
 pub type CableNumber = U4;
 
@@ -66,7 +67,7 @@ impl PacketBuilder {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Format)]
 pub struct Packet {
     bytes: [u8; 4]
 }
@@ -173,7 +174,7 @@ impl CodeIndexNumber {
             1 => Ok(CodeIndexNumber::SystemCommonLen1),
             2 => Ok(CodeIndexNumber::SysexEndsNext2),
             3 => Ok(CodeIndexNumber::SysexEndsNext3),
-            _ => Err(MidiError::SysexOutofBounds)
+            _ => Err(MidiError::SysexOutOfBounds)
         }
     }
 
