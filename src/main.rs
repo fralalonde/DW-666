@@ -4,7 +4,7 @@
 #![no_std]
 #![feature(alloc_error_handler)]
 
-#![feature(const_mut_refs)]
+#![feature(const_mut_refs, array_chunks)]
 
 extern crate alloc;
 extern crate cortex_m;
@@ -35,10 +35,10 @@ use cortex_m::asm::delay;
 
 use crate::input::Scan;
 use midi::usb;
+use crate::midi::Transmit;
 
 const SCAN_PERIOD: u32 = 200_000;
 const BLINK_PERIOD: u32 = 20_000_000;
-
 
 use crate::midi::serial::{MidiIn, MidiOut};
 use crate::midi::usb::MidiClass;
@@ -59,7 +59,7 @@ const APP: () = {
         display: output::Display,
         usb_midi: midi::usb::UsbMidi,
         din_midi_in: Box<dyn Receive + Send>,
-        din_midi_out: Box<dyn Send + Send>,
+        din_midi_out: Box<dyn Transmit + Send>,
     }
 
     #[init(schedule = [input_scan, blink])]
@@ -154,7 +154,7 @@ const APP: () = {
             clocks,
             &mut rcc.apb1,
         )
-        .split();
+            .split();
         let din_midi_out = Box::new(MidiOut::new(tx));
         let din_midi_in = Box::new(MidiIn::new(rx, CableNumber::MIN));
 
@@ -186,33 +186,34 @@ const APP: () = {
                 usb_dev,
             },
             din_midi_in,
-            din_midi_out
+            din_midi_out,
         }
     }
 
     // High priority USB interrupts
-    #[task(binds = USB_HP_CAN_TX, resources = [usb_midi], priority=3)]
+    #[task(binds = USB_HP_CAN_TX, resources = [usb_midi], priority = 3)]
     fn usb_hp_can_tx(ctx: usb_hp_can_tx::Context) {
         if ctx.resources.usb_midi.poll() {
-            // TODO read & dispatch packets
+            // TODO send more packets if any
         }
     }
 
     // Low priority USB interrupts
-    #[task(binds= USB_LP_CAN_RX0, resources = [usb_midi], priority=3)]
+    #[task(binds = USB_LP_CAN_RX0, spawn = [send_usb_midi], resources = [usb_midi], priority = 3)]
     fn usb_lp_can_rx0(ctx: usb_lp_can_rx0::Context) {
         if ctx.resources.usb_midi.poll() {
-            // TODO read & dispatch packets
+            match ctx.resources.usb_midi.receive() {
+                Ok(Some(packet)) => { ctx.spawn.send_usb_midi(packet); }
+                _ => {}
+            }
         }
     }
 
     // DIN MIDI interrupts
-    #[task(binds= USART1, resources = [din_midi_in], priority=3)]
+    #[task(binds = USART1, resources = [din_midi_in], priority = 3)]
     fn serial_rx0(ctx: serial_rx0::Context) {
-        if let Err(_err) = ctx.resources.din_midi_in.receive() {
-
-        }
-       // TODO read & dispatch packet
+        if let Err(_err) = ctx.resources.din_midi_in.receive() {}
+        // TODO read & dispatch packet
     }
 
     #[task(resources = [inputs], spawn = [update], schedule = [input_scan])]
@@ -243,7 +244,7 @@ const APP: () = {
             .unwrap();
     }
 
-    #[task( spawn = [redraw, send_midi], resources = [state], capacity = 5)]
+    #[task(spawn = [redraw, send_usb_midi], resources = [state], capacity = 5)]
     fn update(ctx: update::Context, event: input::Event) {
         if let Some(change) = ctx.resources.state.update(event) {
             if let Err(err) = ctx.spawn.redraw(change) {
@@ -257,9 +258,9 @@ const APP: () = {
         }
     }
 
-    #[task(resources = [usb_midi], priority=3)]
-    fn send_midi(ctx: send_midi::Context, packet: Packet) {
-        if let Err(e) = ctx.resources.usb_midi.send(packet) {
+    #[task(resources = [usb_midi], priority = 3)]
+    fn send_usb_midi(ctx: send_usb_midi::Context, packet: Packet) {
+        if let Err(e) = ctx.resources.usb_midi.transmit(packet) {
             defmt::warn!("Serial send failed {:?}", e);
         }
     }

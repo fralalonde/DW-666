@@ -3,15 +3,15 @@
 
 use crate::midi::message::{MidiStatus, SystemCommand};
 use crate::midi::u4::U4;
-use core::convert::TryFrom;
+use core::convert::{TryFrom, TryInto};
 use crate::midi::MidiError;
 use core::ops::{Deref};
 
 pub type CableNumber = U4;
 
 #[derive(Copy, Clone, Default)]
-pub struct PacketB{
-    bytes: [u8;4]
+pub struct PacketB {
+    bytes: [u8; 4]
 }
 
 impl PacketB {
@@ -23,12 +23,12 @@ impl PacketB {
     pub fn build(mut self) -> Result<Packet, MidiError> {
         let status = MidiStatus::try_from(self.bytes[1])?;
         self.bytes[0] = CodeIndexNumber::try_from(status)? as u8;
-        Ok(Packet { bytes: self.bytes} )
+        Ok(Packet { bytes: self.bytes })
     }
 
     pub fn end_sysex(mut self) -> Result<Packet, MidiError> {
         self.bytes[0] = CodeIndexNumber::end_sysex(self.payload_len())? as u8;
-        Ok(Packet { bytes: self.bytes} )
+        Ok(Packet { bytes: self.bytes })
     }
 
     pub fn cmd_len(&self) -> Result<Option<u8>, MidiError> {
@@ -37,10 +37,10 @@ impl PacketB {
 }
 
 /// Convert serial byte stream into USB sized packets
-pub struct PacketBuilder{
+pub struct PacketBuilder {
     pub prev_status: Option<u8>,
     pub pending_sysex: Option<PacketB>,
-    inner: PacketB
+    inner: PacketB,
 }
 
 impl Deref for PacketBuilder {
@@ -52,31 +52,37 @@ impl Deref for PacketBuilder {
 }
 
 impl PacketBuilder {
-
     pub fn new() -> Self {
         PacketBuilder { prev_status: None, pending_sysex: None, inner: PacketB::default() }
     }
 
-    pub fn next(prev_status: Option<u8>, pending_sysex: Option<PacketB>,) -> Self {
-        PacketBuilder { prev_status, pending_sysex, inner: PacketB::default()}
+    pub fn next(prev_status: Option<u8>, pending_sysex: Option<PacketB>) -> Self {
+        PacketBuilder { prev_status, pending_sysex, inner: PacketB::default() }
     }
 
     pub fn push(&mut self, byte: u8) {
         self.inner.bytes[self.inner.bytes[0] as usize] = byte;
         self.inner.bytes[0] += 1 // see payload_len()
     }
-
 }
 
 #[derive(Default)]
-pub struct Packet{
+pub struct Packet {
     bytes: [u8; 4]
 }
 
 impl Packet {
+    pub fn from_raw(bytes: [u8; 4]) -> Result<Self, MidiError> {
+        Ok(Packet { bytes })
+    }
+
     pub fn payload(&self) -> Result<&[u8], MidiError> {
         let header = PacketHeader::try_from(self.bytes[0])?;
         Ok(&self.bytes[1..header.code_index_number.payload_len()])
+    }
+
+    pub fn raw(&self) -> &[u8] {
+        &self.bytes
     }
 }
 
@@ -162,7 +168,6 @@ impl TryFrom<MidiStatus> for CodeIndexNumber {
 }
 
 impl CodeIndexNumber {
-
     fn end_sysex(len: u8) -> Result<CodeIndexNumber, MidiError> {
         match len {
             1 => Ok(CodeIndexNumber::SystemCommonLen1),

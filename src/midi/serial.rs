@@ -4,7 +4,7 @@ use crate::midi::message::{SYSEX_START, SYSEX_END, is_midi_status};
 use core::fmt::Debug;
 use embedded_hal::serial;
 use crate::midi::event::{Packet, CableNumber, PacketBuilder};
-use crate::midi::{MidiError, Receive, Send};
+use crate::midi::{MidiError, Receive, Transmit};
 use crate::midi::message::SystemCommand::SysexStart;
 
 pub struct MidiIn<RX> {
@@ -143,10 +143,10 @@ impl<TX> MidiOut<TX>
     }
 }
 
-impl<TX> Send for MidiOut<TX>
+impl<TX> Transmit for MidiOut<TX>
     where TX: serial::Write<u8>
 {
-    fn send(&mut self, event: Packet) -> Result<(), MidiError> {
+    fn transmit(&mut self, event: Packet) -> Result<(), MidiError> {
         let mut payload = event.payload()?;
         let new_status = Some(payload[0]);
         if self.last_status == new_status {

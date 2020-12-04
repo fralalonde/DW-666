@@ -22,8 +22,8 @@ pub trait Receive {
     fn receive(&mut self) -> Result<Option<Packet>, MidiError>;
 }
 
-pub trait Send {
-    fn send(&mut self, event: Packet) -> Result<(), MidiError>;
+pub trait Transmit {
+    fn transmit(&mut self, event: Packet) -> Result<(), MidiError>;
 }
 
 #[derive(Debug, Format)]
@@ -37,7 +37,7 @@ pub enum MidiError {
     SysexOutofBounds,
     InvalidU4,
     SerialError,
-    UsbError
+    UsbError,
 }
 
 impl From<UsbError> for MidiError {
@@ -52,12 +52,11 @@ impl From<InvalidU4> for MidiError {
     }
 }
 
-impl <E> From<nb::Error<E>> for MidiError {
+impl<E> From<nb::Error<E>> for MidiError {
     fn from(_: nb::Error<E>) -> Self {
         MidiError::SerialError
     }
 }
-
 
 
 /// Like from, but will conceptually overflow if the value is too big

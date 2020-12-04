@@ -12,9 +12,10 @@ use usb_device::{
 
 use core::result::Result;
 
-use stm32f1xx_hal::usb::{ UsbBusType};
+use stm32f1xx_hal::usb::{UsbBusType};
 use crate::midi::event::Packet;
 use crate::midi::MidiError;
+use crate::midi;
 
 const USB_BUFFER_SIZE: u16 = 64;
 
@@ -57,12 +58,36 @@ impl UsbMidi {
     pub fn poll(&mut self) -> bool {
         self.usb_dev.poll(&mut [&mut self.midi_class])
     }
+}
 
-    pub fn send(&mut self, packet: Packet) -> Result<(), MidiError> {
+impl midi::Transmit for UsbMidi {
+    fn transmit(&mut self, packet: Packet) -> Result<(), MidiError> {
         if self.usb_dev.state() == UsbDeviceState::Configured {
-            self.midi_class.send(packet.payload()?)?;
+            self.midi_class.send(packet.raw())?;
         }
         Ok(())
+    }
+}
+
+impl midi::Receive for UsbMidi {
+    fn receive(&mut self) -> Result<Option<Packet>, MidiError> {
+        if self.usb_dev.state() != UsbDeviceState::Configured {
+            return Ok(None);
+        }
+        let mut buffer: [u8; 64] = [0; 64];
+        match self.midi_class.receive(&mut buffer) {
+            Ok(Some(size)) if size > 0 => {
+                if let Some(raw) = buffer.array_chunks().next() {
+                    Ok(Some(Packet::from_raw(*raw)?))
+                } else {
+                    Ok(None)
+                }
+            },
+            Ok(Some(_)) => Ok(None),
+            Ok(None) => Ok(None),
+            Err(UsbError::WouldBlock) => Ok(None),
+            Err(err) => Err(err.into()),
+        }
     }
 }
 
