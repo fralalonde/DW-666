@@ -4,9 +4,12 @@
 #![no_std]
 #![feature(alloc_error_handler)]
 
+#![feature(const_mut_refs)]
+
 extern crate alloc;
 extern crate cortex_m;
 extern crate panic_semihosting;
+// extern crate ruspiro_allocator;
 
 mod clock;
 mod global;
@@ -27,7 +30,6 @@ use ssd1306::{prelude::*, Builder, I2CDIBuilder};
 use stm32f1xx_hal::usb::{Peripheral, UsbBus, UsbBusType};
 
 use usb_device::bus;
-use usb_device::prelude::*;
 
 use cortex_m::asm::delay;
 
@@ -37,20 +39,17 @@ use midi::usb;
 const SCAN_PERIOD: u32 = 200_000;
 const BLINK_PERIOD: u32 = 20_000_000;
 
-use core::convert::TryFrom;
 
 use crate::midi::serial::{MidiIn, MidiOut};
 use crate::midi::usb::MidiClass;
-use crate::state::StateChange;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::result::Result;
 use cortex_m::peripheral::DWT;
-use embedded_graphics::image::{Image, ImageRaw};
-use stm32f1xx_hal::dma::CircBuffer;
 use stm32f1xx_hal::serial;
 use crate::midi::event::{Packet, CableNumber};
+use crate::midi::Receive;
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -59,6 +58,8 @@ const APP: () = {
         state: state::ApplicationState,
         display: output::Display,
         usb_midi: midi::usb::UsbMidi,
+        din_midi_in: Box<dyn Receive + Send>,
+        din_midi_out: Box<dyn Send + Send>,
     }
 
     #[init(schedule = [input_scan, blink])]
@@ -101,7 +102,7 @@ const APP: () = {
 
         // Setup Encoders
         let mut inputs = Vec::with_capacity(5);
-        let mut encoder = input::encoder(
+        let encoder = input::encoder(
             input::Source::Encoder1,
             gpioa.pa6.into_pull_up_input(&mut gpioa.crl),
             gpioa.pa7.into_pull_up_input(&mut gpioa.crl),
@@ -143,7 +144,7 @@ const APP: () = {
         let rx_pin = gpioa.pa3;
 
         // Configure Midi
-        let (mut tx, mut rx) = serial::Serial::usart2(
+        let (tx, rx) = serial::Serial::usart2(
             peripherals.USART2,
             (tx_pin, rx_pin),
             &mut afio.mapr,
@@ -154,8 +155,8 @@ const APP: () = {
             &mut rcc.apb1,
         )
         .split();
-        let mut din_midi_out = MidiOut::new(tx);
-        let mut din_midi_in = MidiIn::new(rx, CableNumber::MIN);
+        let din_midi_out = Box::new(MidiOut::new(tx));
+        let din_midi_in = Box::new(MidiIn::new(rx, CableNumber::MIN));
 
         // force USB reset for dev mode (BluePill)
         let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
@@ -184,6 +185,8 @@ const APP: () = {
                 midi_class,
                 usb_dev,
             },
+            din_midi_in,
+            din_midi_out
         }
     }
 
@@ -204,8 +207,11 @@ const APP: () = {
     }
 
     // DIN MIDI interrupts
-    #[task(binds= USART1, resources = [usb_midi], priority=3)]
+    #[task(binds= USART1, resources = [din_midi_in], priority=3)]
     fn serial_rx0(ctx: serial_rx0::Context) {
+        if let Err(_err) = ctx.resources.din_midi_in.receive() {
+
+        }
        // TODO read & dispatch packet
     }
 
@@ -240,7 +246,9 @@ const APP: () = {
     #[task( spawn = [redraw, send_midi], resources = [state], capacity = 5)]
     fn update(ctx: update::Context, event: input::Event) {
         if let Some(change) = ctx.resources.state.update(event) {
-            ctx.spawn.redraw(change);
+            if let Err(err) = ctx.spawn.redraw(change) {
+                defmt::warn!("redraw failed {:?}", err)
+            }
             // TODO midi packet writer
             // ctx.spawn.send_midi(UsbMidiEventPacket::from_midi(
             //     Cable0,
@@ -251,7 +259,9 @@ const APP: () = {
 
     #[task(resources = [usb_midi], priority=3)]
     fn send_midi(ctx: send_midi::Context, packet: Packet) {
-        ctx.resources.usb_midi.send(packet)
+        if let Err(e) = ctx.resources.usb_midi.send(packet) {
+            defmt::warn!("Serial send failed {:?}", e);
+        }
     }
 
     #[task(resources = [display])]

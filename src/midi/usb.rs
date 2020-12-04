@@ -1,6 +1,3 @@
-use core::convert::TryFrom;
-
-use stm32f1xx_hal::gpio::{Floating, Input};
 use usb_device::device::UsbVidPid;
 use usb_device::device::{UsbDevice, UsbDeviceState};
 use usb_device::prelude::UsbDeviceBuilder;
@@ -10,16 +7,14 @@ use usb_device::{
     class::UsbClass,
     descriptor::DescriptorWriter,
     endpoint::{EndpointIn, EndpointOut},
-    Result, UsbError,
+    UsbError,
 };
 
-use crate::midi::u4::U4;
-use cortex_m::asm::delay;
-use embedded_hal::digital::v2::OutputPin;
-use stm32f1xx_hal::gpio::gpiob::{PB11, PB12, PB13, PB14, PB15};
-use stm32f1xx_hal::gpio::PullUp;
-use stm32f1xx_hal::usb::{Peripheral, UsbBusType};
+use core::result::Result;
+
+use stm32f1xx_hal::usb::{ UsbBusType};
 use crate::midi::event::Packet;
+use crate::midi::MidiError;
 
 const USB_BUFFER_SIZE: u16 = 64;
 
@@ -63,10 +58,11 @@ impl UsbMidi {
         self.usb_dev.poll(&mut [&mut self.midi_class])
     }
 
-    pub fn send(&mut self, packet: Packet) {
+    pub fn send(&mut self, packet: Packet) -> Result<(), MidiError> {
         if self.usb_dev.state() == UsbDeviceState::Configured {
-            self.midi_class.send(packet);
+            self.midi_class.send(packet.payload()?)?;
         }
+        Ok(())
     }
 }
 
@@ -92,23 +88,23 @@ impl<B: UsbBus> MidiClass<'_, B> {
     }
 
     /// Return the number of sent bytes
-    pub fn send(&mut self, packet: Packet) -> Result<usize> {
-        self.standard_bulkin.write(packet.payload())
+    pub fn send(&mut self, payload: &[u8]) -> Result<usize, usb_device::UsbError> {
+        self.standard_bulkin.write(payload)
     }
 
     /// Return the number of received payload bytes (possibly zero)
     /// Returns None if no data was available
-    pub fn receive(&mut self, fragment: &mut [u8]) -> Result<Option<usize>> {
-        match unsafe { self.standard_bulkout.read(fragment) } {
+    pub fn receive(&mut self, payload: &mut [u8]) -> Result<Option<usize>, usb_device::UsbError> {
+        match self.standard_bulkout.read(payload) {
             Ok(size) => Ok(Some(size)),
-            Err(err) if err == UsbError::WouldBlock => Ok(None),
+            Err(UsbError::WouldBlock) => Ok(None),
             Err(err) => Err(err),
         }
     }
 }
 
 impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
-    fn get_configuration_descriptors(&self, writer: &mut DescriptorWriter) -> Result<()> {
+    fn get_configuration_descriptors(&self, writer: &mut DescriptorWriter) -> Result<(), usb_device::UsbError> {
         writer.interface(
             self.standard_ac,
             USB_AUDIO_CLASS,

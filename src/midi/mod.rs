@@ -1,5 +1,8 @@
-use crate::midi::u4::U4;
-use crate::midi::u7::U7;
+use crate::midi::u4::{InvalidU4};
+use nb;
+use usb_device::UsbError;
+use defmt::Format;
+use crate::midi::event::Packet;
 
 pub mod message;
 pub mod notes;
@@ -15,6 +18,15 @@ pub mod event;
 // pub type MidiChannel = U4;
 // pub type MidiControl = U7;
 
+pub trait Receive {
+    fn receive(&mut self) -> Result<Option<Packet>, MidiError>;
+}
+
+pub trait Send {
+    fn send(&mut self, event: Packet) -> Result<(), MidiError>;
+}
+
+#[derive(Debug, Format)]
 pub enum MidiError {
     PayloadOverflow,
     SysexInterrupted,
@@ -23,7 +35,30 @@ pub enum MidiError {
     NotASystemCommand,
     UnhandledDecode,
     SysexOutofBounds,
+    InvalidU4,
+    SerialError,
+    UsbError
 }
+
+impl From<UsbError> for MidiError {
+    fn from(_err: UsbError) -> Self {
+        MidiError::UsbError
+    }
+}
+
+impl From<InvalidU4> for MidiError {
+    fn from(_: InvalidU4) -> Self {
+        MidiError::InvalidU4
+    }
+}
+
+impl <E> From<nb::Error<E>> for MidiError {
+    fn from(_: nb::Error<E>) -> Self {
+        MidiError::SerialError
+    }
+}
+
+
 
 /// Like from, but will conceptually overflow if the value is too big
 /// this is useful from going from higher ranges to lower ranges

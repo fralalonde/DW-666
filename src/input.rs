@@ -1,6 +1,5 @@
 use alloc::boxed::Box;
 use embedded_hal::digital::v2::InputPin;
-use rtic::cyccnt::{Duration, Instant};
 
 const CYCLES_STEPPING: u64 = 1024 * 1024;
 

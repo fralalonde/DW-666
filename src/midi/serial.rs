@@ -1,12 +1,11 @@
 //! *Midi driver on top of embedded hal serial communications*
 //!
-use crate::midi::message::{MidiStatus};
+use crate::midi::message::{SYSEX_START, SYSEX_END, is_midi_status};
 use core::fmt::Debug;
 use embedded_hal::serial;
-use usb_device::UsbError::WouldBlock;
-use crate::midi::event::{Packet, CableNumber, CodeIndexNumber, PacketBuilder};
-use alloc::vec::Vec;
-use alloc::collections::VecDeque;
+use crate::midi::event::{Packet, CableNumber, PacketBuilder};
+use crate::midi::{MidiError, Receive, Send};
+use crate::midi::message::SystemCommand::SysexStart;
 
 pub struct MidiIn<RX> {
     serial_in: RX,
@@ -15,9 +14,7 @@ pub struct MidiIn<RX> {
 }
 
 impl<RX, E> MidiIn<RX>
-where
-    RX: serial::Read<u8, Error = E>,
-    E: Debug,
+    where RX: serial::Read<u8, Error=E>,
 {
     pub fn new(rx: RX, cable_number: CableNumber) -> Self {
         MidiIn {
@@ -27,36 +24,112 @@ where
         }
     }
 
-    pub fn read(&mut self) -> Result<Option<Packet>, E> {
-        let byte = self.serial_in.read()?;
-        let mut packet = self.builder.advance(byte);
-        if let Err(err) = packet {
-            // TODO record error
-            // reset builder & retry with same byte
-            self.builder = PacketBuilder::new();
-            packet = self.builder.advance(byte);
-        }
-        match self.builder.advance(byte) {
-            // retry failed
-            Err(err) => Err(err),
-
-            Ok((builder, packet)) => {
-                self.builder = builder;
-                Ok(packet)
+    /// Push new command payload byt
+    /// returns:
+    /// - Ok(false) if packet is incomplete
+    /// - Ok(true) if packet is complete - should not be pushed to anymore, waiting on either sysex or sysex_end
+    /// - MidiError(PacketOverflow) if packet was complete
+    fn advance(&mut self, byte: u8) -> Result<Option<Packet>, MidiError> {
+        match (self.builder.payload_len(), byte, self.builder.pending_sysex, self.builder.prev_status) {
+            (0, SYSEX_END, Some(pending), _) => {
+                // end of sysex stream, release previous packet as final
+                self.builder.pending_sysex = None;
+                Ok(Some(pending.end_sysex()?))
+            }
+            (_, SYSEX_END, None, Some(status)) if status == SysexStart as u8 => {
+                // ignore sysex end outside sysex context
+                let packet = self.builder.end_sysex()?;
+                self.builder = PacketBuilder::new();
+                Ok(Some(packet))
+            }
+            (_, SYSEX_END, None, _) => {
+                // ignore sysex end outside sysex context
+                Ok(None)
+            }
+            (_, byte, Some(_), _) if is_midi_status(byte) => {
+                Err(MidiError::SysexInterrupted)
+            }
+            (0, byte, Some(pending), _) => {
+                // continue sysex stream, release previous packet normally
+                self.builder.push(byte);
+                self.builder.pending_sysex = None;
+                Ok(Some(pending.build()?))
+            }
+            (0, byte, None, Some(prev_status)) if !is_midi_status(byte) => {
+                // repeating status (MIDI protocol optimisation)
+                self.builder.push(prev_status);
+                self.builder.push(byte);
+                self.release_if_complete(1)
+            }
+            (0, byte, None, None) if !is_midi_status(byte) => {
+                // first byte of non-sysex payload should be a status byte
+                Err(MidiError::NotAMidiStatus)
+            }
+            (0, byte, None, _) if is_midi_status(byte) => {
+                // regular status byte starting new command
+                self.builder.prev_status = Some(byte);
+                self.builder.push(byte);
+                self.release_if_complete(1)
+            }
+            (3, _, _, _) => {
+                // can't add more, packet should have been released, probable bug in impl
+                Err(MidiError::PayloadOverflow)
+            }
+            (2, _, None, Some(SYSEX_START)) => {
+                // sysex packet complete, wait for next byte before release with correct CIN
+                self.builder.push(byte);
+                self.builder = PacketBuilder::next(self.builder.prev_status, Some(*self.builder));
+                Ok(None)
+            }
+            (payload_len, _, None, _) if payload_len > 1 => {
+                // release current packet if complete
+                self.builder.push(byte);
+                self.release_if_complete(payload_len)
+            }
+            _ => {
+                Err(MidiError::UnhandledDecode)
             }
         }
     }
+
+    fn release_if_complete(&mut self, payload_len: u8) -> Result<Option<Packet>, MidiError> {
+        let cmd_len = self.builder.cmd_len()?;
+        if let Some(cmd_len) = cmd_len {
+            if cmd_len == payload_len {
+                let packet = self.builder.build()?;
+                self.builder = PacketBuilder::next(self.builder.prev_status, None);
+                return Ok(Some(packet));
+            }
+        }
+        Ok(None)
+    }
 }
+
+impl<RX, E> Receive for MidiIn<RX>
+    where RX: serial::Read<u8, Error=E>, E: Debug,
+{
+    fn receive(&mut self) -> Result<Option<Packet>, MidiError> {
+        let byte = self.serial_in.read()?;
+        match self.advance(byte) {
+            Err(err) => {
+                // TODO record error
+                // reset builder & retry with same byte
+                self.builder = PacketBuilder::new();
+                self.advance(byte)
+            }
+            packet => packet
+        }
+    }
+}
+
 
 pub struct MidiOut<TX> {
     serial_out: TX,
     last_status: Option<u8>,
 }
 
-impl<TX, E> MidiOut<TX>
-where
-    TX: serial::Write<u8, Error = E>,
-    E: Debug,
+impl<TX> MidiOut<TX>
+    where TX: serial::Write<u8>
 {
     pub fn new(tx: TX) -> Self {
         MidiOut {
@@ -68,9 +141,13 @@ where
     pub fn release(self) -> TX {
         self.serial_out
     }
+}
 
-    fn send(&mut self, event: Packet) -> Result<(), E> {
-        let mut payload = event.payload();
+impl<TX> Send for MidiOut<TX>
+    where TX: serial::Write<u8>
+{
+    fn send(&mut self, event: Packet) -> Result<(), MidiError> {
+        let mut payload = event.payload()?;
         let new_status = Some(payload[0]);
         if self.last_status == new_status {
             payload = &payload[1..];

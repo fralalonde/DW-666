@@ -1,21 +1,17 @@
 use alloc::string::String;
 use core::fmt::Write;
-use embedded_graphics::fonts::{Font12x16, Font24x32};
+use embedded_graphics::fonts::{Font12x16};
 use embedded_graphics::image::{Image, ImageRaw};
 use embedded_graphics::prelude::Point;
 use embedded_graphics::{
     fonts::Text, pixelcolor::BinaryColor, prelude::*, style::TextStyleBuilder,
 };
-use embedded_hal::digital::OutputPin;
 use ssd1306::prelude::{GraphicsMode, I2CInterface};
-use ssd1306::{Builder, I2CDIBuilder};
 use stm32f1xx_hal::gpio::gpiob::{PB8, PB9};
 use stm32f1xx_hal::gpio::gpioc::PC13;
 use stm32f1xx_hal::gpio::{Alternate, OpenDrain, Output, PushPull};
-use stm32f1xx_hal::i2c::{BlockingI2c, DutyCycle, Mode};
+use stm32f1xx_hal::i2c::{BlockingI2c};
 use stm32f1xx_hal::pac::I2C1;
-use stm32f1xx_hal::time::U32Ext;
-use stm32f1xx_hal::usb::Peripheral;
 
 pub struct Display {
     pub strbuf: String,

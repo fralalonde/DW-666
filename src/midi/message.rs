@@ -1,13 +1,12 @@
-use crate::midi::notes::Note;
 use crate::midi::u7::U7;
-use crate::midi::event::CableNumber;
-use crate::midi::event::CodeIndexNumber;
 use crate::midi::{MidiError};
 use core::convert::TryFrom;
 use self::ChannelCommand::*;
 use MidiStatus::{ChannelStatus, SystemStatus};
 use SystemCommand::*;
 use crate::midi::u4::U4;
+
+use num_enum::TryFromPrimitive;
 
 pub type Channel = U4;
 pub type Velocity = U7;
@@ -61,7 +60,7 @@ impl TryFrom<u8> for MidiStatus {
             ChannelStatus(
                 ChannelCommand::try_from(byte & 0xF0)
                     .map_err(|_| MidiError::NotAChanelCommand)?,
-                byte & 0x0F.into(),
+                U4::try_from(byte & 0x0F)?,
             )
         } else {
             SystemStatus(SystemCommand::try_from(byte)
@@ -70,7 +69,7 @@ impl TryFrom<u8> for MidiStatus {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
 pub enum ChannelCommand {
     // Channel commands, lower bits of discriminants ignored (channel)
@@ -87,11 +86,17 @@ pub fn is_midi_status(byte: u8) -> bool {
     byte >= SysexStart as u8
 }
 
-#[derive(Debug, Eq, PartialEq)]
+/// Sysex sequence terminator, _not_ a status byte
+pub const SYSEX_START: u8 = 0xF0;
+/// Sysex sequence terminator, _not_ a status byte
+pub const SYSEX_END: u8 = 0xF7;
+
+
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
 pub enum SystemCommand {
     // System commands
-    SysexStart = 0xF0,
+    SysexStart = SYSEX_START,
 
     // System Common
     TimeCodeQuarterFrame = 0xF1,
@@ -108,9 +113,6 @@ pub enum SystemCommand {
     ActiveSensing = 0xFE,
     SystemReset = 0xFF,
 }
-
-/// Sysex sequence terminator, _not_ a status byte
-pub const SYSEX_END: u8 = 0xF7;
 
 // const MAX_FRAGMENT_SIZE: usize = USB_BUFFER_SIZE.into();
 

@@ -1,11 +1,13 @@
 use crate::input;
+use defmt::Format;
 
+#[derive(Format)]
 pub enum StateChange {
     Value(i32),
     Switch(bool),
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Format)]
 /// The application state
 pub struct ApplicationState {
     pub enc_count: i32,
