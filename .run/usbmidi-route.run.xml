@@ -1,8 +1,8 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="usbmidi-route" type="com.jetbrains.cidr.embedded.openocd.conf.type" factoryName="com.jetbrains.cidr.embedded.openocd.conf.factory" REDIRECT_INPUT="false" PASS_PARENT_ENVS_2="true" RUN_PATH="$PROJECT_DIR$/target/thumbv7m-none-eabi/debug/usbmidi-route" EXPLICIT_BUILD_TARGET_NAME="all">
-    <openocd gdb-port="3333" telnet-port="4444" board-config="$PROJECT_DIR$/openocd.cfg" reset-type="INIT" download-type="ALWAYS" />
-    <method v="2">
-      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
-    </method>
+  <configuration default="false" name="usbmidi-route" type="com.jetbrains.cidr.embedded.openocd.conf.type" factoryName="com.jetbrains.cidr.embedded.openocd.conf.factory" REDIRECT_INPUT="false" ELEVATE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="usbmidi-route" TARGET_NAME="Unnamed" CONFIG_NAME="Unnamed" version="1" RUN_PATH="$PROJECT_DIR$/target/thumbv7m-none-eabi/debug/usbmidi-route" EXPLICIT_BUILD_TARGET_NAME="all">
+    <openocd version="1" gdb-port="3333" telnet-port="4444" board-config="$PROJECT_DIR$/openocd.cfg" reset-type="INIT" download-type="ALWAYS">
+      <debugger kind="GDB" isBundled="true" />
+    </openocd>
+    <method v="2" />
   </configuration>
 </component>

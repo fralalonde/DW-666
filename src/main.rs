@@ -8,7 +8,7 @@
 
 extern crate alloc;
 extern crate cortex_m;
-extern crate panic_semihosting;
+// extern crate panic_semihosting;
 
 mod clock;
 mod global;
@@ -34,12 +34,12 @@ use cortex_m::asm::delay;
 
 use crate::input::Scan;
 use midi::usb;
-use crate::midi::Transmit;
+use crate::midi::{Transmit, notes, Cull};
 
 const SCAN_PERIOD: u32 = 200_000;
 const BLINK_PERIOD: u32 = 20_000_000;
 
-use crate::midi::serial::{MidiIn, MidiOut};
+use crate::midi::serial::{SerialMidiIn, SerialMidiOut};
 use crate::midi::usb::MidiClass;
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -47,8 +47,33 @@ use alloc::vec::Vec;
 use core::result::Result;
 use cortex_m::peripheral::DWT;
 use stm32f1xx_hal::serial;
-use crate::midi::event::{Packet, CableNumber};
+use crate::midi::packet::{MidiPacket, CableNumber};
 use crate::midi::Receive;
+use crate::midi::message::{Channel, Velocity};
+use crate::midi::message::MidiMessage::NoteOff;
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+use defmt_rtt as _; // global logger
+// TODO(5) adjust HAL import
+// use some_hal as _; // memory layout
+
+use panic_probe as _;
+
+// same panicking *behavior* as `panic-probe` but doesn't print a panic message
+// this prevents the panic message being printed *twice* when `defmt::panic` is invoked
+#[defmt::panic_handler]
+fn panic() -> ! {
+    cortex_m::asm::udf()
+}
+
+#[defmt::timestamp]
+fn timestamp() -> u64 {
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    // NOTE(no-CAS) `timestamps` runs with interrupts disabled
+    let n = COUNT.load(Ordering::Relaxed);
+    COUNT.store(n + 1, Ordering::Relaxed);
+    n as u64
+}
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -154,8 +179,8 @@ const APP: () = {
             &mut rcc.apb1,
         )
             .split();
-        let din_midi_out = Box::new(MidiOut::new(tx));
-        let din_midi_in = Box::new(MidiIn::new(rx, CableNumber::MIN));
+        let din_midi_out = Box::new(SerialMidiOut::new(tx));
+        let din_midi_in = Box::new(SerialMidiIn::new(rx, CableNumber::MIN));
 
         // force USB reset for dev mode (BluePill)
         let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
@@ -253,16 +278,18 @@ const APP: () = {
             if let Err(err) = ctx.spawn.redraw(change) {
                 defmt::warn!("redraw failed {:?}", err)
             }
-            // TODO midi packet writer
-            // ctx.spawn.send_midi(UsbMidiEventPacket::from_midi(
-            //     Cable0,
-            //     Message::ProgramChange(Channel1, U7::from_clamped(7)),
-            // ));
+
+            if let Err(err) = ctx.spawn.send_usb_midi(MidiPacket::from_message(
+                CableNumber::MIN,
+                NoteOff(Channel::cull(1), notes::Note::C1m, Velocity::MAX),
+            )) {
+                defmt::warn!("midi failed {:?}", err)
+            }
         }
     }
 
     #[task(resources = [usb_midi], priority = 3)]
-    fn send_usb_midi(ctx: send_usb_midi::Context, packet: Packet) {
+    fn send_usb_midi(ctx: send_usb_midi::Context, packet: MidiPacket) {
         if let Err(e) = ctx.resources.usb_midi.transmit(packet) {
             defmt::warn!("Serial send failed {:?}", e);
         }

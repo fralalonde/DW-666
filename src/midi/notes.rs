@@ -3,12 +3,13 @@
 //! Flat notes are associated constants as aliases of sharp notes, like `Note::Bb3`
 
 use crate::midi::u7::U7;
-use crate::midi::FromOverFlow;
+use crate::midi::Cull;
 
 #[derive(Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum Note {
     /// C1m is the C-1
+    /// Also, RustFmt sucks. Observe:
     C1m,
     Cs1m,
     D1m,
@@ -149,7 +150,7 @@ impl Into<u8> for Note {
 impl From<Note> for U7 {
     fn from(value: Note) -> U7 {
         let byte = value as u8;
-        U7::from_overflow(byte)
+        U7::cull(byte)
     }
 }
 

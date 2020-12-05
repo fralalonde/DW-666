@@ -1,21 +1,29 @@
-use crate::midi::{FromClamped, FromOverFlow};
+use crate::midi::{Saturate, Cull, MidiError};
 use core::convert::TryFrom;
+use core::result::Result;
+use crate::midi::u14::U14;
 
 /// A primitive value that can be from 0-0x7F
+#[derive(Copy, Clone)]
 pub struct U7(u8);
 
-/// Error representing that this value is not a valid u7
-pub struct InvalidU7(u8);
-
 impl TryFrom<u8> for U7 {
-    type Error = InvalidU7;
+    type Error = MidiError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         if value > 0x7F {
-            Err(InvalidU7(value))
+            Err(MidiError::InvalidU7)
         } else {
             Ok(U7(value))
         }
+    }
+}
+
+
+/// Takes (LSB, MSB)
+impl From<(U7, U7)> for U14 {
+    fn from(u7s: (U7, U7)) -> Self {
+        U14::saturate(((u7s.1.0 as u16) << 7) | u7s.0.0 as u16)
     }
 }
 
@@ -25,16 +33,16 @@ impl From<U7> for u8 {
     }
 }
 
-impl FromOverFlow<u8> for U7 {
-    fn from_overflow(value: u8) -> U7 {
+impl Cull<u8> for U7 {
+    fn cull(value: u8) -> U7 {
         const MASK: u8 = 0b0111_1111;
         let value = MASK & value;
         U7(value)
     }
 }
 
-impl FromClamped<u8> for U7 {
-    fn from_clamped(value: u8) -> U7 {
+impl Saturate<u8> for U7 {
+    fn saturate(value: u8) -> U7 {
         match U7::try_from(value) {
             Ok(x) => x,
             _ => U7::MAX,

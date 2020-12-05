@@ -15,22 +15,19 @@ cortex-m = "0.6"
 cortex-m-rt = "0.6"
 cortex-m-rtic = "0.5"
 cortex-m-semihosting = "0.3"
-panic-halt = "0.2"
-panic-semihosting = "0.5"
+#panic-halt = "0.2"
+#panic-semihosting = "0.5"
 
 embedded-hal = "0.2"
 ssd1306 = "0.4"
 embedded-graphics = "0.6"
 usb-device = "0.2"
-#usbd-serial = "0.1"
-#usbd-midi = "0.2"
 spin = "0.7.0"
 num_enum = { version = "0.5.1", default-features = false }
-#anyhow = { version = "1.0", default-features = false }
-#thiserror = { version = "1.0", default-features = false }
 nb = "1.0.0"
 defmt = "0.1.3"
-#ruspiro-allocator = "0.4.2"
+defmt-rtt = "0.1.0"
+panic-probe = { version = "0.1.0", features = ["print-defmt"] }
 
 [dependencies.stm32f1xx-hal]
 version = "0.6"
@@ -47,3 +44,19 @@ opt-level = "s"
 debug = false
 lto = true
 
+#[profile.dev]
+#codegen-units = 1
+#debug = 2
+#debug-assertions = true # <-
+#incremental = false
+#opt-level = 3 # <-
+#overflow-checks = true # <-
+#
+#[profile.release]
+#codegen-units = 1
+#debug = 2
+#debug-assertions = false # <-
+#incremental = false
+#lto = 'fat'
+#opt-level = 3 # <-
+#overflow-checks = false # <-

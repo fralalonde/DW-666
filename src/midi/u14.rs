@@ -1,0 +1,58 @@
+use crate::midi::{Saturate, Cull, MidiError};
+use core::convert::TryFrom;
+use crate::midi::u7::U7;
+
+/// A primitive value that can be from 0-0x7F
+#[derive(Copy, Clone)]
+pub struct U14(u16);
+
+impl TryFrom<u16> for U14 {
+    type Error = MidiError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        if value > 0b11_1111_1111_1111 {
+            Err(MidiError::InvalidU14)
+        } else {
+            Ok(U14(value))
+        }
+    }
+}
+
+
+/// Returns (LSB, MSB)
+impl From<U14> for (U7, U7) {
+    fn from(value: U14) -> Self {
+        (
+            U7::saturate((value.0 & 0b1111111) as u8),
+            U7::saturate((value.0 >> 7) as u8)
+        )
+    }
+}
+
+impl From<U14> for u16 {
+    fn from(value: U14) -> u16 {
+        value.0
+    }
+}
+
+impl Cull<u16> for U14 {
+    fn cull(value: u16) -> U14 {
+        const MASK: u16 = 0b11_1111_1111_1111;
+        let value = MASK & value;
+        U14(value)
+    }
+}
+
+impl Saturate<u16> for U14 {
+    fn saturate(value: u16) -> U14 {
+        match U14::try_from(value) {
+            Ok(x) => x,
+            _ => U14::MAX,
+        }
+    }
+}
+
+impl U14 {
+    pub const MAX: U14 = U14(0b11_1111_1111_1111);
+    pub const MIN: U14 = U14(0);
+}

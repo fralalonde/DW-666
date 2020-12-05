@@ -13,13 +13,13 @@ use usb_device::{
 use core::result::Result;
 
 use stm32f1xx_hal::usb::{UsbBusType};
-use crate::midi::event::Packet;
+use crate::midi::packet::MidiPacket;
 use crate::midi::MidiError;
 use crate::midi;
 
 const USB_BUFFER_SIZE: u16 = 64;
 
-const MIDI_IN_SIZE: u8 = 0x06;
+// const MIDI_IN_SIZE: u8 = 0x06;
 const MIDI_OUT_SIZE: u8 = 0x09;
 
 const USB_CLASS_NONE: u8 = 0x00;
@@ -76,7 +76,7 @@ impl UsbMidi {
 }
 
 impl midi::Transmit for UsbMidi {
-    fn transmit(&mut self, packet: Packet) -> Result<(), MidiError> {
+    fn transmit(&mut self, packet: MidiPacket) -> Result<(), MidiError> {
         if self.usb_dev.state() == UsbDeviceState::Configured {
             self.midi_class.send(packet.raw())?;
         }
@@ -87,7 +87,7 @@ impl midi::Transmit for UsbMidi {
 const PACKET_LEN: usize = 4;
 
 impl midi::Receive for UsbMidi {
-    fn receive(&mut self) -> Result<Option<Packet>, MidiError> {
+    fn receive(&mut self) -> Result<Option<MidiPacket>, MidiError> {
         if self.buf_idx > self.buf_len {
             if self.usb_dev.state() != UsbDeviceState::Configured {
                 return Ok(None);
@@ -105,7 +105,7 @@ impl midi::Receive for UsbMidi {
         }
         let raw = self.buffer.as_chunks().0[self.buf_idx];
         self.buf_idx += 1;
-        Ok(Some(Packet::from_raw(raw)?))
+        Ok(Some(MidiPacket::from_raw(raw)?))
     }
 }
 

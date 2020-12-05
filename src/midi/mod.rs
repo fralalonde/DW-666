@@ -1,29 +1,24 @@
-use crate::midi::u4::{InvalidU4};
 use nb;
 use usb_device::UsbError;
 use defmt::Format;
-use crate::midi::event::Packet;
+use crate::midi::packet::MidiPacket;
 
-pub mod message;
-pub mod notes;
-// pub mod parser;
-// pub mod writer;
-pub mod serial;
 pub mod u4;
 pub mod u7;
+pub mod u14;
+pub mod status;
+pub mod notes;
+pub mod message;
+pub mod packet;
+pub mod serial;
 pub mod usb;
-pub mod event;
-
-// pub type Status = U4;
-// pub type MidiChannel = U4;
-// pub type MidiControl = U7;
 
 pub trait Receive {
-    fn receive(&mut self) -> Result<Option<Packet>, MidiError>;
+    fn receive(&mut self) -> Result<Option<MidiPacket>, MidiError>;
 }
 
 pub trait Transmit {
-    fn transmit(&mut self, event: Packet) -> Result<(), MidiError>;
+    fn transmit(&mut self, event: MidiPacket) -> Result<(), MidiError>;
 }
 
 #[derive(Debug, Format)]
@@ -36,6 +31,8 @@ pub enum MidiError {
     UnhandledDecode,
     SysexOutOfBounds,
     InvalidU4,
+    InvalidU7,
+    InvalidU14,
     SerialError,
     UsbError,
 }
@@ -46,26 +43,18 @@ impl From<UsbError> for MidiError {
     }
 }
 
-impl From<InvalidU4> for MidiError {
-    fn from(_: InvalidU4) -> Self {
-        MidiError::InvalidU4
-    }
-}
-
 impl<E> From<nb::Error<E>> for MidiError {
     fn from(_: nb::Error<E>) -> Self {
         MidiError::SerialError
     }
 }
 
-
-/// Like from, but will conceptually overflow if the value is too big
-/// this is useful from going from higher ranges to lower ranges
-pub trait FromOverFlow<T>: Sized {
-    fn from_overflow(_: T) -> Self;
+/// Just strip higher bits (meh)
+pub trait Cull<T>: Sized {
+    fn cull(_: T) -> Self;
 }
 
-/// Like from, but will clamp the value to a maximum value
-pub trait FromClamped<T>: Sized {
-    fn from_clamped(_: T) -> Self;
+/// Saturate to MAX
+pub trait Saturate<T>: Sized {
+    fn saturate(_: T) -> Self;
 }
