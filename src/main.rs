@@ -10,8 +10,10 @@ extern crate alloc;
 extern crate cortex_m;
 // extern crate panic_semihosting;
 
+use alloc_cortex_m::CortexMHeap;
+
 mod clock;
-mod global;
+// mod global;
 mod input;
 mod midi;
 mod output;
@@ -54,8 +56,9 @@ use crate::midi::message::MidiMessage::NoteOff;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use defmt_rtt as _; // global logger
-// TODO(5) adjust HAL import
-// use some_hal as _; // memory layout
+
+use core::alloc::Layout;
+use cortex_m::asm;
 
 use panic_probe as _;
 
@@ -75,6 +78,19 @@ fn timestamp() -> u64 {
     n as u64
 }
 
+#[global_allocator]
+static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
+
+// define what happens in an Out Of Memory (OOM) condition
+#[alloc_error_handler]
+fn alloc_error(_layout: Layout) -> ! {
+    asm::bkpt();
+
+    loop {}
+}
+
+const HEAP_SIZE: usize = 2048; // in bytes
+
 #[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
@@ -88,7 +104,10 @@ const APP: () = {
 
     #[init(schedule = [input_scan, blink])]
     fn init(ctx: init::Context) -> init::LateResources {
+        // for some RTIC reason statics need to go first
         static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
+
+        unsafe { ALLOCATOR.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE) }
 
         // Enable cycle counter
         let mut core = ctx.core;
@@ -306,63 +325,3 @@ const APP: () = {
         fn DMA1_CHANNEL2();
     }
 };
-
-/*
-/// Will be called periodically.
-#[task(binds = TIM1_UP,
-spawn = [update],
-resources = [inputs,timer],
-priority = 1)]
-fn read_inputs(cx: read_inputs::Context) {
-    // There must be a better way to bank over
-    // these below checks
-
-    let values = read_input_pins(cx.resources.inputs);
-
-    let _ = cx.spawn.update((Button::One, values.pin1));
-    let _ = cx.spawn.update((Button::Two, values.pin2));
-    let _ = cx.spawn.update((Button::Three, values.pin3));
-    let _ = cx.spawn.update((Button::Four, values.pin4));
-    let _ = cx.spawn.update((Button::Five, values.pin5));
-
-    cx.resources.timer.clear_update_interrupt_flag();
-}
-
-#[task( spawn = [send_midi],
-resources = [state],
-priority = 1,
-capacity = 5)]
-fn update(cx: update::Context, message: state::Message) {
-    let old = cx.resources.state.clone();
-    ApplicationState::update(&mut *cx.resources.state, message);
-    let mut effects = midi_events(&old, cx.resources.state);
-    let effect = effects.next();
-
-    match effect {
-        Some(midi) => {
-            let _ = cx.spawn.send_midi(midi);
-        }
-        _ => (),
-    }
-}
-
-/// Sends a midi message over the usb bus
-/// Note: this runs at a lower priority than the usb bus
-/// and will eat messages if the bus is not configured yet
-#[task(priority=2, resources = [usb_dev,midi])]
-fn send_midi(cx: send_midi::Context, message: UsbMidiEventPacket) {
-    let mut midi = cx.resources.midi;
-    let mut usb_dev = cx.resources.usb_dev;
-
-    // Lock this so USB interrupts don't take over
-    // Ideally we may be able to better determine this, so that
-    // it doesn't need to be locked
-    usb_dev.lock(|usb_dev| {
-        if usb_dev.state() == UsbDeviceState::Configured {
-            midi.lock(|midi| {
-                let _ = midi.send_message(message);
-            })
-        }
-    });
-}
- */
