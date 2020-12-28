@@ -10,7 +10,8 @@ pub enum Source {
 
 pub enum Event {
     ButtonDown(Source),
-    Encoder(Source, i32),
+    ButtonUp(Source),
+    EncoderTurn(Source, i32),
 }
 
 pub trait Scan {
@@ -83,12 +84,12 @@ impl<DT: InputPin, CLK: InputPin> Scan for Encoder<DT, CLK> {
                 ((false, true), (true, true)) => {
                     self.prev.time = now;
                     self.prev.state = enc_code;
-                    return Some(Event::Encoder(self.source, steps));
+                    return Some(Event::EncoderTurn(self.source, steps));
                 }
                 ((true, false), (true, true)) => {
                     self.prev.time = now;
                     self.prev.state = enc_code;
-                    return Some(Event::Encoder(self.source, -steps));
+                    return Some(Event::EncoderTurn(self.source, -steps));
                 }
 
                 // TODO differential subcode speed stepping hint?
@@ -118,7 +119,11 @@ impl<T: InputPin> Scan for Button<T> {
             self.prev.state.pushed = pushed;
             self.prev.time = now;
             // TODO button up, double click
-            Some(Event::ButtonDown(self.source))
+            if pushed {
+                Some(Event::ButtonDown(self.source))
+            } else {
+                Some(Event::ButtonUp(self.source))
+            }
         } else {
             None
         }

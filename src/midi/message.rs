@@ -43,16 +43,6 @@ pub enum MidiMessage {
     SystemReset,
 }
 
-// impl MidiMessage {
-//     pub fn note_off<C, N, V, E>(channel: C, note: N, velocity: V) -> Result<Self, E>
-//         where C: TryInto<Channel, Error=E>,
-//               N: TryInto<Note, Error=E>,
-//               V: TryInto<Velocity, Error=E>
-//     {
-//         Ok(NoteOff(channel.try_into()?, note.try_into()?, velocity.try_into()?))
-//     }
-// }
-
 impl TryFrom<MidiPacket> for MidiMessage {
     type Error = MidiError;
 

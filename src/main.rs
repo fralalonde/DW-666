@@ -8,7 +8,6 @@
 
 extern crate alloc;
 extern crate cortex_m;
-// extern crate panic_semihosting;
 
 use alloc_cortex_m::CortexMHeap;
 
@@ -36,9 +35,10 @@ use cortex_m::asm::delay;
 
 use crate::input::Scan;
 use midi::usb;
-use crate::midi::{Transmit, notes, Cull};
+use crate::midi::{Transmit, notes, Cull, MidiError};
 
 const SCAN_PERIOD: u32 = 200_000;
+const ERROR_PERIOD: u32 = 200_000_000;
 const BLINK_PERIOD: u32 = 20_000_000;
 
 use crate::midi::serial::{SerialMidiIn, SerialMidiOut};
@@ -55,28 +55,29 @@ use crate::midi::message::{Channel, Velocity};
 use crate::midi::message::MidiMessage::NoteOff;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use defmt_rtt as _; // global logger
-
 use core::alloc::Layout;
 use cortex_m::asm;
 
+use crate::state::ParamChange;
+use crate::state::AppChange::{Patch, Config};
+
 use panic_probe as _;
-
+//
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message
-// this prevents the panic message being printed *twice* when `defmt::panic` is invoked
-#[defmt::panic_handler]
-fn panic() -> ! {
-    cortex_m::asm::udf()
-}
-
-#[defmt::timestamp]
-fn timestamp() -> u64 {
-    static COUNT: AtomicUsize = AtomicUsize::new(0);
-    // NOTE(no-CAS) `timestamps` runs with interrupts disabled
-    let n = COUNT.load(Ordering::Relaxed);
-    COUNT.store(n + 1, Ordering::Relaxed);
-    n as u64
-}
+// this prevents the panic message being printed *twice* when `panic` is invoked
+// #[panic_handler]
+// fn panic() -> ! {
+//     cortex_m::asm::udf()
+// }
+//
+// #[timestamp]
+// fn timestamp() -> u64 {
+//     static COUNT: AtomicUsize = AtomicUsize::new(0);
+//     // NOTE(no-CAS) `timestamps` runs with interrupts disabled
+//     let n = COUNT.load(Ordering::Relaxed);
+//     COUNT.store(n + 1, Ordering::Relaxed);
+//     n as u64
+// }
 
 #[global_allocator]
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
@@ -95,14 +96,14 @@ const HEAP_SIZE: usize = 2048; // in bytes
 const APP: () = {
     struct Resources {
         inputs: Vec<Box<(dyn Scan + Sync + Send)>>,
-        state: state::ApplicationState,
+        state: state::AppState,
         display: output::Display,
         usb_midi: midi::usb::UsbMidi,
         din_midi_in: Box<dyn Receive + Send>,
         din_midi_out: Box<dyn Transmit + Send>,
     }
 
-    #[init(schedule = [input_scan, blink])]
+    #[init(schedule = [input_scan, blink, error_count])]
     fn init(ctx: init::Context) -> init::LateResources {
         // for some RTIC reason statics need to go first
         static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
@@ -156,6 +157,9 @@ const APP: () = {
         ctx.schedule
             .input_scan(ctx.start + SCAN_PERIOD.cycles())
             .unwrap();
+        ctx.schedule
+            .error_count(ctx.start + ERROR_PERIOD.cycles())
+            .unwrap();
 
         // Setup Display
         let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
@@ -180,7 +184,7 @@ const APP: () = {
         let mut oled: GraphicsMode<_> = Builder::new().connect(oled_i2c).into();
         oled.init().unwrap();
 
-        output::draw_logo(&mut oled);
+        // output::draw_logo(&mut oled);
 
         // Configure serial
         let tx_pin = gpioa.pa2.into_alternate_push_pull(&mut gpioa.crl);
@@ -218,7 +222,7 @@ const APP: () = {
 
         init::LateResources {
             inputs,
-            state: state::ApplicationState::default(),
+            state: state::AppState::default(),
             display: output::Display {
                 onboard_led,
                 oled,
@@ -247,9 +251,11 @@ const APP: () = {
         if ctx.resources.usb_midi.poll() {
             match ctx.resources.usb_midi.receive() {
                 Ok(Some(packet)) => {
-                    if let Err(err) = ctx.spawn.send_usb_midi(packet) {
-                        defmt::warn!("usb midi echo failed {:?}", err)
-                    }
+                    // echo
+                    ctx.spawn.send_usb_midi(packet);
+                }
+                Err(err) => {
+
                 }
                 _ => {}
             }
@@ -259,16 +265,17 @@ const APP: () = {
     // DIN MIDI interrupts
     #[task(binds = USART1, resources = [din_midi_in], priority = 3)]
     fn serial_rx0(ctx: serial_rx0::Context) {
-        if let Err(_err) = ctx.resources.din_midi_in.receive() {}
-        // TODO read & dispatch packet
+        if let Err(_err) = ctx.resources.din_midi_in.receive() {
+            // TODO dispatch packet
+        }
     }
 
-    #[task(resources = [inputs], spawn = [update], schedule = [input_scan])]
+    #[task(resources = [inputs], spawn = [ctl_update], schedule = [input_scan])]
     fn input_scan(ctx: input_scan::Context) {
         let long_now = clock::long_now(DWT::get_cycle_count());
         for i in ctx.resources.inputs {
             if let Some(event) = i.scan(long_now) {
-                let _err = ctx.spawn.update(event);
+                let _err = ctx.spawn.ctl_update(event);
             }
         }
 
@@ -277,46 +284,62 @@ const APP: () = {
             .unwrap();
     }
 
-    #[task(resources = [state, display], spawn = [update], schedule = [blink])]
+    #[task(resources = [display], schedule = [error_count])]
+    fn error_count(ctx: error_count::Context) {
+        output::redraw_fault(ctx.resources.display);
+        ctx.schedule
+            .error_count(ctx.scheduled + ERROR_PERIOD.cycles())
+            .unwrap();
+    }
+
+    #[task(resources = [state, display], schedule = [blink])]
     fn blink(ctx: blink::Context) {
-        if ctx.resources.state.led_on {
+        ctx.resources.state.ui.led_on = !ctx.resources.state.ui.led_on;
+        if ctx.resources.state.ui.led_on {
             ctx.resources.display.onboard_led.set_high().unwrap();
-            ctx.resources.state.led_on = false;
         } else {
             ctx.resources.display.onboard_led.set_low().unwrap();
-            ctx.resources.state.led_on = true;
         }
         ctx.schedule
             .blink(ctx.scheduled + BLINK_PERIOD.cycles())
             .unwrap();
     }
 
-    #[task(spawn = [redraw, send_usb_midi], resources = [state], capacity = 5)]
-    fn update(ctx: update::Context, event: input::Event) {
-        if let Some(change) = ctx.resources.state.update(event) {
-            if let Err(err) = ctx.spawn.redraw(change) {
-                defmt::warn!("redraw failed {:?}", err)
-            }
-
-            if let Err(err) = ctx.spawn.send_usb_midi(MidiPacket::from_message(
-                CableNumber::MIN,
-                NoteOff(Channel::cull(1), notes::Note::C1m, Velocity::MAX),
-            )) {
-                defmt::warn!("midi failed {:?}", err)
+    #[task(spawn = [redraw], resources = [state], capacity = 5)]
+    fn ctl_update(ctx: ctl_update::Context, event: input::Event) {
+        if let Some(change) = ctx.resources.state.ctl_update(event) {
+            if let Err(_err) = ctx.spawn.redraw(change) {
+                // warn!("redraw failed {:?}", err)
             }
         }
     }
 
+    // #[task(spawn = [send_usb_midi], resources = [state], capacity = 5)]
+    // fn midi_update(ctx: midi_update::Context, packet:MidiPacket) {
+    //     if let Some(_change) = ctx.resources.state.midi_update(packet) {
+    //     }
+    // }
+    //
+    // #[task(spawn = [redraw, send_usb_midi], resources = [state], capacity = 5)]
+    // fn error_update(ctx: error_update::Context, error: MidiError) {
+    //     if let Some(_change) = ctx.resources.state.error_update(error) {
+    //     }
+    // }
+
     #[task(resources = [usb_midi], priority = 3)]
     fn send_usb_midi(ctx: send_usb_midi::Context, packet: MidiPacket) {
-        if let Err(e) = ctx.resources.usb_midi.transmit(packet) {
-            defmt::warn!("Serial send failed {:?}", e);
+        if let Err(_e) = ctx.resources.usb_midi.transmit(packet) {
+            // warn!("Serial send failed {:?}", e);
         }
     }
 
     #[task(resources = [display])]
-    fn redraw(ctx: redraw::Context, change: state::StateChange) {
-        output::redraw(ctx.resources.display, change);
+    fn redraw(ctx: redraw::Context, change: state::AppChange) {
+        match change {
+            Patch(change) => output::redraw_patch(ctx.resources.display, change),
+            Config(change) => output::redraw_config(ctx.resources.display, change),
+            _ => {}
+        }
     }
 
     extern "C" {

@@ -14,3 +14,13 @@ pub fn long_now(short_now: u32) -> u64 {
         ((ROLLOVERS as u64) << 32) + short_now as u64
     }
 }
+
+/// assuming that duration is never longer than u32
+pub fn short_duration(now: u32, then: u32) -> u32 {
+    if now < then {
+        now - then
+    } else {
+        // rollover detected
+        (u32::MAX - then) + now
+    }
+}

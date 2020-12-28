@@ -16,6 +16,8 @@ use stm32f1xx_hal::usb::{UsbBusType};
 use crate::midi::packet::MidiPacket;
 use crate::midi::MidiError;
 use crate::midi;
+use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::Ordering::Relaxed;
 
 const USB_BUFFER_SIZE: u16 = 64;
 
@@ -86,18 +88,24 @@ impl midi::Transmit for UsbMidi {
 
 const PACKET_LEN: usize = 4;
 
+pub static PACKET_UNALIGNED: AtomicUsize = AtomicUsize::new(0);
+
 impl midi::Receive for UsbMidi {
     fn receive(&mut self) -> Result<Option<MidiPacket>, MidiError> {
         if self.buf_idx > self.buf_len {
             if self.usb_dev.state() != UsbDeviceState::Configured {
                 return Ok(None);
             }
-            match self.midi_class.receive(&mut self.buffer) {
-                Ok(Some(size)) if size >= PACKET_LEN => {
-                    self.buf_len = size / PACKET_LEN;
-                    self.buf_idx = 0;
+            let result = self.midi_class.receive(&mut self.buffer);
+            match result {
+                Ok(Some(size)) => {
+                    if size % PACKET_LEN > 0 {
+                        self.buf_len = size / PACKET_LEN;
+                        self.buf_idx = 0;
+                    } else {
+                        PACKET_UNALIGNED.fetch_add(1, Relaxed);
+                    }
                 }
-                Ok(Some(_)) => return Ok(None),
                 Ok(None) => return Ok(None),
                 Err(UsbError::WouldBlock) => return Ok(None),
                 Err(err) => return Err(err.into()),

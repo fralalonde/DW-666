@@ -6,9 +6,10 @@ use crate::midi::u4::U4;
 use core::convert::{TryFrom};
 use crate::midi::MidiError;
 use core::ops::{Deref};
-use defmt::Format;
+// use defmt::Format;
 use crate::midi::status::{MidiStatus, SystemCommand};
 use CodeIndexNumber::*;
+use MidiStatus::{ChannelStatus, SystemStatus};
 
 pub type CableNumber = U4;
 
@@ -69,7 +70,7 @@ impl PacketBuilder {
     }
 }
 
-#[derive(Default, Format)]
+#[derive(Default/**/)]
 pub struct MidiPacket {
     bytes: [u8; 4]
 }
@@ -201,21 +202,21 @@ impl TryFrom<MidiStatus> for CodeIndexNumber {
 
     fn try_from(status: MidiStatus) -> Result<Self, Self::Error> {
         Ok(match status {
-            MidiStatus::ChannelStatus(cmd, _ch) => CodeIndexNumber::try_from(MidiStatus::try_from(cmd as u8)?)?,
-            MidiStatus::SystemStatus(SystemCommand::SysexStart) => Sysex,
+            ChannelStatus(cmd, _ch) => CodeIndexNumber::try_from(MidiStatus::try_from(cmd as u8)?)?,
+            SystemStatus(SystemCommand::SysexStart) => Sysex,
 
-            MidiStatus::SystemStatus(SystemCommand::TimeCodeQuarterFrame) => SystemCommonLen2,
-            MidiStatus::SystemStatus(SystemCommand::SongPositionPointer) => SystemCommonLen3,
-            MidiStatus::SystemStatus(SystemCommand::TuneRequest) => SystemCommonLen1,
-            MidiStatus::SystemStatus(SystemCommand::SongSelect) => SystemCommonLen2,
+            SystemStatus(SystemCommand::TimeCodeQuarterFrame) => SystemCommonLen2,
+            SystemStatus(SystemCommand::SongPositionPointer) => SystemCommonLen3,
+            SystemStatus(SystemCommand::TuneRequest) => SystemCommonLen1,
+            SystemStatus(SystemCommand::SongSelect) => SystemCommonLen2,
 
-            MidiStatus::SystemStatus(SystemCommand::TimingClock) => SystemCommonLen1,
-            MidiStatus::SystemStatus(SystemCommand::MeasureEnd) => SystemCommonLen2,
-            MidiStatus::SystemStatus(SystemCommand::Start) => SystemCommonLen1,
-            MidiStatus::SystemStatus(SystemCommand::Continue) => SystemCommonLen1,
-            MidiStatus::SystemStatus(SystemCommand::Stop) => SystemCommonLen1,
-            MidiStatus::SystemStatus(SystemCommand::ActiveSensing) => SystemCommonLen1,
-            MidiStatus::SystemStatus(SystemCommand::SystemReset) => SystemCommonLen1,
+            SystemStatus(SystemCommand::TimingClock) => SystemCommonLen1,
+            SystemStatus(SystemCommand::MeasureEnd) => SystemCommonLen2,
+            SystemStatus(SystemCommand::Start) => SystemCommonLen1,
+            SystemStatus(SystemCommand::Continue) => SystemCommonLen1,
+            SystemStatus(SystemCommand::Stop) => SystemCommonLen1,
+            SystemStatus(SystemCommand::ActiveSensing) => SystemCommonLen1,
+            SystemStatus(SystemCommand::SystemReset) => SystemCommonLen1,
         })
     }
 }

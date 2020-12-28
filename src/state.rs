@@ -1,103 +1,85 @@
 use crate::input;
-use defmt::Format;
 
-#[derive(Format)]
-pub enum StateChange {
-    Value(i32),
-    Switch(bool),
+use crate::midi::packet::MidiPacket;
+use crate::midi::MidiError;
+use alloc::string::String;
+use crate::state::ParamChange::FilterCutoff;
+use crate::state::ConfigChange::MidiEcho;
+use crate::state::UiChange::LastError;
+
+pub enum ConfigChange {
+    MidiEcho(bool),
 }
 
-#[derive(Clone, Default, Format)]
-/// The application state
-pub struct ApplicationState {
-    pub enc_count: i32,
+pub enum UiChange {
+    LedBlink(bool),
+    LastError(&'static str)
+}
+
+pub enum ParamChange {
+    FilterCutoff(i32),
+}
+
+pub enum AppChange {
+    Config(ConfigChange),
+    Ui(UiChange),
+    Patch(ParamChange),
+}
+
+/// Globals
+#[derive(Clone, Default)]
+pub struct ConfigState {
+    echo_midi: bool,
+}
+
+/// Local appearance, transient, not directly sound related
+#[derive(Clone, Default)]
+pub struct UiState {
     pub led_on: bool,
+    pub last_error: &'static str,
 }
 
-impl ApplicationState {
-    pub fn update(&mut self, event: input::Event) -> Option<StateChange> {
+/// Sound parameters
+#[derive(Clone, Default)]
+pub struct PatchState {
+    filter_cutoff: i32,
+}
+
+#[derive(Clone, Default)]
+/// The application state
+pub struct AppState {
+    pub config: ConfigState,
+    pub patch: PatchState,
+    pub ui: UiState,
+}
+
+impl AppState {
+    pub fn set_echo_midi(&mut self, echo: bool) {
+        self.config.echo_midi = echo
+    }
+}
+
+impl AppState {
+    pub fn ctl_update(&mut self, event: input::Event) -> Option<AppChange> {
         match event {
-            input::Event::Encoder(_, z) => {
-                self.enc_count += z;
-                Some(StateChange::Value(self.enc_count))
+            input::Event::EncoderTurn(input::Source::Encoder1, z) => {
+                self.patch.filter_cutoff += z;
+                Some(AppChange::Patch(FilterCutoff(self.patch.filter_cutoff)))
+            }
+            input::Event::ButtonDown(input::Source::Encoder1) => {
+                self.config.echo_midi = !self.config.echo_midi;
+                Some(AppChange::Config(MidiEcho(self.config.echo_midi)))
             }
             _ => None,
         }
     }
 }
+impl AppState {
+    pub fn midi_update(&mut self, packet: MidiPacket) -> Option<AppChange> {
+        None
+    }
 
-// /// Converts a button press into a usb midi packet
-// fn message_to_midi(
-//     cable: CableNumber,
-//     channel: Channel,
-//     message: Message,
-// ) -> UsbMidiEventPacket {
-//     const VELOCITY: U7 = U7::MAX;
-//     let (button, direction) = message;
-//     let note = button.into();
-//     match direction {
-//         State::On => {
-//             let midi = MidiMessage::NoteOn(channel, note, VELOCITY);
-//             UsbMidiEventPacket::from_midi(cable, midi)
-//         }
-//         State::Off => {
-//             let midi = MidiMessage::NoteOff(channel, note, VELOCITY);
-//             UsbMidiEventPacket::from_midi(cable, midi)
-//         }
-//     }
-// }
-//
-// /// Takes a old state and a new state
-// /// and calculates the midi events emitted transitioning between the two
-// /// states. Note: if a -> b -> c and called with a,c some state transitions may
-// /// be missed
-// pub fn midi_events<'a>(
-//     old_application: &'a ApplicationState,
-//     new_application: &'a ApplicationState,
-// ) -> impl Iterator<Item = UsbMidiEventPacket> + 'a {
-//     let compare = move | (button,value):(&Button,&State) | -> Option<UsbMidiEventPacket> {
-//         let find = old_application.buttons.get(&button);
-//         let midi: UsbMidiEventPacket = message_to_midi(
-//             new_application.cable,
-//             new_application.channel,
-//             (*button,*value));
-//         match find {
-//             Some(old_value) if *old_value != *value => Some (midi),
-//             _ => None
-//         }
-//     };
-//     let events = new_application.buttons.iter().filter_map(compare);
-//     events
-// }
-//
-// impl ApplicationState {
-//
-//     /// Initializes a default application state
-//     /// all buttons are off
-//     pub fn init() -> ApplicationState {
-//         let mut map = LinearMap(heapless::i::LinearMap::new());
-//         let _ = map.insert(Button::One, State::Off);
-//         let _ = map.insert(Button::Two, State::Off);
-//         let _ = map.insert(Button::Three, State::Off);
-//         let _ = map.insert(Button::Four, State::Off);
-//         let _ = map.insert(Button::Five, State::Off);
-//         ApplicationState {
-//             buttons: map,
-//             cable: CableNumber::Cable1,
-//             channel: Channel::Channel1,
-//         }
-//     }
-//
-//     /// Updates the button state. TEA like
-//     pub fn update(&mut self, message: Message) -> () {
-//         let (button, direction) = message;
-//
-//         let current = self.buttons.get(&button);
-//         match current {
-//             Some(state) if *state != direction => {
-//                 let _ = self.buttons.insert(button, direction);
-//             }
-//             _ => (),
-//         }
-//     }
-// }
+    pub fn error_update(&mut self, error: MidiError) -> Option<AppChange> {
+        Some(AppChange::Ui(LastError("error")))
+    }
+}

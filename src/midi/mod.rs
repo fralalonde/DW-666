@@ -1,6 +1,6 @@
 use nb;
 use usb_device::UsbError;
-use defmt::Format;
+// use defmt::Format;
 use crate::midi::packet::MidiPacket;
 
 pub mod u4;
@@ -13,6 +13,8 @@ pub mod packet;
 pub mod serial;
 pub mod usb;
 
+// use num_enum::Count;
+
 pub trait Receive {
     fn receive(&mut self) -> Result<Option<MidiPacket>, MidiError>;
 }
@@ -21,7 +23,8 @@ pub trait Transmit {
     fn transmit(&mut self, event: MidiPacket) -> Result<(), MidiError>;
 }
 
-#[derive(Debug, Format)]
+#[derive(Debug, /*Format*//*, Count*/)]
+#[repr(u8)]
 pub enum MidiError {
     PayloadOverflow,
     SysexInterrupted,
@@ -35,6 +38,7 @@ pub enum MidiError {
     InvalidU14,
     SerialError,
     UsbError,
+    UsbLeftover(usize)
 }
 
 impl From<UsbError> for MidiError {
