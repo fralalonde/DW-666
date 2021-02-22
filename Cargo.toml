@@ -14,47 +14,44 @@ test = false
 cortex-m = "0.6"
 cortex-m-rt = "0.6"
 cortex-m-rtic = "0.5"
-alloc-cortex-m = "0.4.0"
-
+alloc-cortex-m = "0.4"
 
 embedded-hal = "0.2"
 ssd1306 = "0.4"
 embedded-graphics = "0.6"
 usb-device = "0.2"
-spin = "0.7.0"
-num_enum = { version = "0.5.1", default-features = false }
-nb = "1.0.0"
+spin = "0.7"
+num_enum = { version = "0.5", default-features = false }
+nb = "1.0"
 
-panic-probe = { version = "0.1.0" }
+#cortex-m-semihosting = "0.3.7"
+rtt-target = { version = "0.3", features = ["cortex-m"] }
+panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
+#panic-probe = { version = "0.1.0", features = ["print-defmt"] }
 
 [dependencies.stm32f1xx-hal]
 version = "0.6"
 features = ["rt", "stm32f103", "medium", "stm32-usbd"]
 
+#[[bin]]
+#name = "{{crate_name}}"
+#test = false
+#bench = false
+
 [profile.dev]
 debug = true
 opt-level = "s"
 lto = true
+#debug = 2
+#debug-assertions = true
+#incremental = false
+#opt-level = 3
+#overflow-checks = true
 
 [profile.release]
 codegen-units = 1
 opt-level = "s"
 debug = false
 lto = true
-
-#[profile.dev]
-#codegen-units = 1
-#debug = 2
-#debug-assertions = true # <-
-#incremental = false
-#opt-level = 3 # <-
-#overflow-checks = true # <-
-#
-#[profile.release]
-#codegen-units = 1
-#debug = 2
-#debug-assertions = false # <-
-#incremental = false
-#lto = 'fat'
-#opt-level = 3 # <-
-#overflow-checks = false # <-
+panic = 'abort'
+rpath = false

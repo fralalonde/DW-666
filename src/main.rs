@@ -33,6 +33,11 @@ use usb_device::bus;
 
 use cortex_m::asm::delay;
 
+use cortex_m_rt::entry;
+use rtt_target::{rprintln, rtt_init_print};
+
+// use cortex_m_semihosting::hprintln;
+
 use crate::input::Scan;
 use midi::usb;
 use crate::midi::{Transmit, notes, Cull, MidiError};
@@ -61,23 +66,15 @@ use cortex_m::asm;
 use crate::state::ParamChange;
 use crate::state::AppChange::{Patch, Config};
 
-use panic_probe as _;
-//
-// same panicking *behavior* as `panic-probe` but doesn't print a panic message
-// this prevents the panic message being printed *twice* when `panic` is invoked
 // #[panic_handler]
-// fn panic() -> ! {
-//     cortex_m::asm::udf()
+// fn panic(info: &core::panic::PanicInfo) -> ! {
+//     rprintln!("{}", info);
+//     loop {
+//         asm::bkpt() // breakpoint, for debugging
+//     }
 // }
-//
-// #[timestamp]
-// fn timestamp() -> u64 {
-//     static COUNT: AtomicUsize = AtomicUsize::new(0);
-//     // NOTE(no-CAS) `timestamps` runs with interrupts disabled
-//     let n = COUNT.load(Ordering::Relaxed);
-//     COUNT.store(n + 1, Ordering::Relaxed);
-//     n as u64
-// }
+
+use panic_rtt_target as _;
 
 #[global_allocator]
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
@@ -108,7 +105,11 @@ const APP: () = {
         // for some RTIC reason statics need to go first
         static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
 
+        rtt_init_print!();
+
         unsafe { ALLOCATOR.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE) }
+
+        rprintln!("Allocator OK");
 
         // Enable cycle counter
         let mut core = ctx.core;
@@ -130,6 +131,8 @@ const APP: () = {
 
         assert!(clocks.usbclk_valid());
 
+        rprintln!("Clocks OK");
+
         // Get GPIO busses
         let mut gpioa = peripherals.GPIOA.split(&mut rcc.apb2);
         let mut gpiob = peripherals.GPIOB.split(&mut rcc.apb2);
@@ -143,6 +146,8 @@ const APP: () = {
         ctx.schedule
             .blink(ctx.start + BLINK_PERIOD.cycles())
             .unwrap();
+
+        rprintln!("Blinker OK");
 
         // Setup Encoders
         let mut inputs = Vec::with_capacity(5);
@@ -160,6 +165,8 @@ const APP: () = {
         ctx.schedule
             .error_count(ctx.start + ERROR_PERIOD.cycles())
             .unwrap();
+
+        rprintln!("Controls OK");
 
         // Setup Display
         let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
@@ -186,6 +193,8 @@ const APP: () = {
 
         // output::draw_logo(&mut oled);
 
+        rprintln!("Screen OK");
+
         // Configure serial
         let tx_pin = gpioa.pa2.into_alternate_push_pull(&mut gpioa.crl);
         let rx_pin = gpioa.pa3;
@@ -205,6 +214,8 @@ const APP: () = {
         let din_midi_out = Box::new(SerialMidiOut::new(tx));
         let din_midi_in = Box::new(SerialMidiIn::new(rx, CableNumber::MIN));
 
+        rprintln!("Serial port OK");
+
         // force USB reset for dev mode (BluePill)
         let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
         usb_dp.set_low().unwrap();
@@ -219,6 +230,9 @@ const APP: () = {
         *USB_BUS = Some(UsbBus::new(usb));
         let midi_class = MidiClass::new(USB_BUS.as_ref().unwrap());
         let usb_dev = usb::configure_usb(USB_BUS.as_ref().unwrap());
+        rprintln!("USB OK");
+
+        rprintln!("-> Initialized");
 
         init::LateResources {
             inputs,
@@ -235,6 +249,13 @@ const APP: () = {
             din_midi_in,
             din_midi_out,
         }
+    }
+
+    /// RTIC default SLEEP_ON_EXIT fucks with RTT logging, etc.
+    /// Override with this NOOP idle handler
+    #[idle()]
+    fn idle(mut cx: idle::Context) -> ! {
+        loop {}
     }
 
     // High priority USB interrupts
@@ -254,9 +275,7 @@ const APP: () = {
                     // echo
                     ctx.spawn.send_usb_midi(packet);
                 }
-                Err(err) => {
-
-                }
+                Err(err) => {}
                 _ => {}
             }
         }
