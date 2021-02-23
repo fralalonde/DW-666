@@ -70,7 +70,7 @@ impl PacketBuilder {
     }
 }
 
-#[derive(Default/**/)]
+#[derive(Default, Debug)]
 pub struct MidiPacket {
     bytes: [u8; 4]
 }

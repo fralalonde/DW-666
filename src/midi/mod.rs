@@ -20,7 +20,7 @@ pub trait Receive {
 }
 
 pub trait Transmit {
-    fn transmit(&mut self, event: MidiPacket) -> Result<(), MidiError>;
+    fn transmit(&mut self, event: MidiPacket);
 }
 
 #[derive(Debug, /*Format*//*, Count*/)]

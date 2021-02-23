@@ -141,8 +141,8 @@ impl<TX> SerialMidiOut<TX>
 impl<TX> Transmit for SerialMidiOut<TX>
     where TX: serial::Write<u8>
 {
-    fn transmit(&mut self, event: MidiPacket) -> Result<(), MidiError> {
-        let mut payload = event.payload()?;
+    fn transmit(&mut self, event: MidiPacket) {
+        let mut payload = event.payload().unwrap();
         let new_status = Some(payload[0]);
         if self.last_status == new_status {
             payload = &payload[1..];
@@ -151,9 +151,7 @@ impl<TX> Transmit for SerialMidiOut<TX>
         }
 
         for byte in payload {
-            self.serial_out.write(*byte)?;
+            self.serial_out.write(*byte).unwrap_err();
         }
-
-        Ok(())
     }
 }
