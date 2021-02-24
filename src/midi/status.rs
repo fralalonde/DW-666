@@ -83,17 +83,17 @@ impl TryFrom<u8> for MidiStatus {
 
     fn try_from(byte: u8) -> Result<Self, Self::Error> {
         if byte < NoteOff as u8 {
-            return Err(MidiError::NotAMidiStatus);
+            return Err(MidiError::NotAMidiStatus(byte));
         }
         Ok(if byte < 0xF0 {
             ChannelStatus(
                 ChannelCommand::try_from(byte & 0xF0)
-                    .map_err(|_| MidiError::NotAChanelCommand)?,
+                    .map_err(|_| MidiError::NotAChanelCommand(byte))?,
                 U4::try_from(byte & 0x0F)?,
             )
         } else {
             SystemStatus(SystemCommand::try_from(byte)
-                .map_err(|_| MidiError::NotASystemCommand)?)
+                .map_err(|_| MidiError::NotASystemCommand(byte))?)
         })
     }
 }

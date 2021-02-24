@@ -20,7 +20,7 @@ pub trait Receive {
 }
 
 pub trait Transmit {
-    fn transmit(&mut self, event: MidiPacket);
+    fn transmit(&mut self, event: MidiPacket) -> Result<(), MidiError>;
 }
 
 #[derive(Debug, /*Format*//*, Count*/)]
@@ -28,9 +28,9 @@ pub trait Transmit {
 pub enum MidiError {
     PayloadOverflow,
     SysexInterrupted,
-    NotAMidiStatus,
-    NotAChanelCommand,
-    NotASystemCommand,
+    NotAMidiStatus(u8),
+    NotAChanelCommand(u8),
+    NotASystemCommand(u8),
     UnhandledDecode,
     SysexOutOfBounds,
     InvalidU4,
@@ -38,7 +38,6 @@ pub enum MidiError {
     InvalidU14,
     SerialError,
     UsbError,
-    UsbLeftover(usize)
 }
 
 impl From<UsbError> for MidiError {

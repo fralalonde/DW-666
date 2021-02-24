@@ -62,7 +62,7 @@ impl<RX, E> SerialMidiIn<RX>
             }
             (0, byte, None, None) if !is_midi_status(byte) => {
                 // first byte of non-sysex payload should be a status byte
-                Err(MidiError::NotAMidiStatus)
+                Err(MidiError::NotAMidiStatus(byte))
             }
             (0, byte, None, _) if is_midi_status(byte) => {
                 // regular status byte starting new command
@@ -141,8 +141,8 @@ impl<TX> SerialMidiOut<TX>
 impl<TX> Transmit for SerialMidiOut<TX>
     where TX: serial::Write<u8>
 {
-    fn transmit(&mut self, event: MidiPacket) {
-        let mut payload = event.payload().unwrap();
+    fn transmit(&mut self, event: MidiPacket)  -> Result<(), MidiError> {
+        let mut payload = event.payload()?;
         let new_status = Some(payload[0]);
         if self.last_status == new_status {
             payload = &payload[1..];
@@ -152,6 +152,7 @@ impl<TX> Transmit for SerialMidiOut<TX>
 
         for byte in payload {
             self.serial_out.write(*byte).unwrap_err();
-        }
+        };
+        Ok(())
     }
 }

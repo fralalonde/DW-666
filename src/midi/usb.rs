@@ -21,6 +21,7 @@ use crate::midi;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering::Relaxed;
 use usb_device::class_prelude::EndpointAddress;
+use alloc::boxed::Box;
 
 const USB_TX_BUFFER_SIZE: u16 = 256;
 const USB_RX_BUFFER_SIZE: u16 = 64;
@@ -63,13 +64,6 @@ pub struct UsbMidi {
     usb_dev: UsbDevice<'static, UsbBusType>,
     midi_class: MidiClass<'static, UsbBusType>,
 
-    // tx_buf: [u8; TX_BUF_LEN],
-    // tx_end: usize,
-    // tx_start: usize,
-
-    rx_buf: [u8; RX_BUF_LEN],
-    rx_end: usize,
-    rx_start: usize,
 }
 
 impl UsbMidi {
@@ -79,12 +73,6 @@ impl UsbMidi {
         UsbMidi {
             midi_class,
             usb_dev,
-            // tx_buf: [0; TX_BUF_LEN],
-            // tx_start: 0,
-            // tx_end: 0,
-            rx_buf: [0; RX_BUF_LEN],
-            rx_start: 0,
-            rx_end: 0,
         }
     }
 
@@ -92,98 +80,20 @@ impl UsbMidi {
     pub fn poll(&mut self) -> bool {
         self.usb_dev.poll(&mut [&mut self.midi_class])
     }
-
-    // #[inline]
-    // fn tx_size(&self) -> usize {
-    //     self.tx_end - self.tx_start
-    // }
-    //
-    // fn tx_push(&mut self) -> Result<Option<MidiPacket>, MidiError> {
-    //     if self.tx_size() >= PACKET_LEN {
-    //         let raw = MidiPacket::from_raw(self.tx_buf.as_chunks().0[0])?;
-    //         self.tx_start += PACKET_LEN;
-    //         Ok(Some(raw))
-    //     } else {
-    //         Ok(None)
-    //     }
-    // }
-    //
-    // fn tx_compact(&mut self) {
-    //     self.tx_buf.copy_within(self.tx_start..self.tx_end, 0);
-    //     self.tx_end = self.tx_size();
-    //     self.tx_start = 0;
-    // }
-    //
-    // fn tx_flush(&mut self) -> Result<(), UsbError> {
-    //     let result = self.midi_class.receive(&mut self.tx_buf[self.tx_end..tx_BUF_LEN]);
-    //     match result {
-    //         Ok(received) => {
-    //             self.tx_end += received;
-    //             assert!(self.tx_end <= self.tx_buf.len());
-    //             Ok(())
-    //         },
-    //         Err(UsbError::WouldBlock) => Ok(()),
-    //         Err(err) => panic!("{:?}", err),
-    //     }
-    // }
-
-    #[inline]
-    fn rx_size(&self) -> usize {
-        self.rx_end - self.rx_start
-    }
-    
-    fn rx_pop(&mut self) -> Result<Option<MidiPacket>, MidiError> {
-        if self.rx_size() >= PACKET_LEN {
-            let raw = MidiPacket::from_raw(self.rx_buf.as_chunks().0[0])?;
-            self.rx_start += PACKET_LEN;
-            Ok(Some(raw))
-        } else {
-            Ok(None)
-        }
-    }
-    
-    fn rx_compact(&mut self) {
-        self.rx_buf.copy_within(self.rx_start..self.rx_end, 0);
-        self.rx_end = self.rx_size();
-        self.rx_start = 0;
-    }
-
-    fn rx_fill(&mut self) -> Result<(), UsbError> {
-        let result = self.midi_class.receive(&mut self.rx_buf[self.rx_end..RX_BUF_LEN]);
-        match result {
-            Ok(received) => {
-                self.rx_end += received;
-                assert!(self.rx_end <= self.rx_buf.len());
-                Ok(())
-            },
-            Err(UsbError::WouldBlock) => Ok(()),
-            Err(err) => panic!("{:?}", err),
-        }
-    }
 }
 
 impl midi::Transmit for UsbMidi {
-    fn transmit(&mut self, packet: MidiPacket) {
-        if self.usb_dev.state() == UsbDeviceState::Configured {
-            match self.midi_class.send(packet.raw()) {
-                Err(UsbError::WouldBlock) => rprintln!("ERROR: USB TX packet dropped"),
-                Err(err) => panic!("{:?}", err),
-                Ok(_sent) => {}
-            }
-        }
+    fn transmit(&mut self, packet: MidiPacket) -> Result<(), MidiError> {
+        Ok(self.midi_class.send(packet.bytes()))
     }
 }
 
-
 impl midi::Receive for UsbMidi {
     fn receive(&mut self) -> Result<Option<MidiPacket>, MidiError> {
-        if let Some(packet) = self.rx_pop()? {
-            Ok(Some(packet))
-        } else {
-            self.rx_compact();
-            self.rx_fill();
-            Ok(self.rx_pop()?)
+        if let Some(bytes) = self.midi_class.receive() {
+            return Ok(Some(MidiPacket::from_raw(bytes)?));
         }
+        Ok(None)
     }
 }
 
@@ -193,8 +103,16 @@ impl midi::Receive for UsbMidi {
 pub struct MidiClass<'a, B: UsbBus> {
     standard_ac: InterfaceNumber,
     standard_mc: InterfaceNumber,
-    standard_bulkout: EndpointOut<'a, B>,
-    standard_bulkin: EndpointIn<'a, B>,
+
+    bulk_out: EndpointOut<'a, B>,
+    bulk_in: EndpointIn<'a, B>,
+
+    tx_buf: [u8; TX_BUF_LEN],
+    tx_end: usize,
+
+    rx_buf: [u8; RX_BUF_LEN],
+    rx_end: usize,
+    rx_start: usize,
 }
 
 impl<B: UsbBus> MidiClass<'_, B> {
@@ -203,23 +121,112 @@ impl<B: UsbBus> MidiClass<'_, B> {
         MidiClass {
             standard_ac: usb_alloc.interface(),
             standard_mc: usb_alloc.interface(),
-            standard_bulkout: usb_alloc.bulk(USB_TX_BUFFER_SIZE),
-            standard_bulkin: usb_alloc.bulk(USB_RX_BUFFER_SIZE),
+            bulk_out: usb_alloc.bulk(USB_TX_BUFFER_SIZE),
+            bulk_in: usb_alloc.bulk(USB_RX_BUFFER_SIZE),
+
+            tx_buf: [0; TX_BUF_LEN],
+            tx_end: 0,
+
+            rx_buf: [0; RX_BUF_LEN],
+            rx_start: 0,
+            rx_end: 0,
         }
     }
 
-    /// Return the number of sent bytes
-    pub fn send(&mut self, payload: &[u8]) -> Result<usize, usb_device::UsbError> {
-        self.standard_bulkin.write(payload)
+    /// Try enqueue packet, then flush.
+    /// If enqueue failed (because buffer full), retry after flush.
+    /// Drop packet if all else fails.
+    fn send(&mut self, payload: &[u8]) {
+        let pushed = self.tx_push(payload);
+
+        let result = self.bulk_in.write(&self.tx_buf[0..self.tx_end]);
+        self.tx_end = 0;
+
+        match result {
+            Ok(count) if count > 4 =>
+                rprintln!("sent more than 4 bytes"),
+            Ok(_count) if !pushed && !self.tx_push(payload) =>
+                rprintln!("ERROR: USB TX packet dropped after flush (how?)"),
+            Ok(_count)  => {}
+            Err(UsbError::WouldBlock) => if !pushed {
+                rprintln!("ERROR: USB TX packet dropped after flush bounced")
+            }
+            Err(err) => panic!("{:?}", err),
+        }
     }
 
-    /// Return the number of received bytes
-    pub fn receive(&mut self, payload: &mut [u8]) -> Result<usize, usb_device::UsbError> {
-        self.standard_bulkout.read(payload)
+    fn tx_push(&mut self, payload: &[u8]) -> bool {
+        if self.tx_end < (TX_BUF_LEN - payload.len()) {
+            self.tx_buf[self.tx_end..self.tx_end + payload.len()].copy_from_slice(payload);
+            self.tx_end += payload.len();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Look for buffered bytes
+    /// If none, try to get more
+    fn receive(&mut self) -> Option<[u8; 4]> {
+        if let Some(bytes) = self.rx_pop() {
+            Some(bytes)
+        } else {
+            self.rx_fill();
+            self.rx_pop()
+        }
+    }
+
+    #[inline]
+    fn rx_size(&self) -> usize {
+        self.rx_end - self.rx_start
+    }
+
+    fn rx_pop(&mut self) -> Option<[u8; 4]> {
+        if self.rx_size() >= PACKET_LEN {
+            let raw = self.rx_buf.as_chunks().0[0];
+            self.rx_start += PACKET_LEN;
+            Some(raw)
+        } else {
+            None
+        }
+    }
+
+    fn rx_fill(&mut self) {
+        // compact any odd bytes to buffer start
+        self.rx_buf.copy_within(self.rx_start..self.rx_end, 0);
+        self.rx_end = self.rx_size();
+        self.rx_start = 0;
+
+        match self.bulk_out.read(&mut self.rx_buf[self.rx_end..RX_BUF_LEN]) {
+            Ok(received) => {
+                self.rx_end += received;
+                assert!(self.rx_end <= self.rx_buf.len());
+            }
+            Err(UsbError::WouldBlock) => {}
+            Err(err) => panic!("{:?}", err)
+        };
     }
 }
 
 impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
+    // TODO maybe for sysex...
+    // /// Called when endpoint with address `addr` has completed transmitting data (IN packet).
+    // fn endpoint_in_complete(&mut self, addr: EndpointAddress) {
+    //     if addr == self.bulk_in.address() {
+    //         // send any pending bytes in tx_buf ? (maybe for sysex...)
+    //         if self.tx_end > 0 {
+    //             let result = self.bulk_in.write(&self.tx_buf[0..self.tx_end]);
+    //             self.tx_end = 0;
+    //
+    //             match result {
+    //                 Ok(count) => rprintln!("sent {:?} fast followers", count),
+    //                 Err(UsbError::WouldBlock) => rprintln!("fast follower would block"),
+    //                 Err(err) => panic!("{:?}", err),
+    //             }
+    //         }
+    //     }
+    // }
+
     fn get_configuration_descriptors(&self, writer: &mut DescriptorWriter) -> Result<(), usb_device::UsbError> {
         writer.interface(
             self.standard_ac,
@@ -268,19 +275,11 @@ impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
             0x00,
         ])?;
 
-        writer.endpoint(&self.standard_bulkout)?;
+        writer.endpoint(&self.bulk_out)?;
         writer.write(CS_ENDPOINT, &[MS_GENERAL, 0x01, 0x01])?;
 
-        writer.endpoint(&self.standard_bulkin)?;
+        writer.endpoint(&self.bulk_in)?;
         writer.write(CS_ENDPOINT, &[MS_GENERAL, 0x01, 0x01])?;
         Ok(())
-    }
-
-    /// Called when endpoint with address `addr` has completed transmitting data (IN packet).
-    ///
-    /// Note: This method may be called for an endpoint address you didn't allocate, and in that
-    /// case you should ignore the event.
-    fn endpoint_in_complete(&mut self, addr: EndpointAddress) {
-        let _ = addr;
     }
 }

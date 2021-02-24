@@ -238,20 +238,18 @@ const APP: () = {
         }
     }
 
-    /// RTIC default SLEEP_ON_EXIT fucks with RTT logging, etc.
-    /// Override with this NOOP idle handler
+    /// RTIC defaults to SLEEP_ON_EXIT on idle, which is very eco-friendly (much wattage - wow)
+    /// Except that sleeping FUCKS with RTT logging, debugging, etc.
+    /// Override this with a puny idle loop (such waste!)
     #[idle()]
-    fn idle(mut cx: idle::Context) -> ! {
+    fn idle(mut _ctx: idle::Context) -> ! {
         loop {}
     }
 
     /// USB transmit interrupt
     #[task(binds = USB_HP_CAN_TX, resources = [usb_midi], priority = 3)]
     fn usb_hp_can_tx(ctx: usb_hp_can_tx::Context) {
-        if ctx.resources.usb_midi.poll() {
-            rprintln!("Done sending USB")
-            // TODO send more packets if any
-        }
+        let _unhandled = ctx.resources.usb_midi.poll();
     }
 
     /// USB receive interrupt
@@ -308,7 +306,9 @@ const APP: () = {
 
     #[task(resources = [usb_midi], priority = 3)]
     fn send_usb_midi(ctx: send_usb_midi::Context, packet: MidiPacket) {
-        ctx.resources.usb_midi.transmit(packet);
+        if let Err(e) = ctx.resources.usb_midi.transmit(packet) {
+            rprintln!("Failed to send MIDI USB: {:?}", e)
+        }
     }
 
     #[task(resources = [display])]

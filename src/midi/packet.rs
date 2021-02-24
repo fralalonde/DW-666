@@ -135,7 +135,7 @@ impl MidiPacket {
         Ok(&self.bytes[1..header.code_index_number.payload_len()])
     }
 
-    pub fn raw(&self) -> &[u8] {
+    pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 }
