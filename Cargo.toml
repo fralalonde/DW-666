@@ -23,7 +23,9 @@ usb-device = "0.2"
 spin = "0.7"
 num_enum = { version = "0.5", default-features = false }
 nb = "1.0"
-arrayvec = { version = "0.5.2", default-features = false }
+embedded-time = "0.10.1"
+heapless = {version = "0.6.0", features = ["ufmt-impl"]}
+ufmt = "0.1.0"
 
 rtt-target = { version = "0.3", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
@@ -41,6 +43,7 @@ features = ["rt", "stm32f103", "medium", "stm32-usbd"]
 debug = true
 opt-level = "s"
 lto = true
+panic = "abort"
 #debug = 2
 #debug-assertions = true
 #incremental = false
@@ -52,5 +55,5 @@ codegen-units = 1
 opt-level = "s"
 debug = false
 lto = true
-panic = 'abort'
+panic = "abort"
 rpath = false

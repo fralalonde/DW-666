@@ -2,7 +2,7 @@ use core::convert::TryFrom;
 use crate::midi::{MidiError, Cull, Saturate};
 
 /// A primitive value that can be from 0-0x7F
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct U4(u8);
 
 impl TryFrom<u8> for U4 {

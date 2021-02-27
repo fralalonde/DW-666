@@ -6,7 +6,6 @@ use crate::midi::u4::U4;
 use core::convert::{TryFrom};
 use crate::midi::MidiError;
 use core::ops::{Deref};
-// use defmt::Format;
 use crate::midi::status::{MidiStatus, SystemCommand};
 use CodeIndexNumber::*;
 use MidiStatus::{ChannelStatus, SystemStatus};
@@ -140,6 +139,8 @@ impl MidiPacket {
     }
 }
 
+#[allow(unused)]
+#[derive(Debug)]
 pub struct PacketHeader {
     cable_number: CableNumber,
     code_index_number: CodeIndexNumber,
@@ -158,6 +159,7 @@ impl TryFrom<u8> for PacketHeader {
 
 /// The Code Index Number(CIN) indicates the classification
 /// of the bytes in the MIDI_x fields
+#[allow(unused)]
 #[derive(Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum CodeIndexNumber {

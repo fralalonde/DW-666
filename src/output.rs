@@ -1,7 +1,8 @@
-use alloc::string::String;
-use core::fmt::Write;
+// use alloc::string::String;
+// use core::fmt::Write;
+use heapless::{consts::*, String};
+use ufmt::uwrite;
 use embedded_graphics::fonts::{Font12x16};
-use embedded_graphics::image::{Image, ImageRaw};
 use embedded_graphics::prelude::Point;
 use embedded_graphics::{
     fonts::Text, pixelcolor::BinaryColor, prelude::*, style::TextStyleBuilder,
@@ -13,13 +14,10 @@ use stm32f1xx_hal::gpio::{Alternate, OpenDrain, Output, PushPull};
 use stm32f1xx_hal::i2c::{BlockingI2c};
 use stm32f1xx_hal::pac::I2C1;
 use embedded_graphics::style::PrimitiveStyleBuilder;
-use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::primitives::Rectangle;
-use crate::midi::MidiError;
-use core::sync::atomic::Ordering::Relaxed;
 
 pub struct Display {
-    pub strbuf: String,
+    // pub strbuf: String,
     pub onboard_led: PC13<Output<PushPull>>,
     pub oled: GraphicsMode<
         I2CInterface<BlockingI2c<I2C1, (PB8<Alternate<OpenDrain>>, PB9<Alternate<OpenDrain>>)>>,
@@ -29,16 +27,10 @@ pub struct Display {
 const PATCH_1: Point = Point::zero();
 const PATCH_2: Point = Point::new(128, 16);
 
-// const MIDI_1: Point = Point::new(0, 16);
-// const MIDI_2: Point = Point::new(128, 32);
-
 const CONFIG_1: Point = Point::new(0, 32);
 const CONFIG_2: Point = Point::new(128, 48);
 
-const ERROR_1: Point = Point::new(0, 48);
-const ERROR_2: Point = Point::new(128, 64);
-
-fn redraw(disp: &mut Display, top_right: Point, btm_left: Point) {
+fn redraw(disp: &mut Display, text: String<U32>, top_right: Point, btm_left: Point) {
     let blank_style = PrimitiveStyleBuilder::new()
         .stroke_color(BinaryColor::Off)
         .fill_color(BinaryColor::Off)
@@ -52,7 +44,7 @@ fn redraw(disp: &mut Display, top_right: Point, btm_left: Point) {
         .text_color(BinaryColor::On)
         .build();
 
-    Text::new(&disp.strbuf, top_right)
+    Text::new(&text, top_right)
         .into_styled(text_style)
         .draw(&mut disp.oled)
         .unwrap();
@@ -62,20 +54,21 @@ fn redraw(disp: &mut Display, top_right: Point, btm_left: Point) {
 
 pub fn redraw_patch(disp: &mut Display, change: super::state::ParamChange) {
     if let super::state::ParamChange::FilterCutoff(cutoff) = change {
-        disp.strbuf.clear();
-        write!(disp.strbuf, "cutoff {}", cutoff).unwrap();
-        redraw(disp, PATCH_1, PATCH_2)
+        let mut text: String<U32> = String::new();
+        uwrite!(text, "cutoff {}", cutoff).unwrap();
+        redraw(disp, text, PATCH_1, PATCH_2)
     }
 }
 
 pub fn redraw_config(disp: &mut Display, change: super::state::ConfigChange) {
     if let super::state::ConfigChange::MidiEcho(echo) = change {
-        disp.strbuf.clear();
-        write!(disp.strbuf, "echo {}", echo).unwrap();
-        redraw(disp, CONFIG_1, CONFIG_2)
+        let mut text: String<U32> = String::new();
+        uwrite!(text, "echo {}", echo).unwrap();
+        redraw(disp, text, CONFIG_1, CONFIG_2)
     }
 }
 
+//use embedded_graphics::image::{Image, ImageRaw};
 // pub fn draw_logo(
 //     oled: &mut GraphicsMode<
 //         I2CInterface<BlockingI2c<I2C1, (PB8<Alternate<OpenDrain>>, PB9<Alternate<OpenDrain>>)>>,

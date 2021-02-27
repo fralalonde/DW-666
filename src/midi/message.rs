@@ -1,10 +1,8 @@
 use crate::midi::u7::U7;
 use crate::midi::{MidiError};
-use core::convert::{TryFrom, TryInto};
-use crate::midi::status::MidiStatus::{ChannelStatus, SystemStatus};
+use core::convert::{TryFrom};
 use crate::midi::u4::U4;
 
-use num_enum::TryFromPrimitive;
 use crate::midi::notes::Note;
 use crate::midi::u14::U14;
 use crate::midi::packet::MidiPacket;
@@ -17,6 +15,7 @@ pub type Patch = U7;
 pub type Bend = U14;
 
 /// Excluding Sysex
+#[allow(unused)]
 pub enum MidiMessage {
     NoteOff(Channel, Note, Velocity),
     NoteOn(Channel, Note, Velocity),

@@ -1,5 +1,5 @@
 use usb_device::device::UsbVidPid;
-use usb_device::device::{UsbDevice, UsbDeviceState};
+use usb_device::device::{UsbDevice};
 use usb_device::prelude::UsbDeviceBuilder;
 
 use usb_device::{
@@ -10,20 +10,15 @@ use usb_device::{
     UsbError,
 };
 
-use rtt_target::rprintln;
-
 use core::result::Result;
 
 use stm32f1xx_hal::usb::{UsbBusType};
 use crate::midi::packet::MidiPacket;
 use crate::midi::MidiError;
 use crate::midi;
-use core::sync::atomic::AtomicUsize;
-use core::sync::atomic::Ordering::Relaxed;
 use usb_device::class_prelude::EndpointAddress;
-use alloc::boxed::Box;
 
-// TX goes up to 256, but unstable, stick with what works
+// TX goes up to 256, but unstable (?), stick with what works
 const USB_TX_BUFFER_SIZE: u16 = 64;
 
 const USB_RX_BUFFER_SIZE: u16 = 64;
@@ -86,7 +81,8 @@ impl UsbMidi {
 
 impl midi::Transmit for UsbMidi {
     fn transmit(&mut self, packet: MidiPacket) -> Result<(), MidiError> {
-        Ok(self.midi_class.send(packet.bytes()))
+        self.midi_class.send(packet.bytes());
+        Ok(())
     }
 }
 
@@ -167,7 +163,6 @@ impl<B: UsbBus> MidiClass<'_, B> {
             Ok(count) => {
                 self.tx_fifo.copy_within(count..self.tx_len, 0);
                 self.tx_len -= count;
-                assert!(self.tx_len >= 0);
                 true
             }
             Err(UsbError::WouldBlock) => false,

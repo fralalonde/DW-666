@@ -5,6 +5,7 @@ use embedded_hal::serial;
 use crate::midi::packet::{MidiPacket, CableNumber, PacketBuilder};
 use crate::midi::{MidiError, Receive, Transmit};
 use crate::midi::status::SystemCommand::SysexStart;
+use rtt_target::rprintln;
 
 pub struct SerialMidiIn<RX> {
     serial_in: RX,
@@ -113,6 +114,7 @@ impl<RX, E> Receive for SerialMidiIn<RX>
             Err(err) => {
                 // TODO record error
                 // reset builder & retry with same byte
+                rprintln!("Serial MIDI error: {:?}", err);
                 self.builder = PacketBuilder::new();
                 self.advance(byte)
             }

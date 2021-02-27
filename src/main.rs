@@ -11,6 +11,7 @@ extern crate cortex_m;
 
 use alloc_cortex_m::CortexMHeap;
 
+mod rtc;
 mod clock;
 // mod global;
 mod input;
@@ -21,6 +22,8 @@ mod state;
 use embedded_hal::digital::v2::OutputPin;
 use rtic::app;
 use rtic::cyccnt::U32Ext as _;
+
+// use heapless::Vec;
 
 use stm32f1xx_hal::gpio::State;
 use stm32f1xx_hal::i2c::{BlockingI2c, DutyCycle, Mode};
@@ -33,16 +36,13 @@ use usb_device::bus;
 
 use cortex_m::asm::delay;
 
-use cortex_m_rt::entry;
 use rtt_target::{rprintln, rtt_init_print};
-
 
 use crate::input::Scan;
 use midi::usb;
-use crate::midi::{Transmit, notes, Cull, MidiError};
+use crate::midi::{Transmit};
 
 const SCAN_PERIOD: u32 = 200_000;
-const ERROR_PERIOD: u32 = 200_000_000;
 const BLINK_PERIOD: u32 = 20_000_000;
 
 use crate::midi::serial::{SerialMidiIn, SerialMidiOut};
@@ -55,22 +55,20 @@ use cortex_m::peripheral::DWT;
 use stm32f1xx_hal::serial;
 use crate::midi::packet::{MidiPacket, CableNumber};
 use crate::midi::Receive;
-use crate::midi::message::{Channel, Velocity};
-use crate::midi::message::MidiMessage::NoteOff;
-use core::sync::atomic::{AtomicUsize, Ordering};
 
 use core::alloc::Layout;
 use cortex_m::asm;
 
-use crate::state::ParamChange;
 use crate::state::AppChange::{Patch, Config};
 
 use panic_rtt_target as _;
+use stm32f1xx_hal::rtc::Rtc;
 
 #[global_allocator]
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
 
 // define what happens in an Out Of Memory (OOM) condition
+#[allow(clippy::empty_loop)]
 #[alloc_error_handler]
 fn alloc_error(_layout: Layout) -> ! {
     asm::bkpt();
@@ -82,6 +80,7 @@ const HEAP_SIZE: usize = 2048; // in bytes
 #[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
+        clock: rtc::RtcClock,
         inputs: Vec<Box<(dyn Scan + Sync + Send)>>,
         state: state::AppState,
         display: output::Display,
@@ -122,6 +121,14 @@ const APP: () = {
         assert!(clocks.usbclk_valid());
 
         rprintln!("Clocks OK");
+
+        // Setup RTC
+        let mut pwr = peripherals.PWR;
+        let mut backup_domain = rcc.bkp.constrain(peripherals.BKP, &mut rcc.apb1, &mut pwr);
+        let rtc = Rtc::rtc(peripherals.RTC, &mut backup_domain);
+        let clock = rtc::RtcClock::new(rtc);
+
+        rprintln!("RTC OK");
 
         // Get GPIO busses
         let mut gpioa = peripherals.GPIOA.split(&mut rcc.apb2);
@@ -222,12 +229,13 @@ const APP: () = {
         rprintln!("-> Initialized");
 
         init::LateResources {
+            clock,
             inputs,
             state: state::AppState::default(),
             display: output::Display {
                 onboard_led,
                 oled,
-                strbuf: String::with_capacity(32),
+                // strbuf: String::with_capacity(32),
             },
             usb_midi: midi::usb::UsbMidi::new(
                 usb_dev,
@@ -241,6 +249,7 @@ const APP: () = {
     /// RTIC defaults to SLEEP_ON_EXIT on idle, which is very eco-friendly (much wattage - wow)
     /// Except that sleeping FUCKS with RTT logging, debugging, etc.
     /// Override this with a puny idle loop (such waste!)
+    #[allow(clippy::empty_loop)]
     #[idle()]
     fn idle(mut _ctx: idle::Context) -> ! {
         loop {}
@@ -258,7 +267,7 @@ const APP: () = {
         if ctx.resources.usb_midi.poll() {
             while let Some(packet) = ctx.resources.usb_midi.receive().unwrap() {
                 // rprintln!("echoing packet {:?}", packet);
-                ctx.spawn.send_usb_midi(packet);
+                ctx.spawn.send_usb_midi(packet).unwrap();
             }
         }
     }
@@ -266,7 +275,8 @@ const APP: () = {
     /// Serial receive interrupt
     #[task(binds = USART1, resources = [din_midi_in], priority = 3)]
     fn serial_rx0(ctx: serial_rx0::Context) {
-        if let Some(_packet) = ctx.resources.din_midi_in.receive().unwrap() {
+        match ctx.resources.din_midi_in.receive() {
+            _ => {}
         }
     }
 
@@ -300,7 +310,7 @@ const APP: () = {
     #[task(spawn = [redraw], resources = [state], capacity = 5)]
     fn ctl_update(ctx: ctl_update::Context, event: input::Event) {
         if let Some(change) = ctx.resources.state.ctl_update(event) {
-            ctx.spawn.redraw(change);
+            ctx.spawn.redraw(change).unwrap();
         }
     }
 

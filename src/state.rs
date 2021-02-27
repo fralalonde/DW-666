@@ -1,25 +1,26 @@
 use crate::input;
 
 use crate::midi::packet::MidiPacket;
-use crate::midi::MidiError;
-use alloc::string::String;
 use crate::state::ParamChange::FilterCutoff;
 use crate::state::ConfigChange::MidiEcho;
-use crate::state::UiChange::LastError;
 
+#[derive(Clone, Debug)]
 pub enum ConfigChange {
     MidiEcho(bool),
 }
 
+#[derive(Clone, Debug)]
 pub enum UiChange {
     LedBlink(bool),
     LastError(&'static str)
 }
 
+#[derive(Clone, Debug)]
 pub enum ParamChange {
     FilterCutoff(i32),
 }
 
+#[derive(Clone, Debug)]
 pub enum AppChange {
     Config(ConfigChange),
     Ui(UiChange),
@@ -74,12 +75,10 @@ impl AppState {
         }
     }
 }
+
 impl AppState {
-    pub fn midi_update(&mut self, packet: MidiPacket) -> Option<AppChange> {
+    pub fn midi_update(&mut self, _packet: MidiPacket) -> Option<AppChange> {
         None
     }
 
-    pub fn error_update(&mut self, error: MidiError) -> Option<AppChange> {
-        Some(AppChange::Ui(LastError("error")))
-    }
 }
