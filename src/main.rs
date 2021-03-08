@@ -56,6 +56,8 @@ use crate::midi::message::{Channel, Velocity};
 use crate::midi::notes::Note;
 use crate::midi::notes::Note::C4;
 use core::convert::TryFrom;
+use crate::state::AppState;
+use crate::output::Display;
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -275,30 +277,25 @@ const APP: () = {
 
     #[task(resources = [state, display], spawn = [send_din_midi], schedule = [blink])]
     fn blink(ctx: blink::Context) {
-        ctx.resources.state.ui.led_on = !ctx.resources.state.ui.led_on;
-        static ch_num: u8 = 9;
-        static note_num: u8 = 44;
+        let state: &mut AppState = ctx.resources.state;
+        let display: &mut Display = ctx.resources.display;
 
-        let ch = Channel::try_from(ch_num).unwrap();
-        let note = Note::try_from(note_num).unwrap();
+        state.ui.led_on = !state.ui.led_on;
+
         let velo = Velocity::try_from(0x7F).unwrap();
 
-        if ctx.resources.state.ui.led_on {
-            ctx.resources.display.onboard_led.set_high().unwrap();
-            let note_on = midi::message::MidiMessage::NoteOn(ch, note, velo);
+        if state.ui.led_on {
+            display.onboard_led.set_high().unwrap();
+            let note_on = midi::message::MidiMessage::NoteOn(state.arp.channel, state.arp.note, velo);
             ctx.spawn.send_din_midi(note_on.into()).unwrap();
-            rprintln!("Send NoteOn ch {:?} note {:?}", ch, note);
+            rprintln!("Send NoteOn ch {:?} note {:?}", state.arp.channel, state.arp.note);
 
         } else {
-            ctx.resources.display.onboard_led.set_low().unwrap();
-            let note_off = midi::message::MidiMessage::NoteOff(ch, note, velo);
+            display.onboard_led.set_low().unwrap();
+            let note_off = midi::message::MidiMessage::NoteOff(state.arp.channel, state.arp.note, velo);
             ctx.spawn.send_din_midi(note_off.into()).unwrap();
-            rprintln!("Sent NoteOff ch {:?}  note {:?}", ch, note);
-            // if ch_num < 0x0F {
-            //     ch_num += 1;
-            // } else {
-            //     ch_num = 0;
-            // }
+            rprintln!("Sent NoteOff ch {:?}  note {:?}", state.arp.channel, state.arp.note);
+            state.arp.bump();
         }
         ctx.schedule
             .blink(ctx.scheduled + BLINK_PERIOD.cycles())

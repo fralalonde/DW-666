@@ -5,6 +5,7 @@ use crate::state::ParamChange::FilterCutoff;
 use crate::state::ConfigChange::MidiEcho;
 use crate::midi::u4::U4;
 use crate::midi::notes::Note;
+use core::convert::TryFrom;
 
 #[derive(Clone, Debug)]
 pub enum ConfigChange {
@@ -36,6 +37,29 @@ pub struct ConfigState {
 }
 
 /// Local appearance, transient, not directly sound related
+#[derive(Clone)]
+pub struct ArpState {
+    pub channel: U4,
+    pub note: Note,
+}
+
+impl Default for ArpState {
+    fn default() -> Self {
+        ArpState {
+            channel: U4::MIN,
+            note: Note::C4,
+        }
+    }
+}
+
+impl ArpState {
+    pub fn bump(&mut self) {
+        self.note = Note::try_from(self.note as u8  + 1).unwrap_or(Note::C4);
+        self.channel = U4::try_from(u8::from(self.channel) + 1).unwrap_or(U4::MIN)
+    }
+}
+
+/// Local appearance, transient, not directly sound related
 #[derive(Clone, Default)]
 pub struct UiState {
     pub led_on: bool,
@@ -54,8 +78,7 @@ pub struct AppState {
     pub config: ConfigState,
     pub patch: PatchState,
     pub ui: UiState,
-    // pub midi_channel: U4,
-    // pub midi_note: Note,
+    pub arp: ArpState,
 }
 
 impl AppState {
