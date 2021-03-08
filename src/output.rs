@@ -68,14 +68,14 @@ pub fn redraw_config(disp: &mut Display, change: super::state::ConfigChange) {
     }
 }
 
-//use embedded_graphics::image::{Image, ImageRaw};
-// pub fn draw_logo(
-//     oled: &mut GraphicsMode<
-//         I2CInterface<BlockingI2c<I2C1, (PB8<Alternate<OpenDrain>>, PB9<Alternate<OpenDrain>>)>>,
-//     >,
-// ) {
-//     let raw: ImageRaw<BinaryColor> = ImageRaw::new(include_bytes!("../rust.raw"), 64, 64);
-//     let im = Image::new(&raw, Point::new(32, 0));
-//     im.draw(oled).unwrap();
-//     oled.flush().unwrap();
-// }
+use embedded_graphics::image::{Image, ImageRaw};
+pub fn draw_logo(
+    oled: &mut GraphicsMode<
+        I2CInterface<BlockingI2c<I2C1, (PB8<Alternate<OpenDrain>>, PB9<Alternate<OpenDrain>>)>>,
+    >,
+) {
+    let raw: ImageRaw<BinaryColor> = ImageRaw::new(include_bytes!("../rust.raw"), 64, 64);
+    let im = Image::new(&raw, Point::new(32, 0));
+    im.draw(oled).unwrap();
+    oled.flush().unwrap();
+}

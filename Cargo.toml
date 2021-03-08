@@ -5,46 +5,34 @@ name = "usbmidi-route"
 readme = "README.md"
 version = "0.1.0"
 
-[[bin]]
-bench = false
-name = "usbmidi-route"
-test = false
-
 [dependencies]
 cortex-m = "0.6"
 cortex-m-rt = "0.6"
 cortex-m-rtic = "0.5"
-alloc-cortex-m = "0.4"
 
 embedded-hal = "0.2"
 ssd1306 = "0.4"
 embedded-graphics = "0.6"
 usb-device = "0.2"
-spin = "0.7"
 num_enum = { version = "0.5", default-features = false }
-nb = "1.0"
-embedded-time = "0.10.1"
+nb = "1"
 heapless = {version = "0.6.0", features = ["ufmt-impl"]}
 ufmt = "0.1.0"
 
 rtt-target = { version = "0.3", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
+stm32f1xx-hal = { version = "0.6", features = ["rt", "stm32f103", "medium", "stm32-usbd"] }
 
-[dependencies.stm32f1xx-hal]
-version = "0.6"
-features = ["rt", "stm32f103", "medium", "stm32-usbd"]
-
-#[[bin]]
-#name = "{{crate_name}}"
-#test = false
-#bench = false
+[[bin]]
+bench = false
+name = "usbmidi-route"
+test = false
 
 [profile.dev]
 debug = true
-opt-level = "s"
+opt-level = "z"
 lto = true
 panic = "abort"
-#debug = 2
 #debug-assertions = true
 #incremental = false
 #opt-level = 3
@@ -52,7 +40,7 @@ panic = "abort"
 
 [profile.release]
 codegen-units = 1
-opt-level = "s"
+opt-level = "z"
 debug = false
 lto = true
 panic = "abort"

@@ -5,7 +5,9 @@
 use crate::midi::u7::U7;
 use crate::midi::Cull;
 
-#[derive(Debug, Copy, Clone)]
+use num_enum::TryFromPrimitive;
+
+#[derive(Debug, Copy, Clone, TryFromPrimitive)]
 #[repr(u8)]
 pub enum Note {
     /// C1m is the C-1

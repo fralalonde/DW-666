@@ -8,6 +8,7 @@ use crate::midi::u4::U4;
 use self::ChannelCommand::*;
 use self::SystemCommand::*;
 
+#[derive(Copy, Clone, Debug)]
 pub enum MidiStatus {
     ChannelStatus(ChannelCommand, Channel),
     SystemStatus(SystemCommand),
@@ -41,7 +42,7 @@ impl MidiStatus {
     /// Returns expected size in bytes of associated MIDI message
     /// Including the status byte itself
     /// Sysex has no limit, instead being terminated by 0xF7, and thus returns None
-    pub fn cmd_len(&self) -> Option<u8> {
+    pub fn cmd_len(&self) -> Option<usize> {
         match self {
             ChannelStatus(NoteOff, _ch) => Some(3),
             ChannelStatus(NoteOn, _ch) => Some(3),
@@ -98,7 +99,7 @@ impl TryFrom<u8> for MidiStatus {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
 pub enum ChannelCommand {
     // Channel commands, lower bits of discriminants ignored (channel)
@@ -120,7 +121,7 @@ pub const SYSEX_START: u8 = 0xF0;
 /// Sysex sequence terminator, _not_ a status byte
 pub const SYSEX_END: u8 = 0xF7;
 
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
 pub enum SystemCommand {
     // System commands

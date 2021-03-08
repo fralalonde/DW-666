@@ -1,7 +1,8 @@
 use nb;
 use usb_device::UsbError;
 // use defmt::Format;
-use crate::midi::packet::MidiPacket;
+use crate::midi::packet::{MidiPacket, CodeIndexNumber};
+use num_enum::TryFromPrimitiveError;
 
 pub mod u4;
 pub mod u7;
@@ -33,6 +34,8 @@ pub enum MidiError {
     NotASystemCommand(u8),
     UnhandledDecode,
     SysexOutOfBounds,
+    InvalidCodeIndexNumber,
+    InvalidCableNumber,
     InvalidU4,
     InvalidU7,
     InvalidU14,
@@ -49,6 +52,12 @@ impl From<UsbError> for MidiError {
 impl<E> From<nb::Error<E>> for MidiError {
     fn from(_: nb::Error<E>) -> Self {
         MidiError::SerialError
+    }
+}
+
+impl From<TryFromPrimitiveError<CodeIndexNumber>> for MidiError {
+    fn from(_: TryFromPrimitiveError<CodeIndexNumber>) -> Self {
+        MidiError::InvalidCodeIndexNumber
     }
 }
 

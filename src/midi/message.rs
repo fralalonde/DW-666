@@ -42,15 +42,6 @@ pub enum MidiMessage {
     SystemReset,
 }
 
-impl TryFrom<MidiPacket> for MidiMessage {
-    type Error = MidiError;
-
-    fn try_from(_packet: MidiPacket) -> Result<Self, Self::Error> {
-        unimplemented!()
-    }
-}
-
-
 #[cfg(test)]
 mod tests {
     extern crate std;

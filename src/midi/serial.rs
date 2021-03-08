@@ -2,10 +2,82 @@
 //!
 use crate::midi::status::{SYSEX_START, SYSEX_END, is_midi_status};
 use embedded_hal::serial;
-use crate::midi::packet::{MidiPacket, CableNumber, PacketBuilder};
+use crate::midi::packet::{MidiPacket, CableNumber, CodeIndexNumber};
 use crate::midi::{MidiError, Receive, Transmit};
+use crate::midi::status::MidiStatus;
 use crate::midi::status::SystemCommand::SysexStart;
 use rtt_target::rprintln;
+use core::ops::{Deref, DerefMut};
+use core::convert::TryFrom;
+
+#[derive(Copy, Clone, Default)]
+pub struct PartialPacket {
+    len: usize,
+    bytes: [u8; 4]
+}
+
+impl PartialPacket {
+    /// First byte temporarily used as payload length marker, set to proper Cable (MSB) + Code Index Number (LSB) upon build
+    pub fn payload_len(&self) -> usize {
+        self.len
+    }
+
+    pub fn cmd_len(&self) -> Result<Option<usize>, MidiError> {
+        Ok(MidiStatus::try_from(self.bytes[1])?.cmd_len())
+    }
+
+    pub fn push(&mut self, byte: u8) {
+        self.len += 1;
+        if self.len > 3 {
+            panic!("Pushed serial byte beyond packet length")
+        }
+        self.bytes[self.len] = byte
+    }
+
+    pub fn build(mut self, cable_number: CableNumber) -> Result<MidiPacket, MidiError> {
+        let status = MidiStatus::try_from(self.bytes[1])?;
+        self.bytes[0] = CodeIndexNumber::from(status) as u8 | u8::from(cable_number) << 4;
+        Ok(MidiPacket::from_raw(self.bytes))
+    }
+
+    pub fn end_sysex(mut self, cable_number: CableNumber) -> Result<MidiPacket, MidiError> {
+        self.bytes[0] = CodeIndexNumber::end_sysex(self.payload_len())? as u8 | u8::from(cable_number) << 4;
+        Ok(MidiPacket::from_raw(self.bytes))
+    }
+}
+
+/// USB Event Packets are used to move MIDI across Serial and USB devices
+pub struct PacketBuilder {
+    prev_status: Option<u8>,
+    pending_sysex: Option<PartialPacket>,
+    inner: PartialPacket,
+}
+
+impl Deref for PacketBuilder {
+    type Target = PartialPacket;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for PacketBuilder {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+
+impl PacketBuilder {
+    pub fn new() -> Self {
+        PacketBuilder { prev_status: None, pending_sysex: None, inner: PartialPacket::default() }
+    }
+
+    pub fn next(prev_status: Option<u8>, pending_sysex: Option<PartialPacket>) -> Self {
+        PacketBuilder { prev_status, pending_sysex, inner: PartialPacket::default() }
+    }
+
+}
 
 pub struct SerialMidiIn<RX> {
     serial_in: RX,
@@ -92,7 +164,7 @@ impl<RX, E> SerialMidiIn<RX>
         }
     }
 
-    fn release_if_complete(&mut self, payload_len: u8) -> Result<Option<MidiPacket>, MidiError> {
+    fn release_if_complete(&mut self, payload_len: usize) -> Result<Option<MidiPacket>, MidiError> {
         let cmd_len = self.builder.cmd_len()?;
         if let Some(cmd_len) = cmd_len {
             if cmd_len == payload_len {
@@ -143,18 +215,46 @@ impl<TX> SerialMidiOut<TX>
 impl<TX> Transmit for SerialMidiOut<TX>
     where TX: serial::Write<u8>
 {
-    fn transmit(&mut self, event: MidiPacket)  -> Result<(), MidiError> {
+    fn transmit(&mut self, event: MidiPacket) -> Result<(), MidiError> {
         let mut payload = event.payload()?;
-        let new_status = Some(payload[0]);
-        if self.last_status == new_status {
-            payload = &payload[1..];
-        } else {
-            self.last_status = new_status;
+
+        // Apply MIDI "running status" optimization
+        match event.code_index_number()? {
+            // FIXME full optimization would also include Sysex? (except Realtime class) - whatever
+            CodeIndexNumber::Sysex
+            | CodeIndexNumber::SysexEndsNext2
+            | CodeIndexNumber::SysexEndsNext3 => {}
+            _ => {
+                let new_status = Some(payload[0]);
+                if self.last_status == new_status {
+                    payload = &payload[1..];
+                } else {
+                    self.last_status = new_status;
+                }
+            }
         }
 
+        'send_payload:
         for byte in payload {
-            self.serial_out.write(*byte).unwrap_err();
-        };
+            let mut tries = 0;
+            'blocking_write:
+            loop {
+                match self.serial_out.write(*byte) {
+                    Err(nb::Error::WouldBlock) => {
+                        tries += 1;
+                        if tries > 10000 {
+                            rprintln!("Write failed, Serial port _still_ in use after many retries");
+                            break 'send_payload
+                        }
+                    }
+                    Err(_err) => {
+                        rprintln!("Failed to write serial payload for reason other than blocking");
+                        break 'send_payload
+                    }
+                    _ => break 'blocking_write
+                }
+            }
+        }
         Ok(())
     }
 }

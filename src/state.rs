@@ -3,6 +3,8 @@ use crate::input;
 use crate::midi::packet::MidiPacket;
 use crate::state::ParamChange::FilterCutoff;
 use crate::state::ConfigChange::MidiEcho;
+use crate::midi::u4::U4;
+use crate::midi::notes::Note;
 
 #[derive(Clone, Debug)]
 pub enum ConfigChange {
@@ -52,6 +54,8 @@ pub struct AppState {
     pub config: ConfigState,
     pub patch: PatchState,
     pub ui: UiState,
+    // pub midi_channel: U4,
+    // pub midi_note: Note,
 }
 
 impl AppState {

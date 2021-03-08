@@ -89,7 +89,7 @@ impl midi::Transmit for UsbMidi {
 impl midi::Receive for UsbMidi {
     fn receive(&mut self) -> Result<Option<MidiPacket>, MidiError> {
         if let Some(bytes) = self.midi_class.receive() {
-            return Ok(Some(MidiPacket::from_raw(bytes)?));
+            return Ok(Some(MidiPacket::from_raw(bytes)));
         }
         Ok(None)
     }
