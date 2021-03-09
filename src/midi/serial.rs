@@ -216,10 +216,10 @@ impl<TX> Transmit for SerialMidiOut<TX>
     where TX: serial::Write<u8>
 {
     fn transmit(&mut self, event: MidiPacket) -> Result<(), MidiError> {
-        let mut payload = event.payload()?;
+        let mut payload = event.payload();
 
         // Apply MIDI "running status" optimization
-        match event.code_index_number()? {
+        match event.code_index_number() {
             // FIXME full optimization would also include Sysex? (except Realtime class) - whatever
             CodeIndexNumber::Sysex
             | CodeIndexNumber::SysexEndsNext2

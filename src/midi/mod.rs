@@ -1,8 +1,7 @@
 use nb;
 use usb_device::UsbError;
 // use defmt::Format;
-use crate::midi::packet::{MidiPacket, CodeIndexNumber};
-use num_enum::TryFromPrimitiveError;
+use crate::midi::packet::{MidiPacket};
 
 pub mod u4;
 pub mod u7;
@@ -34,7 +33,6 @@ pub enum MidiError {
     NotASystemCommand(u8),
     UnhandledDecode,
     SysexOutOfBounds,
-    InvalidCodeIndexNumber,
     InvalidCableNumber,
     InvalidU4,
     InvalidU7,
@@ -55,11 +53,11 @@ impl<E> From<nb::Error<E>> for MidiError {
     }
 }
 
-impl From<TryFromPrimitiveError<CodeIndexNumber>> for MidiError {
-    fn from(_: TryFromPrimitiveError<CodeIndexNumber>) -> Self {
-        MidiError::InvalidCodeIndexNumber
-    }
-}
+// impl From<TryFromPrimitiveError<CodeIndexNumber>> for MidiError {
+//     fn from(_: TryFromPrimitiveError<CodeIndexNumber>) -> Self {
+//         MidiError::InvalidCodeIndexNumber
+//     }
+// }
 
 /// Just strip higher bits (meh)
 pub trait Cull<T>: Sized {

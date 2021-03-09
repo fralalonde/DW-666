@@ -14,6 +14,9 @@ embedded-hal = "0.2"
 ssd1306 = "0.4"
 embedded-graphics = "0.6"
 usb-device = "0.2"
+enum-map = "0.6.4"
+#enum-map-derive = "0.4.6"
+
 num_enum = { version = "0.5", default-features = false }
 nb = "1"
 heapless = {version = "0.6.0", features = ["ufmt-impl"]}

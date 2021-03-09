@@ -1,128 +1,119 @@
 use embedded_hal::digital::v2::InputPin;
+use crate::event::{UiEvent, Instant, RotaryId, RotaryEvent, ButtonId, ButtonEvent};
+use RotaryEvent::{TickCounterClockwise, TickClockwise};
+use ButtonEvent::{Up, Down};
+use crate::event;
+use enum_map::EnumMap;
 
 const CYCLES_STEPPING: u64 = 1000;
 
 pub const SCAN_FREQ_HZ: u32 = 1_000;
 const SCAN_PERIOD_MICROS: u64 = ((1.0 / SCAN_FREQ_HZ as f64) * 1_000_000.0) as u64;
 
-#[derive(Copy, Clone)]
-pub enum Source {
-    Encoder1,
-}
-
-pub enum Event {
-    ButtonDown(Source),
-    ButtonUp(Source),
-    EncoderTurn(Source, i32),
-}
 
 pub trait Scan {
-    fn scan(&mut self) -> Option<Event>;
-}
-
-struct Observed<T> {
-    state: T,
-    time: u64,
-}
-
-impl<T> Observed<T> {
-    fn init(init: T) -> Self {
-        Observed {
-            state: init,
-            time: 0,
-        }
-    }
+    fn scan(&mut self, now: Instant) -> Option<UiEvent>;
 }
 
 // dt, clk
 type EncoderState = (bool, bool);
 
 pub struct Encoder<DT, CLK> {
-    source: Source,
+    source: RotaryId,
     dt_pin: DT,
     clk_pin: CLK,
-    prev: Observed<EncoderState>,
+    prev_state: EncoderState,
 }
 
-pub fn encoder<DT, CLK>(source: Source, dt_pin: DT, clk_pin: CLK) -> Encoder<DT, CLK>
+pub fn encoder<DT, CLK>(source: RotaryId, dt_pin: DT, clk_pin: CLK) -> Encoder<DT, CLK>
 where
     DT: 'static + InputPin + Sync + Send,
     CLK: 'static + InputPin + Sync + Send,
 {
     Encoder {
         source,
-        prev: (Observed::init(
-            (
-                dt_pin.is_low().unwrap_or(false),
-                clk_pin.is_low().unwrap_or(false),
-            ),
-        )),
+        prev_state: (
+            dt_pin.is_low().unwrap_or(false),
+            clk_pin.is_low().unwrap_or(false),
+        ),
         dt_pin,
         clk_pin,
     }
 }
 
 impl<DT: InputPin, CLK: InputPin> Scan for Encoder<DT, CLK> {
-    fn scan(&mut self) -> Option<Event> {
-        let enc_code = (
+    fn scan(&mut self, now: Instant) -> Option<UiEvent> {
+        let new_state = (
             self.dt_pin.is_low().unwrap_or(false),
             self.clk_pin.is_low().unwrap_or(false),
         );
-        if enc_code != self.prev.state {
+        if new_state != self.prev_state {
             // exponential stepping based on rotation speed
-            let stonks = SCAN_PERIOD_MICROS / CYCLES_STEPPING;
-            let steps = match stonks {
-                // TODO proportional stepping
-                0 => return None, // too fast (debouncing)
-                1..=2 => 16,
-                3..=4 => 8,
-                5..=8 => 4,
-                9..=16 => 2,
-                _ => 1,
-            };
-            match (self.prev.state, enc_code) {
+            // let stonks = SCAN_PERIOD_MICROS / CYCLES_STEPPING;
+            // let steps = match stonks {
+            //     // TODO proportional stepping
+            //     0 => return None, // too fast (debouncing)
+            //     1..=2 => 16,
+            //     3..=4 => 8,
+            //     5..=8 => 4,
+            //     9..=16 => 2,
+            //     _ => 1,
+            // };
+            match (self.prev_state, new_state) {
                 ((false, true), (true, true)) => {
-                    self.prev.state = enc_code;
-                    return Some(Event::EncoderTurn(self.source, steps));
+                    self.prev_state = new_state;
+                    return Some(UiEvent::Rotary(self.source, TickClockwise(now)));
                 }
                 ((true, false), (true, true)) => {
-                    self.prev.state = enc_code;
-                    return Some(Event::EncoderTurn(self.source, -steps));
+                    self.prev_state = new_state;
+                    return Some(UiEvent::Rotary(self.source, TickCounterClockwise(now)));
                 }
 
                 // TODO differential subcode speed stepping hint?
-                _ => self.prev.state = enc_code,
+                _ => self.prev_state = new_state,
             };
         }
         None
     }
 }
 
-// Button
-
-struct ButtonState {
-    pushed: bool,
-}
-
 pub struct Button<PIN> {
-    source: Source,
+    source: ButtonId,
     btn_pin: PIN,
-    prev: Observed<ButtonState>,
+    prev_pushed: bool,
 }
 
 impl<T: InputPin> Scan for Button<T> {
-    fn scan(&mut self) -> Option<Event> {
+    fn scan(&mut self, now: Instant) -> Option<UiEvent> {
         let pushed: bool = self.btn_pin.is_low().unwrap_or(false);
-        if pushed != self.prev.state.pushed {
-            self.prev.state.pushed = pushed;
+        if pushed != self.prev_pushed {
+            self.prev_pushed = pushed;
             // TODO button up, double click
             if pushed {
-                Some(Event::ButtonDown(self.source))
+                Some(UiEvent::Button(self.source, Down(now)))
             } else {
-                Some(Event::ButtonUp(self.source))
+                Some(UiEvent::Button(self.source, Up(now)))
             }
         } else {
             None
+        }
+    }
+}
+
+pub struct Controls {
+    velocities: EnumMap<RotaryId, i8>,
+}
+
+impl Controls {
+    pub fn dispatch(&mut self, event: event::UiEvent) -> Option<UiEvent> {
+        match event {
+            UiEvent::Rotary(r, RotaryEvent::TickClockwise(_now)) => {
+                Some(UiEvent::Rotary(r, RotaryEvent::Turn(1)))
+            }
+            UiEvent::Rotary(r, RotaryEvent::TickCounterClockwise(_now)) => {
+                Some(UiEvent::Rotary(r, RotaryEvent::Turn(-1)))
+            }
+            _ => None,
         }
     }
 }

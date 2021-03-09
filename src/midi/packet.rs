@@ -8,11 +8,11 @@ use crate::midi::{MidiError};
 use crate::midi::status::{MidiStatus, SystemCommand};
 use CodeIndexNumber::*;
 use MidiStatus::{ChannelStatus, SystemStatus};
-use num_enum::TryFromPrimitive;
+use num_enum::UnsafeFromPrimitive;
 
 pub type CableNumber = U4;
 
-#[derive(Default, Debug)]
+#[derive(Default, Clone, Copy, Debug)]
 pub struct MidiPacket {
     bytes: [u8; 4]
 }
@@ -26,13 +26,13 @@ impl MidiPacket {
         Ok(CableNumber::try_from(self.bytes[0] >> 4)?)
     }
 
-    pub fn code_index_number(&self) -> Result<CodeIndexNumber, MidiError> {
-        Ok(CodeIndexNumber::try_from(self.bytes[0] & 0x0F)?)
+    pub fn code_index_number(&self) -> CodeIndexNumber {
+        self.bytes[0].into()
     }
 
-    pub fn payload(&self) -> Result<&[u8], MidiError> {
-        let cin = self.code_index_number()?;
-        Ok(&self.bytes[1..cin.payload_len()])
+    pub fn payload(&self) -> &[u8] {
+        let cin = self.code_index_number();
+        &self.bytes[1..cin.payload_len()]
     }
 
     pub fn with_cable_num(mut self, cable_number: CableNumber) -> Self {
@@ -101,7 +101,7 @@ impl From<MidiMessage> for MidiPacket {
 /// The Code Index Number(CIN) indicates the classification
 /// of the bytes in the MIDI_x fields
 #[allow(unused)]
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, UnsafeFromPrimitive)]
 #[repr(u8)]
 pub enum CodeIndexNumber {
     /// Miscellaneous function codes. Reserved for future extensions
@@ -138,6 +138,12 @@ pub enum CodeIndexNumber {
 
     /// Single Byte
     SingleByte = 0xF,
+}
+
+impl From<u8> for CodeIndexNumber {
+    fn from(byte: u8) -> Self {
+        unsafe {CodeIndexNumber::from_unchecked(byte & 0x0F)}
+    }
 }
 
 impl From<MidiStatus> for CodeIndexNumber {

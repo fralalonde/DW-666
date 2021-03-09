@@ -1,11 +1,8 @@
 use crate::midi::u7::U7;
-use crate::midi::{MidiError};
-use core::convert::{TryFrom};
 use crate::midi::u4::U4;
 
 use crate::midi::notes::Note;
 use crate::midi::u14::U14;
-use crate::midi::packet::MidiPacket;
 
 pub type Channel = U4;
 pub type Velocity = U7;

@@ -1,34 +1,13 @@
-use crate::input;
+use crate::{ event};
 
-use crate::midi::packet::MidiPacket;
-use crate::state::ParamChange::FilterCutoff;
-use crate::state::ConfigChange::MidiEcho;
 use crate::midi::u4::U4;
 use crate::midi::notes::Note;
 use core::convert::TryFrom;
 
-#[derive(Clone, Debug)]
-pub enum ConfigChange {
-    MidiEcho(bool),
-}
+use num_enum::TryFromPrimitive;
+use crate::event::{UiEvent,  RotaryEvent, AppEvent, Param};
 
-#[derive(Clone, Debug)]
-pub enum UiChange {
-    LedBlink(bool),
-    LastError(&'static str)
-}
 
-#[derive(Clone, Debug)]
-pub enum ParamChange {
-    FilterCutoff(i32),
-}
-
-#[derive(Clone, Debug)]
-pub enum AppChange {
-    Config(ConfigChange),
-    Ui(UiChange),
-    Patch(ParamChange),
-}
 
 /// Globals
 #[derive(Clone, Default)]
@@ -41,6 +20,19 @@ pub struct ConfigState {
 pub struct ArpState {
     pub channel: U4,
     pub note: Note,
+}
+
+#[derive(Clone, Debug, TryFromPrimitive)]
+#[repr(u8)]
+pub enum MenuDisplay {
+    Channel,
+    Note,
+}
+
+/// Local appearance, transient, not directly sound related
+#[derive(Clone)]
+pub struct MenuState {
+    pub selected: MenuDisplay,
 }
 
 impl Default for ArpState {
@@ -88,24 +80,17 @@ impl AppState {
 }
 
 impl AppState {
-    pub fn ctl_update(&mut self, event: input::Event) -> Option<AppChange> {
+    pub fn dispatch(&mut self, event: event::UiEvent) -> Option<AppEvent> {
         match event {
-            input::Event::EncoderTurn(input::Source::Encoder1, z) => {
-                self.patch.filter_cutoff += z;
-                Some(AppChange::Patch(FilterCutoff(self.patch.filter_cutoff)))
+            UiEvent::Rotary(_r, RotaryEvent::Turn(delta)) => {
+                self.patch.filter_cutoff += delta;
+                Some(AppEvent::ParamChange(Param::FilterCutoff(self.patch.filter_cutoff)))
             }
-            input::Event::ButtonDown(input::Source::Encoder1) => {
-                self.config.echo_midi = !self.config.echo_midi;
-                Some(AppChange::Config(MidiEcho(self.config.echo_midi)))
+            UiEvent::Button(_, _) => {
+                // TODO select next menu item
+                None
             }
             _ => None,
         }
     }
-}
-
-impl AppState {
-    pub fn midi_update(&mut self, _packet: MidiPacket) -> Option<AppChange> {
-        None
-    }
-
 }

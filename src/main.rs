@@ -6,16 +6,20 @@
 
 extern crate cortex_m;
 
+#[macro_use]
+extern crate enum_map;
+
 mod rtc;
 mod clock;
+mod event;
 mod input;
 mod midi;
 mod output;
-mod state;
+mod app;
 
 use embedded_hal::digital::v2::OutputPin;
 use rtic::app;
-use rtic::cyccnt::U32Ext as _;
+use rtic::cyccnt::{U32Ext, Instant};
 
 use stm32f1xx_hal::gpio::{State, Input, PullUp};
 use stm32f1xx_hal::i2c::{BlockingI2c, DutyCycle, Mode};
@@ -35,8 +39,6 @@ use crate::input::{Scan, Encoder};
 use midi::usb;
 use crate::midi::{Transmit};
 
-const BLINK_PERIOD: u32 = 20_000_000;
-
 use crate::midi::serial::{SerialMidiIn, SerialMidiOut};
 use crate::midi::usb::MidiClass;
 use core::result::Result;
@@ -45,8 +47,6 @@ use stm32f1xx_hal::serial;
 use crate::midi::packet::{MidiPacket, CableNumber};
 use crate::midi::Receive;
 
-use crate::state::AppChange::{Patch, Config};
-
 use panic_rtt_target as _;
 use stm32f1xx_hal::rtc::Rtc;
 use stm32f1xx_hal::serial::{Tx, Rx, StopBits};
@@ -54,24 +54,30 @@ use stm32f1xx_hal::gpio::gpioa::{PA6, PA7};
 use stm32f1xx_hal::timer::{Event, Timer};
 use crate::midi::message::{Channel, Velocity};
 use crate::midi::notes::Note;
-use crate::midi::notes::Note::C4;
 use core::convert::TryFrom;
-use crate::state::AppState;
+use crate::app::AppState;
 use crate::output::Display;
+use event::{MidiEndpoint, AppEvent};
+use event::MidiEvent::Incoming;
+use crate::event::{MidiEvent, UiEvent, ButtonEvent};
+use MidiEvent::Outgoing;
+use crate::clock::{CPU_FREQ, PCLK1_FREQ};
+
+const ARP_NOTE_LEN: u32 = 10_000_000;
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
         clock: rtc::RtcClock,
-        encoder: Encoder<PA6<Input<PullUp>>, PA7<Input<PullUp>>>,
-        state: state::AppState,
+        controls: Encoder<PA6<Input<PullUp>>, PA7<Input<PullUp>>>,
+        state: app::AppState,
         display: output::Display,
         usb_midi: midi::usb::UsbMidi,
-        din_midi_in: SerialMidiIn<Rx<USART1>>,
-        din_midi_out: SerialMidiOut<Tx<USART1>>,
+        serial_midi_in: SerialMidiIn<Rx<USART1>>,
+        serial_midi_out: SerialMidiOut<Tx<USART1>>,
     }
 
-    #[init(schedule = [blink])]
+    #[init]
     fn init(ctx: init::Context) -> init::LateResources {
         // for some RTIC reason statics need to go first
         static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
@@ -79,8 +85,7 @@ const APP: () = {
         rtt_init_print!();
 
         // unsafe { ALLOCATOR.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE) }
-
-        rprintln!("Allocator OK");
+        // rprintln!("Allocator OK");
 
         // Enable cycle counter
         let mut core = ctx.core;
@@ -95,9 +100,8 @@ const APP: () = {
         let clocks = rcc
             .cfgr
             .use_hse(8.mhz())
-            // maximum CPU overclock
-            .sysclk(72.mhz())
-            .pclk1(36.mhz())
+            .sysclk(CPU_FREQ.hz())
+            .pclk1(PCLK1_FREQ.hz())
             .freeze(&mut flash.acr);
 
         assert!(clocks.usbclk_valid());
@@ -117,31 +121,38 @@ const APP: () = {
         let mut gpiob = peripherals.GPIOB.split(&mut rcc.apb2);
         let mut gpioc = peripherals.GPIOC.split(&mut rcc.apb2);
 
-        // // Setup LED
+        // Setup LED
         let mut onboard_led = gpioc
             .pc13
             .into_push_pull_output_with_state(&mut gpioc.crh, State::Low);
         onboard_led.set_low().unwrap();
-        ctx.schedule
-            .blink(ctx.start + BLINK_PERIOD.cycles())
-            .unwrap();
+
+        let mut led_blink_timer = Timer::tim4(peripherals.TIM4, &clocks, &mut rcc.apb1)
+            .start_count_down(2.hz());
+        led_blink_timer.listen(Event::Update);
 
         rprintln!("Blinker OK");
 
-        let mut timer3 = Timer::tim3(peripherals.TIM3, &clocks, &mut rcc.apb1)
-            .start_count_down(input::SCAN_FREQ_HZ.hz());
-        timer3.listen(Event::Update);
-
         // Setup Encoders
+
         let encoder: Encoder<PA6<Input<PullUp>>, PA7<Input<PullUp>>> = input::encoder(
-            input::Source::Encoder1,
+            event::RotaryId::MAIN,
             gpioa.pa6.into_pull_up_input(&mut gpioa.crl),
             gpioa.pa7.into_pull_up_input(&mut gpioa.crl),
         );
-
         let _enc_push = gpioa.pa5.into_pull_down_input(&mut gpioa.crl);
 
-        rprintln!("Controls OK");
+        let mut control_scan_timer = Timer::tim3(peripherals.TIM3, &clocks, &mut rcc.apb1)
+            .start_count_down(input::SCAN_FREQ_HZ.hz());
+        control_scan_timer.listen(Event::Update);
+
+        // Setup Arp
+
+        let mut arp_time = Timer::tim2(peripherals.TIM2, &clocks, &mut rcc.apb1)
+            .start_count_down(5.hz());
+        arp_time.listen(Event::Update);
+
+        rprintln!("Arp OK");
 
         // Setup Display
         let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
@@ -189,8 +200,8 @@ const APP: () = {
             &mut rcc.apb2,
         )
             .split();
-        let din_midi_out = SerialMidiOut::new(tx);
-        let din_midi_in = SerialMidiIn::new(rx, CableNumber::MIN);
+        let serial_midi_out = SerialMidiOut::new(tx);
+        let serial_midi_in = SerialMidiIn::new(rx, CableNumber::MIN);
 
         rprintln!("Serial port OK");
 
@@ -214,8 +225,8 @@ const APP: () = {
 
         init::LateResources {
             clock,
-            encoder,
-            state: state::AppState::default(),
+            controls: encoder,
+            state: app::AppState::default(),
             display: output::Display {
                 onboard_led,
                 oled,
@@ -224,16 +235,15 @@ const APP: () = {
                 usb_dev,
                 midi_class,
             ),
-            din_midi_in,
-            din_midi_out,
+            serial_midi_in,
+            serial_midi_out,
         }
     }
 
     /// RTIC defaults to SLEEP_ON_EXIT on idle, which is very eco-friendly (much wattage - wow)
     /// Except that sleeping FUCKS with RTT logging, debugging, etc.
     /// Override this with a puny idle loop (such waste!)
-    // #[allow(clippy::empty_loop)]
-    // #[idle(spawn = [send_din_midi])]
+    #[allow(clippy::empty_loop)]
     #[idle]
     fn idle(ctx: idle::Context) -> ! {
         loop {
@@ -247,92 +257,115 @@ const APP: () = {
     }
 
     /// USB receive interrupt
-    #[task(binds = USB_LP_CAN_RX0, spawn = [send_din_midi], resources = [usb_midi], priority = 3)]
+    #[task(binds = USB_LP_CAN_RX0, spawn = [dispatch_midi], resources = [usb_midi], priority = 3)]
     fn usb_lp_can_rx0(ctx: usb_lp_can_rx0::Context) {
-        if ctx.resources.usb_midi.poll() {
-            while let Some(packet) = ctx.resources.usb_midi.receive().unwrap() {
-                rprintln!("copying USB packet to Serial {:?}", packet);
-                ctx.spawn.send_din_midi(packet).unwrap();
-            }
+        while let Some(packet) = ctx.resources.usb_midi.receive().unwrap() {
+            ctx.spawn.dispatch_midi(Incoming(MidiEndpoint::USB, packet));
         }
     }
 
     /// Serial receive interrupt
-    #[task(binds = USART1, spawn = [send_usb_midi], resources = [din_midi_in], priority = 3)]
+    #[task(binds = USART1, spawn = [dispatch_midi], resources = [serial_midi_in], priority = 3)]
     fn serial_rx0(ctx: serial_rx0::Context) {
-        while let Some(packet) = ctx.resources.din_midi_in.receive().unwrap() {
-            rprintln!("copying Serial packet to USB {:?}", packet);
-            // ctx.spawn.send_usb_midi(packet).unwrap();
+        while let Some(packet) = ctx.resources.serial_midi_in.receive().unwrap() {
+            ctx.spawn.dispatch_midi(Incoming(MidiEndpoint::Serial(0), packet));
         }
     }
 
     /// Encoder scan timer interrupt
-    #[task(binds = TIM3, resources = [encoder], spawn = [ctl_update], priority = 1)]
-    fn scan_encoder(ctx: scan_encoder::Context) {
-        let encoder = ctx.resources.encoder;
-        if let Some(event) = encoder.scan() {
-            let _change = ctx.spawn.ctl_update(event);
+    #[task(binds = TIM3, resources = [controls], spawn = [dispatch_ui], priority = 1)]
+    fn control_scan(ctx: control_scan::Context) {
+        let mut encoder = ctx.resources.controls;
+        if let Some(event) = encoder.scan(clock::long_now()) {
+            ctx.spawn.dispatch_ui(event).unwrap();
         }
     }
 
-    #[task(resources = [state, display], spawn = [send_din_midi], schedule = [blink])]
-    fn blink(ctx: blink::Context) {
+    #[task(binds = TIM2, resources = [state], spawn = [dispatch_midi], schedule = [arp_note_off])]
+    fn arp_note_on(ctx: arp_note_on::Context) {
+        let state: &mut AppState = ctx.resources.state;
+
+        state.ui.led_on = !state.ui.led_on;
+
+        let channel = state.arp.channel;
+        let note = state.arp.note;
+        let velo = Velocity::try_from(0x7F).unwrap();
+        state.arp.bump();
+
+        let note_on = midi::message::MidiMessage::NoteOn(state.arp.channel, state.arp.note, velo);
+        ctx.spawn.dispatch_midi(Incoming(MidiEndpoint::Serial(0), note_on.into())).unwrap();
+        rprintln!("Send NoteOn ch {:?} note {:?}", state.arp.channel, state.arp.note);
+        ctx.schedule.arp_note_off(Instant::now() + ARP_NOTE_LEN.cycles(), channel, note, velo).unwrap();
+    }
+
+    #[task(spawn = [dispatch_midi])]
+    fn arp_note_off(ctx: arp_note_off::Context, channel: Channel, note: Note, velo: Velocity) {
+        let note_off = midi::message::MidiMessage::NoteOff(channel, note, velo);
+        ctx.spawn.dispatch_midi(Incoming(MidiEndpoint::Serial(0), note_off.into())).unwrap();
+        rprintln!("Sent NoteOff ch {:?}  note {:?}", channel, note);
+    }
+
+    #[task(binds = TIM4, resources = [state, display])]
+    fn led_blink(ctx: led_blink::Context) {
         let state: &mut AppState = ctx.resources.state;
         let display: &mut Display = ctx.resources.display;
 
         state.ui.led_on = !state.ui.led_on;
 
-        let velo = Velocity::try_from(0x7F).unwrap();
-
         if state.ui.led_on {
             display.onboard_led.set_high().unwrap();
-            let note_on = midi::message::MidiMessage::NoteOn(state.arp.channel, state.arp.note, velo);
-            ctx.spawn.send_din_midi(note_on.into()).unwrap();
-            rprintln!("Send NoteOn ch {:?} note {:?}", state.arp.channel, state.arp.note);
-
         } else {
             display.onboard_led.set_low().unwrap();
-            let note_off = midi::message::MidiMessage::NoteOff(state.arp.channel, state.arp.note, velo);
-            ctx.spawn.send_din_midi(note_off.into()).unwrap();
-            rprintln!("Sent NoteOff ch {:?}  note {:?}", state.arp.channel, state.arp.note);
-            state.arp.bump();
-        }
-        ctx.schedule
-            .blink(ctx.scheduled + BLINK_PERIOD.cycles())
-            .unwrap();
-
-    }
-
-    #[task(spawn = [redraw], resources = [state], capacity = 5)]
-    fn ctl_update(ctx: ctl_update::Context, event: input::Event) {
-        if let Some(change) = ctx.resources.state.ctl_update(event) {
-            ctx.spawn.redraw(change).unwrap();
         }
     }
 
-    #[task(resources = [usb_midi], priority = 3)]
-    fn send_usb_midi(ctx: send_usb_midi::Context, packet: MidiPacket) {
-        if let Err(e) = ctx.resources.usb_midi.transmit(packet) {
-            rprintln!("Failed to send USB MIDI: {:?}", e)
+    #[task(spawn = [redraw], resources = [display, state], capacity = 5, priority = 1)]
+    fn dispatch_ui(ctx: dispatch_ui::Context, event: event::UiEvent) {
+        match event {
+            UiEvent::Button(but, ButtonEvent::Down(time)) => {}
+            UiEvent::Button(but, ButtonEvent::Up(time)) => {}
+
+            UiEvent::Button(but, ButtonEvent::Hold(duration)) => {}
+            UiEvent::Button(but, ButtonEvent::Release(duration)) => {}
+
+            UiEvent::Rotary(_, _) => {}
+        }
+    }
+
+    #[task(spawn = [dispatch_midi, send_serial_midi], resources = [usb_midi], priority = 3)]
+    fn dispatch_midi(ctx: dispatch_midi::Context, event: MidiEvent) {
+        match event {
+            Incoming(MidiEndpoint::USB, packet) => {
+                // echo USB packets
+                ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::USB, packet));
+            }
+            Outgoing(MidiEndpoint::USB, packet) => {
+                // immediate forward
+                if let Err(e) = ctx.resources.usb_midi.transmit(packet) {
+                    rprintln!("Failed to send USB MIDI: {:?}", e)
+                }
+            }
+            Incoming(MidiEndpoint::Serial(_), packet) => {
+                rprintln!("Received serial MIDI {:?}", packet)
+            }
+            Outgoing(MidiEndpoint::Serial(_), packet) => {
+                ctx.spawn.send_serial_midi(packet);
+            }
         }
     }
 
     /// Sending Serial MIDI is a slow, _blocking_ operation (for now?).
     /// Use lower priority and enable queuing of tasks (capacity > 1).
-    #[task(capacity = 16, priority = 2, resources = [din_midi_out])]
-    fn send_din_midi(ctx: send_din_midi::Context, packet: MidiPacket) {
-        if let Err(e) = ctx.resources.din_midi_out.transmit(packet) {
+    #[task(capacity = 16, priority = 2, resources = [serial_midi_out])]
+    fn send_serial_midi(ctx: send_serial_midi::Context, packet: MidiPacket) {
+        if let Err(e) = ctx.resources.serial_midi_out.transmit(packet) {
             rprintln!("Failed to send Serial MIDI: {:?}", e)
         }
     }
 
     #[task(resources = [display])]
-    fn redraw(ctx: redraw::Context, change: state::AppChange) {
-        match change {
-            Patch(change) => output::redraw_patch(ctx.resources.display, change),
-            Config(change) => output::redraw_config(ctx.resources.display, change),
-            _ => {}
-        }
+    fn redraw(ctx: redraw::Context, event: AppEvent) {
+        ctx.resources.display.dispatch(event)
     }
 
     extern "C" {

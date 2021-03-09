@@ -4,7 +4,7 @@ use core::result::Result;
 use crate::midi::u14::U14;
 
 /// A primitive value that can be from 0-0x7F
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct U7(u8);
 
 impl TryFrom<u8> for U7 {
