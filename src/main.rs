@@ -4,8 +4,12 @@
 
 #![feature(const_mut_refs, slice_as_chunks)]
 
+#[macro_use]
+extern crate enum_map;
+
 extern crate cortex_m;
 
+mod event;
 mod rtc;
 mod clock;
 mod input;
@@ -35,8 +39,6 @@ use crate::input::{Scan, Encoder};
 use midi::usb;
 use crate::midi::{Transmit};
 
-const BLINK_PERIOD: u32 = 20_000_000;
-
 use crate::midi::serial::{SerialMidiIn, SerialMidiOut};
 use crate::midi::usb::MidiClass;
 use core::result::Result;
@@ -53,17 +55,21 @@ use stm32f1xx_hal::serial::{Tx, Rx, StopBits};
 use stm32f1xx_hal::gpio::gpioa::{PA6, PA7};
 use stm32f1xx_hal::timer::{Event, Timer};
 use crate::midi::message::{Channel, Velocity};
-use crate::midi::notes::Note;
-use crate::midi::notes::Note::C4;
 use core::convert::TryFrom;
 use crate::state::AppState;
 use crate::output::Display;
+use crate::clock::{CPU_FREQ, PCLK1_FREQ};
+use crate::event::{UiEvent, ButtonEvent};
+
+const BLINK_PERIOD: u32 = 20_000_000;
+const CTL_SCAN: u32 = 7200;
+
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
-        clock: rtc::RtcClock,
-        encoder: Encoder<PA6<Input<PullUp>>, PA7<Input<PullUp>>>,
+        // clock: rtc::RtcClock,
+        controls: Encoder<PA6<Input<PullUp>>, PA7<Input<PullUp>>>,
         state: state::AppState,
         display: output::Display,
         usb_midi: midi::usb::UsbMidi,
@@ -71,7 +77,7 @@ const APP: () = {
         din_midi_out: SerialMidiOut<Tx<USART1>>,
     }
 
-    #[init(schedule = [blink])]
+    #[init(schedule = [blink, control_scan])]
     fn init(ctx: init::Context) -> init::LateResources {
         // for some RTIC reason statics need to go first
         static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
@@ -79,8 +85,7 @@ const APP: () = {
         rtt_init_print!();
 
         // unsafe { ALLOCATOR.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE) }
-
-        rprintln!("Allocator OK");
+        // rprintln!("Allocator OK");
 
         // Enable cycle counter
         let mut core = ctx.core;
@@ -96,8 +101,8 @@ const APP: () = {
             .cfgr
             .use_hse(8.mhz())
             // maximum CPU overclock
-            .sysclk(72.mhz())
-            .pclk1(36.mhz())
+            .sysclk(CPU_FREQ.hz())
+            .pclk1(PCLK1_FREQ.hz())
             .freeze(&mut flash.acr);
 
         assert!(clocks.usbclk_valid());
@@ -105,10 +110,10 @@ const APP: () = {
         rprintln!("Clocks OK");
 
         // Setup RTC
-        let mut pwr = peripherals.PWR;
-        let mut backup_domain = rcc.bkp.constrain(peripherals.BKP, &mut rcc.apb1, &mut pwr);
-        let rtc = Rtc::rtc(peripherals.RTC, &mut backup_domain);
-        let clock = rtc::RtcClock::new(rtc);
+        // let mut pwr = peripherals.PWR;
+        // let mut backup_domain = rcc.bkp.constrain(peripherals.BKP, &mut rcc.apb1, &mut pwr);
+        // let rtc = Rtc::rtc(peripherals.RTC, &mut backup_domain);
+        // let clock = rtc::RtcClock::new(rtc);
 
         rprintln!("RTC OK");
 
@@ -134,12 +139,13 @@ const APP: () = {
 
         // Setup Encoders
         let encoder: Encoder<PA6<Input<PullUp>>, PA7<Input<PullUp>>> = input::encoder(
-            input::Source::Encoder1,
+            event::RotaryId::MAIN,
             gpioa.pa6.into_pull_up_input(&mut gpioa.crl),
             gpioa.pa7.into_pull_up_input(&mut gpioa.crl),
         );
-
         let _enc_push = gpioa.pa5.into_pull_down_input(&mut gpioa.crl);
+
+        ctx.schedule.control_scan(ctx.start + CTL_SCAN.cycles()).unwrap();
 
         rprintln!("Controls OK");
 
@@ -213,8 +219,8 @@ const APP: () = {
         rprintln!("-> Initialized");
 
         init::LateResources {
-            clock,
-            encoder,
+            // clock,
+            controls: encoder,
             state: state::AppState::default(),
             display: output::Display {
                 onboard_led,
@@ -235,7 +241,7 @@ const APP: () = {
     // #[allow(clippy::empty_loop)]
     // #[idle(spawn = [send_din_midi])]
     #[idle]
-    fn idle(ctx: idle::Context) -> ! {
+    fn idle(_ctx: idle::Context) -> ! {
         loop {
         }
     }
@@ -267,11 +273,26 @@ const APP: () = {
     }
 
     /// Encoder scan timer interrupt
-    #[task(binds = TIM3, resources = [encoder], spawn = [ctl_update], priority = 1)]
-    fn scan_encoder(ctx: scan_encoder::Context) {
-        let encoder = ctx.resources.encoder;
-        if let Some(event) = encoder.scan() {
-            let _change = ctx.spawn.ctl_update(event);
+    #[task(resources = [controls], spawn = [dispatch_ui], schedule = [control_scan], priority = 1)]
+    fn control_scan(ctx: control_scan::Context) {
+        let mut encoder = ctx.resources.controls;
+        if let Some(event) = encoder.scan(clock::long_now()) {
+            ctx.spawn.dispatch_ui(event).unwrap();
+        }
+        ctx.schedule.control_scan(ctx.scheduled + CTL_SCAN.cycles()).unwrap();
+    }
+
+    // #[task(spawn = [redraw], resources = [display, state], capacity = 5, priority = 1)]
+    #[task()]
+    fn dispatch_ui(ctx: dispatch_ui::Context, event: event::UiEvent) {
+        match event {
+            UiEvent::Button(but, ButtonEvent::Down(time)) => {}
+            UiEvent::Button(but, ButtonEvent::Up(time)) => {}
+
+            UiEvent::Button(but, ButtonEvent::Hold(duration)) => {}
+            UiEvent::Button(but, ButtonEvent::Release(duration)) => {}
+
+            UiEvent::Rotary(_, _) => {}
         }
     }
 
@@ -303,12 +324,12 @@ const APP: () = {
 
     }
 
-    #[task(spawn = [redraw], resources = [state], capacity = 5)]
-    fn ctl_update(ctx: ctl_update::Context, event: input::Event) {
-        if let Some(change) = ctx.resources.state.ctl_update(event) {
-            ctx.spawn.redraw(change).unwrap();
-        }
-    }
+    // #[task(spawn = [redraw], resources = [state], capacity = 5)]
+    // fn ctl_update(ctx: ctl_update::Context, event: input::Event) {
+    //     if let Some(change) = ctx.resources.state.ctl_update(event) {
+    //         ctx.spawn.redraw(change).unwrap();
+    //     }
+    // }
 
     #[task(resources = [usb_midi], priority = 3)]
     fn send_usb_midi(ctx: send_usb_midi::Context, packet: MidiPacket) {

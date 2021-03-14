@@ -88,19 +88,20 @@ impl AppState {
 }
 
 impl AppState {
-    pub fn ctl_update(&mut self, event: input::Event) -> Option<AppChange> {
-        match event {
-            input::Event::EncoderTurn(input::Source::Encoder1, z) => {
-                self.patch.filter_cutoff += z;
-                Some(AppChange::Patch(FilterCutoff(self.patch.filter_cutoff)))
-            }
-            input::Event::ButtonDown(input::Source::Encoder1) => {
-                self.config.echo_midi = !self.config.echo_midi;
-                Some(AppChange::Config(MidiEcho(self.config.echo_midi)))
-            }
-            _ => None,
-        }
-    }
+    // pub fn ctl_update(&mut self, event: input::Event) -> Option<AppChange> {
+        // match event {
+        //     input::Event::EncoderTurn(input::Source::Encoder1, z) => {
+        //         self.patch.filter_cutoff += z;
+        //         Some(AppChange::Patch(FilterCutoff(self.patch.filter_cutoff)))
+        //     }
+        //     input::Event::ButtonDown(input::Source::Encoder1) => {
+        //         self.config.echo_midi = !self.config.echo_midi;
+        //         Some(AppChange::Config(MidiEcho(self.config.echo_midi)))
+        //     }
+        //     _ => None,
+        // }
+        // None
+    // }
 }
 
 impl AppState {

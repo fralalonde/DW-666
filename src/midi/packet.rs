@@ -12,7 +12,7 @@ use num_enum::TryFromPrimitive;
 
 pub type CableNumber = U4;
 
-#[derive(Default, Debug)]
+#[derive(Default, Clone, Copy, Debug)]
 pub struct MidiPacket {
     bytes: [u8; 4]
 }
