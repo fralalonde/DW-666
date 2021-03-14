@@ -1,34 +1,12 @@
 use crate::input;
 
 use crate::midi::packet::MidiPacket;
-use crate::state::ParamChange::FilterCutoff;
-use crate::state::ConfigChange::MidiEcho;
 use crate::midi::u4::U4;
 use crate::midi::notes::Note;
 use core::convert::TryFrom;
-
-#[derive(Clone, Debug)]
-pub enum ConfigChange {
-    MidiEcho(bool),
-}
-
-#[derive(Clone, Debug)]
-pub enum UiChange {
-    LedBlink(bool),
-    LastError(&'static str)
-}
-
-#[derive(Clone, Debug)]
-pub enum ParamChange {
-    FilterCutoff(i32),
-}
-
-#[derive(Clone, Debug)]
-pub enum AppChange {
-    Config(ConfigChange),
-    Ui(UiChange),
-    Patch(ParamChange),
-}
+use crate::event::{AppEvent, CtlEvent, RotaryEvent};
+use crate::event::Param::FilterCutoff;
+use crate::event::Config::MidiEcho;
 
 /// Globals
 #[derive(Clone, Default)]
@@ -88,24 +66,23 @@ impl AppState {
 }
 
 impl AppState {
-    // pub fn ctl_update(&mut self, event: input::Event) -> Option<AppChange> {
-        // match event {
-        //     input::Event::EncoderTurn(input::Source::Encoder1, z) => {
-        //         self.patch.filter_cutoff += z;
-        //         Some(AppChange::Patch(FilterCutoff(self.patch.filter_cutoff)))
-        //     }
-        //     input::Event::ButtonDown(input::Source::Encoder1) => {
-        //         self.config.echo_midi = !self.config.echo_midi;
-        //         Some(AppChange::Config(MidiEcho(self.config.echo_midi)))
-        //     }
-        //     _ => None,
-        // }
-        // None
-    // }
+    pub fn dispatch_ctl(&mut self, event: CtlEvent) -> Option<AppEvent> {
+        match event {
+            CtlEvent::Rotary(_r, RotaryEvent::Turn(delta)) => {
+                self.patch.filter_cutoff += delta;
+                Some(AppEvent::ParamChange(FilterCutoff(self.patch.filter_cutoff)))
+            }
+            CtlEvent::Button(_, _) => {
+                // TODO select next menu item
+                None
+            }
+            _ => None,
+        }
+    }
 }
 
 impl AppState {
-    pub fn midi_update(&mut self, _packet: MidiPacket) -> Option<AppChange> {
+    pub fn midi_update(&mut self, _packet: MidiPacket) -> Option<AppEvent> {
         None
     }
 

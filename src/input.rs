@@ -1,10 +1,13 @@
 use embedded_hal::digital::v2::InputPin;
-use crate::event::{UiEvent, RotaryId, RotaryEvent, ButtonId, Instant};
+use crate::event::{CtlEvent, RotaryId, RotaryEvent, ButtonId, Instant};
 use enum_map::EnumMap;
 use crate::event::RotaryEvent::{TickClockwise, TickCounterClockwise};
 use crate::event::ButtonEvent::{Down, Up};
 
 use rtt_target::{rprintln, rtt_init_print};
+use stm32f1xx_hal::gpio::gpioa::{PA6, PA7};
+use stm32f1xx_hal::gpio::{Input, PullUp};
+use crate::midi::status::ChannelCommand::Control;
 
 const CYCLES_STEPPING: u64 = 1000;
 
@@ -12,7 +15,7 @@ pub const SCAN_FREQ_HZ: u32 = 1_000;
 const SCAN_PERIOD_MICROS: u64 = ((1.0 / SCAN_FREQ_HZ as f64) * 1_000_000.0) as u64;
 
 pub trait Scan {
-    fn scan(&mut self, now: Instant) -> Option<UiEvent>;
+    fn scan(&mut self, now: Instant) -> Option<CtlEvent>;
 }
 
 // dt, clk
@@ -42,7 +45,7 @@ pub fn encoder<DT, CLK>(source: RotaryId, dt_pin: DT, clk_pin: CLK) -> Encoder<D
 }
 
 impl<DT: InputPin, CLK: InputPin> Scan for Encoder<DT, CLK> {
-    fn scan(&mut self, now: Instant) -> Option<UiEvent> {
+    fn scan(&mut self, now: Instant) -> Option<CtlEvent> {
         let new_state = (
             self.dt_pin.is_low().unwrap_or(false),
             self.clk_pin.is_low().unwrap_or(false),
@@ -60,18 +63,15 @@ impl<DT: InputPin, CLK: InputPin> Scan for Encoder<DT, CLK> {
             //     9..=16 => 2,
             //     _ => 1,
             // };
-            rprintln!("PQOIQP");
 
             match (self.prev_state, new_state) {
                 ((false, true), (true, true)) => {
-                    rprintln!("GEUEGEU");
                     self.prev_state = new_state;
-                    return Some(UiEvent::Rotary(self.source, TickClockwise(now)));
+                    return Some(CtlEvent::Rotary(self.source, TickClockwise(now)));
                 }
                 ((true, false), (true, true)) => {
-                    rprintln!("AGAGA");
                     self.prev_state = new_state;
-                    return Some(UiEvent::Rotary(self.source, TickCounterClockwise(now)));
+                    return Some(CtlEvent::Rotary(self.source, TickCounterClockwise(now)));
                 }
 
                 // TODO differential subcode speed stepping hint?
@@ -89,15 +89,15 @@ pub struct Button<PIN> {
 }
 
 impl<T: InputPin> Scan for Button<T> {
-    fn scan(&mut self, now: Instant) -> Option<UiEvent> {
+    fn scan(&mut self, now: Instant) -> Option<CtlEvent> {
         let pushed: bool = self.btn_pin.is_low().unwrap_or(false);
         if pushed != self.prev_pushed {
             self.prev_pushed = pushed;
             // TODO button up, double click
             if pushed {
-                Some(UiEvent::Button(self.source, Down(now)))
+                Some(CtlEvent::Button(self.source, Down(now)))
             } else {
-                Some(UiEvent::Button(self.source, Up(now)))
+                Some(CtlEvent::Button(self.source, Up(now)))
             }
         } else {
             None
@@ -105,18 +105,34 @@ impl<T: InputPin> Scan for Button<T> {
     }
 }
 
-pub struct Controls {
+pub struct Controls<DT1, CLK1> {
     velocities: EnumMap<RotaryId, i8>,
+    encoder1: Encoder<DT1, CLK1>,
 }
 
-impl Controls {
-    pub fn dispatch(&mut self, event: UiEvent) -> Option<UiEvent> {
+impl <DT1: InputPin, CLK1: InputPin> Scan for Controls<DT1, CLK1> {
+    fn scan(&mut self, now: u64) -> Option<CtlEvent> {
+        self.encoder1.scan(now)
+    }
+}
+
+impl <DT1, CLK1> Controls<DT1, CLK1> {
+
+    pub fn new(encoder1: Encoder<DT1, CLK1>) -> Self {
+        Controls {
+            encoder1,
+            velocities: EnumMap::new(),
+        }
+    }
+
+    /// Emit derivatives events
+    pub fn derive(&mut self, event: CtlEvent) -> Option<CtlEvent> {
         match event {
-            UiEvent::Rotary(r, RotaryEvent::TickClockwise(_now)) => {
-                Some(UiEvent::Rotary(r, RotaryEvent::Turn(1)))
+            CtlEvent::Rotary(r, RotaryEvent::TickClockwise(_now)) => {
+                Some(CtlEvent::Rotary(r, RotaryEvent::Turn(1)))
             }
-            UiEvent::Rotary(r, RotaryEvent::TickCounterClockwise(_now)) => {
-                Some(UiEvent::Rotary(r, RotaryEvent::Turn(-1)))
+            CtlEvent::Rotary(r, RotaryEvent::TickCounterClockwise(_now)) => {
+                Some(CtlEvent::Rotary(r, RotaryEvent::Turn(-1)))
             }
             _ => None,
         }

@@ -34,7 +34,7 @@ pub enum RotaryId {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum UiEvent {
+pub enum CtlEvent {
     Button(ButtonId, ButtonEvent),
     Rotary(RotaryId, RotaryEvent),
 }
@@ -43,6 +43,7 @@ pub enum UiEvent {
 pub enum MidiEndpoint {
     USB,
     Serial(u8),
+    Internal(u8),
 }
 
 #[derive(Copy, Clone, Debug)]
