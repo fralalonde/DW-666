@@ -1,12 +1,9 @@
-use crate::input;
-
 use crate::midi::packet::MidiPacket;
 use crate::midi::u4::U4;
 use crate::midi::notes::Note;
 use core::convert::TryFrom;
 use crate::event::{AppEvent, CtlEvent, RotaryEvent};
 use crate::event::Param::FilterCutoff;
-use crate::event::Config::MidiEcho;
 
 /// Globals
 #[derive(Clone, Default)]

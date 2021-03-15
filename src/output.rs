@@ -9,8 +9,7 @@ use embedded_graphics::{
 };
 use ssd1306::prelude::{GraphicsMode, I2CInterface};
 use stm32f1xx_hal::gpio::gpiob::{PB8, PB9};
-use stm32f1xx_hal::gpio::gpioc::PC13;
-use stm32f1xx_hal::gpio::{Alternate, OpenDrain, Output, PushPull};
+use stm32f1xx_hal::gpio::{Alternate, OpenDrain};
 use stm32f1xx_hal::i2c::{BlockingI2c};
 use stm32f1xx_hal::pac::I2C1;
 use embedded_graphics::style::PrimitiveStyleBuilder;

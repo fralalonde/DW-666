@@ -4,11 +4,6 @@ use enum_map::EnumMap;
 use crate::event::RotaryEvent::{TickClockwise, TickCounterClockwise};
 use crate::event::ButtonEvent::{Down, Up};
 
-use rtt_target::{rprintln, rtt_init_print};
-use stm32f1xx_hal::gpio::gpioa::{PA6, PA7};
-use stm32f1xx_hal::gpio::{Input, PullUp};
-use crate::midi::status::ChannelCommand::Control;
-
 const CYCLES_STEPPING: u64 = 1000;
 
 pub const SCAN_FREQ_HZ: u32 = 1_000;
@@ -127,6 +122,7 @@ impl <DT1, CLK1> Controls<DT1, CLK1> {
 
     /// Emit derivatives events
     pub fn derive(&mut self, event: CtlEvent) -> Option<CtlEvent> {
+        // let prev_time = self.velocities.
         match event {
             CtlEvent::Rotary(r, RotaryEvent::TickClockwise(_now)) => {
                 Some(CtlEvent::Rotary(r, RotaryEvent::Turn(1)))

@@ -6,7 +6,6 @@ use crate::midi::packet::{MidiPacket, CableNumber, CodeIndexNumber};
 use crate::midi::{MidiError, Receive, Transmit};
 use crate::midi::status::MidiStatus;
 use crate::midi::status::SystemCommand::SysexStart;
-use rtt_target::rprintln;
 use core::ops::{Deref, DerefMut};
 use core::convert::TryFrom;
 

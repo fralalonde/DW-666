@@ -7,10 +7,13 @@
 #[macro_use]
 extern crate enum_map;
 
+#[macro_use]
+extern crate rtt_target;
+
 extern crate cortex_m;
 
 mod event;
-mod rtc;
+// mod rtc;
 mod clock;
 mod input;
 mod midi;
@@ -33,9 +36,7 @@ use usb_device::bus;
 
 use cortex_m::asm::delay;
 
-use rtt_target::{rprintln, rtt_init_print};
-
-use crate::input::{Scan, Encoder, Controls};
+use crate::input::{Scan, Controls};
 use midi::usb;
 use crate::midi::{Transmit};
 
@@ -48,23 +49,21 @@ use crate::midi::packet::{MidiPacket, CableNumber};
 use crate::midi::Receive;
 
 use panic_rtt_target as _;
-use stm32f1xx_hal::rtc::Rtc;
-use stm32f1xx_hal::serial::{Tx, Rx, StopBits};
+use stm32f1xx_hal::serial::{Tx, Rx, StopBits, Event};
 use stm32f1xx_hal::gpio::gpioa::{PA6, PA7};
-use stm32f1xx_hal::timer::{Event, Timer};
+// use stm32f1xx_hal::timer::{Event, Timer};
 use crate::midi::message::{Channel, Velocity};
 use core::convert::TryFrom;
 use crate::app::AppState;
-use crate::output::Display;
 use crate::clock::{CPU_FREQ, PCLK1_FREQ};
-use crate::event::{CtlEvent, ButtonEvent, MidiEndpoint, AppEvent, MidiEvent, RotaryEvent};
+use crate::event::{MidiEndpoint, MidiEvent};
 use stm32f1xx_hal::gpio::gpioc::PC13;
 use crate::event::MidiEvent::{Incoming, Outgoing};
 use crate::midi::notes::Note;
 
 const CTL_SCAN: u32 = 7200;
 const LED_BLINK_CYCLES: u32 = 14_400_000;
-const ARP_NOTE_LEN: u32 = 21_400_000;
+const ARP_NOTE_LEN: u32 = 7200000;
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -133,9 +132,9 @@ const APP: () = {
 
         rprintln!("Blinker OK");
 
-        let mut timer3 = Timer::tim3(peripherals.TIM3, &clocks, &mut rcc.apb1)
-            .start_count_down(input::SCAN_FREQ_HZ.hz());
-        timer3.listen(Event::Update);
+        // let mut timer3 = Timer::tim3(peripherals.TIM3, &clocks, &mut rcc.apb1)
+        //     .start_count_down(input::SCAN_FREQ_HZ.hz());
+        // timer3.listen(Event::Update);
 
         // Setup Encoders
         let encoder = input::encoder(
@@ -182,7 +181,7 @@ const APP: () = {
         let rx_pin = gpioa.pa3;
 
         // Configure Midi
-        let (tx, rx) = serial::Serial::usart2(
+        let mut usart = serial::Serial::usart2(
             peripherals.USART2,
             (tx_pin, rx_pin),
             &mut afio.mapr,
@@ -193,8 +192,9 @@ const APP: () = {
                 .parity_none(),
             clocks,
             &mut rcc.apb1,
-        )
-            .split();
+        );
+        usart.listen(Event::Rxne);
+        let (tx, rx) = usart.split();
         let serial_midi_out = SerialMidiOut::new(tx);
         let serial_midi_in = SerialMidiIn::new(rx, CableNumber::MIN);
 
@@ -217,7 +217,7 @@ const APP: () = {
         rprintln!("USB OK");
 
         // Setup Arp
-        ctx.schedule.arp_note_on(ctx.start + ARP_NOTE_LEN.cycles()).unwrap();
+        // ctx.schedule.arp_note_on(ctx.start + ARP_NOTE_LEN.cycles()).unwrap();
         rprintln!("Arp OK");
 
         rprintln!("-> Initialized");
@@ -270,16 +270,15 @@ const APP: () = {
     /// Serial receive interrupt
     #[task(binds = USART2, spawn = [dispatch_midi], resources = [serial_midi_in], priority = 3)]
     fn serial_rx0(ctx: serial_rx0::Context) {
-        while let Some(packet) = ctx.resources.serial_midi_in.receive().unwrap() {
-            rprintln!("diaptch moidio");
-            ctx.spawn.dispatch_midi(Incoming(MidiEndpoint::USB, packet));
+        while let Ok(Some(packet)) = ctx.resources.serial_midi_in.receive() {
+            ctx.spawn.dispatch_midi(Incoming(MidiEndpoint::Serial(0), packet));
         }
     }
 
     /// Encoder scan timer interrupt
     #[task(resources = [controls], spawn = [dispatch_ctl], schedule = [control_scan], priority = 1)]
     fn control_scan(ctx: control_scan::Context) {
-        let mut controls = ctx.resources.controls;
+        let controls = ctx.resources.controls;
         if let Some(event) = controls.scan(clock::long_now()) {
             ctx.spawn.dispatch_ctl(event).unwrap();
         }
@@ -314,12 +313,12 @@ const APP: () = {
         let note_on = midi::message::MidiMessage::NoteOn(app_state.arp.channel, app_state.arp.note, velo);
         ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::Arp(0), note_on.into())).unwrap();
 
-        ctx.schedule.arp_note_off(ctx.scheduled + ARP_NOTE_LEN.cycles(), channel, note, velo).unwrap();
+        ctx.schedule.arp_note_off(ctx.scheduled + ARP_NOTE_LEN.cycles(), channel, note).unwrap();
         ctx.schedule.arp_note_on(ctx.scheduled + ARP_NOTE_LEN.cycles()).unwrap();
     }
 
     #[task(spawn = [dispatch_midi], capacity = 2)]
-    fn arp_note_off(ctx: arp_note_off::Context, channel: Channel, note: Note, velo: Velocity) {
+    fn arp_note_off(ctx: arp_note_off::Context, channel: Channel, note: Note) {
         let note_off = midi::message::MidiMessage::NoteOff(channel, note, Velocity::try_from(0).unwrap());
         ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::Arp(0), note_off.into())).unwrap();
     }
@@ -371,10 +370,6 @@ const APP: () = {
         if let Err(e) = ctx.resources.serial_midi_out.transmit(packet) {
             rprintln!("Failed to send Serial MIDI: {:?}", e)
         }
-    }
-
-    #[task(resources = [display])]
-    fn redraw(ctx: redraw::Context, event: AppEvent) {
     }
 
     extern "C" {
