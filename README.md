@@ -4,6 +4,8 @@
 
 This project is developed and maintained by the [Cortex-M team][team].
 
+https://github.com/Alger76/zeph/blob/master/boards/arm/black_f407ve/doc/index.rst
+
 ## Dependencies
 
 To build embedded programs using this template you'll need:

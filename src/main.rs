@@ -24,13 +24,13 @@ use embedded_hal::digital::v2::OutputPin;
 use rtic::app;
 use rtic::cyccnt::U32Ext as _;
 
-use stm32f1xx_hal::gpio::{State, Input, PullUp, Output, PushPull};
-use stm32f1xx_hal::i2c::{BlockingI2c, DutyCycle, Mode};
-use stm32f1xx_hal::prelude::*;
+use stm32f4xx_hal::gpio::{Input, PullUp, Output, PushPull};
+use stm32f4xx_hal::i2c::{Mode};
+use stm32f4xx_hal::prelude::*;
 
 use ssd1306::{prelude::*, Builder, I2CDIBuilder};
-use stm32f1xx_hal::usb::{Peripheral, UsbBus, UsbBusType};
-use stm32f1xx_hal::device::USART2;
+use stm32f4xx_hal::usb::{Peripheral, UsbBus, UsbBusType};
+use stm32f4xx_hal::device::USART2;
 
 use usb_device::bus;
 
@@ -43,29 +43,31 @@ use crate::midi::{Transmit};
 use crate::midi::serial::{SerialMidiIn, SerialMidiOut};
 use crate::midi::usb::MidiClass;
 use core::result::Result;
-use stm32f1xx_hal::serial;
+use stm32f4xx_hal::serial;
 
 use crate::midi::packet::{MidiPacket, CableNumber};
 use crate::midi::Receive;
 
 use panic_rtt_target as _;
-use stm32f1xx_hal::serial::{Tx, Rx, StopBits, Event};
-use stm32f1xx_hal::gpio::gpioa::{PA6, PA7};
-// use stm32f1xx_hal::timer::{Event, Timer};
+use stm32f4xx_hal::serial::{Tx, Rx, Event};
+use stm32f4xx_hal::gpio::gpioa::{PA6, PA7};
+// use stm32f4xx_hal::timer::{Event, Timer};
 use crate::midi::message::{Channel, Velocity};
 use core::convert::TryFrom;
 use crate::app::AppState;
 use crate::clock::{CPU_FREQ, PCLK1_FREQ};
 use crate::event::{MidiEndpoint, MidiEvent};
-use stm32f1xx_hal::gpio::gpioc::PC13;
+use stm32f4xx_hal::gpio::gpioc::PC13;
 use crate::event::MidiEvent::{Incoming, Outgoing};
 use crate::midi::notes::Note;
+use stm32f4xx_hal::otg_fs::{UsbBusType, UsbBus};
+use stm32f4xx_hal::serial::config::StopBits;
 
 const CTL_SCAN: u32 = 7200;
 const LED_BLINK_CYCLES: u32 = 14_400_000;
 const ARP_NOTE_LEN: u32 = 7200000;
 
-#[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
+#[app(device = stm32f4xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
         // clock: rtc::RtcClock,
@@ -92,7 +94,7 @@ const APP: () = {
         let mut core = ctx.core;
         core.DWT.enable_cycle_counter();
 
-        let peripherals: stm32f1xx_hal::stm32::Peripherals = ctx.device;
+        let peripherals: stm32f4xx_hal::stm32::Peripherals = ctx.device;
 
         // Setup clocks
         let mut flash = peripherals.FLASH.constrain();
@@ -104,7 +106,7 @@ const APP: () = {
             // maximum CPU overclock
             .sysclk(CPU_FREQ.hz())
             .pclk1(PCLK1_FREQ.hz())
-            .freeze(&mut flash.acr);
+            .freeze();
 
         assert!(clocks.usbclk_valid());
 
@@ -139,8 +141,8 @@ const APP: () = {
         // Setup Encoders
         let encoder = input::encoder(
             event::RotaryId::MAIN,
-            gpioa.pa6.into_pull_up_input(&mut gpioa.crl),
-            gpioa.pa7.into_pull_up_input(&mut gpioa.crl),
+            gpioa.pa6.into_pull_up_input(),
+            gpioa.pa7.into_pull_up_input(),
         );
         // let _enc_push = gpioa.pa5.into_pull_down_input(&mut gpioa.crl);
         let controls = Controls::new(encoder);
@@ -150,26 +152,30 @@ const APP: () = {
         rprintln!("Controls OK");
 
         // Setup Display
-        let scl = gpiob.pb8.into_alternate_open_drain(&mut gpiob.crh);
-        let sda = gpiob.pb9.into_alternate_open_drain(&mut gpiob.crh);
+        let scl = gpiob.pb8.into_alternate_af4().set_open_drain();
+        let sda = gpiob.pb9.into_alternate_af4().set_open_drain();
 
-        let i2c = BlockingI2c::i2c1(
-            peripherals.I2C1,
-            (scl, sda),
-            &mut afio.mapr,
-            Mode::Fast {
-                frequency: 400_000.hz(),
-                duty_cycle: DutyCycle::Ratio2to1,
-            },
-            clocks,
-            &mut rcc.apb1,
-            1000,
-            10,
-            1000,
-            1000,
-        );
-        let oled_i2c = I2CDIBuilder::new().init(i2c);
-        let mut oled: GraphicsMode<_> = Builder::new().connect(oled_i2c).into();
+        let i2c = I2c::i2c1(dp.I2C1, (scl, sda), 400.khz(), clocks);
+        let interface = I2CDIBuilder::new().init(i2c);
+        let oled: GraphicsMode<_> = Builder::new().connect(interface).into();
+
+        // let i2c = BlockingI2c::i2c1(
+        //     peripherals.I2C1,
+        //     (scl, sda),
+        //     &mut afio.mapr,
+        //     Mode::Fast {
+        //         frequency: 400_000.hz(),
+        //         duty_cycle: DutyCycle::Ratio2to1,
+        //     },
+        //     clocks,
+        //     &mut rcc.apb1,
+        //     1000,
+        //     10,
+        //     1000,
+        //     1000,
+        // );
+        // let oled_i2c = I2CDIBuilder::new().init(i2c);
+        // let mut oled: GraphicsMode<_> = Builder::new().connect(oled_i2c).into();
         oled.init().unwrap();
 
         output::draw_logo(&mut oled);
@@ -177,21 +183,19 @@ const APP: () = {
         rprintln!("Screen OK");
 
         // Configure serial
-        let tx_pin = gpioa.pa2.into_alternate_push_pull(&mut gpioa.crl);
-        let rx_pin = gpioa.pa3;
+        let tx_pin = gpioa.pa2.into_alternate_af7();
+        let rx_pin = gpioa.pa3.into_alternate_af7();
 
         // Configure Midi
         let mut usart = serial::Serial::usart2(
             peripherals.USART2,
             (tx_pin, rx_pin),
-            &mut afio.mapr,
             serial::Config::default()
                 .baudrate(31250.bps())
                 // .wordlength(WordLength::DataBits8)
                 .stopbits(StopBits::STOP1)
                 .parity_none(),
             clocks,
-            &mut rcc.apb1,
         );
         usart.listen(Event::Rxne);
         let (tx, rx) = usart.split();
@@ -201,14 +205,14 @@ const APP: () = {
         rprintln!("Serial port OK");
 
         // force USB reset for dev mode (it's a Blue Pill thing)
-        let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
+        let mut usb_dp = gpioa.pa12.into_push_pull_output();
         usb_dp.set_low().unwrap();
         delay(clocks.sysclk().0 / 100);
 
         let usb = Peripheral {
             usb: peripherals.USB,
             pin_dm: gpioa.pa11,
-            pin_dp: usb_dp.into_floating_input(&mut gpioa.crh),
+            pin_dp: usb_dp.into_floating_input(),
         };
 
         *USB_BUS = Some(UsbBus::new(usb));

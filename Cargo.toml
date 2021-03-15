@@ -22,7 +22,7 @@ ufmt = "0.1.0"
 
 rtt-target = { version = "0.3", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
-stm32f1xx-hal = { version = "0.6", features = ["rt", "stm32f103", "medium", "stm32-usbd"] }
+stm32f4xx-hal = { version = "0.8", features = ["rt", "stm32f407", "usb_fs"] }
 
 [[bin]]
 bench = false

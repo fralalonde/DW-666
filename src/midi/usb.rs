@@ -12,7 +12,7 @@ use usb_device::{
 
 use core::result::Result;
 
-use stm32f1xx_hal::usb::{UsbBusType};
+use stm32f4xx_hal::otg_fs::{UsbBusType};
 use crate::midi::packet::MidiPacket;
 use crate::midi::MidiError;
 use crate::midi;

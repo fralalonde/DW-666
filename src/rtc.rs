@@ -1,5 +1,5 @@
 use heapless::{consts::*, String};
-use stm32f1xx_hal::rtc::Rtc;
+use stm32f4xx_hal::rtc::Rtc;
 use ufmt::{uDisplay, uWrite, uwrite, Formatter};
 
 #[derive(Copy, Clone)]
