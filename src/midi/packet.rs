@@ -32,7 +32,7 @@ impl MidiPacket {
 
     pub fn payload(&self) -> Result<&[u8], MidiError> {
         let cin = self.code_index_number()?;
-        Ok(&self.bytes[1..cin.payload_len()])
+        Ok(&self.bytes[1..cin.payload_len() + 1])
     }
 
     pub fn with_cable_num(mut self, cable_number: CableNumber) -> Self {

@@ -24,7 +24,7 @@ pub struct ArpState {
 impl Default for ArpState {
     fn default() -> Self {
         ArpState {
-            channel: U4::MIN,
+            channel: U4::try_from(09).unwrap(),
             note: Note::C4,
         }
     }
@@ -33,7 +33,7 @@ impl Default for ArpState {
 impl ArpState {
     pub fn bump(&mut self) {
         self.note = Note::try_from(self.note as u8  + 1).unwrap_or(Note::C4);
-        self.channel = U4::try_from(u8::from(self.channel) + 1).unwrap_or(U4::MIN)
+        // self.channel = U4::try_from(u8::from(self.channel) + 1).unwrap_or(U4::MIN)
     }
 }
 

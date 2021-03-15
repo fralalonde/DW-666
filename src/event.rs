@@ -43,7 +43,7 @@ pub enum CtlEvent {
 pub enum MidiEndpoint {
     USB,
     Serial(u8),
-    Internal(u8),
+    Arp(u8),
 }
 
 #[derive(Copy, Clone, Debug)]

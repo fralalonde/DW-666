@@ -229,15 +229,13 @@ impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
 
     /// Callback after USB flush (send) completed
     /// Check for packets that were enqueued while device was busy (UsbErr::WouldBlock)
-    /// If any packets are pending re-flush queue immediately for lowest latency!
+    /// If any packets are pending re-flush queue immediately
     /// This callback may chain-trigger under high output load (big sysex, etc.) - this is good
     fn endpoint_in_complete(&mut self, addr: EndpointAddress) {
         if addr == self.bulk_in.address() {
-            // send any more pending bytes in tx_buf
             if self.tx_len > 0 {
-                if self.tx_flush() {
-                    // rprintln!("fast follow flush")
-                }
+                // send pending bytes in tx_buf
+                self.tx_flush();
             }
         }
     }

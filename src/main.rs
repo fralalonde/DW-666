@@ -271,6 +271,7 @@ const APP: () = {
     #[task(binds = USART2, spawn = [dispatch_midi], resources = [serial_midi_in], priority = 3)]
     fn serial_rx0(ctx: serial_rx0::Context) {
         while let Some(packet) = ctx.resources.serial_midi_in.receive().unwrap() {
+            rprintln!("diaptch moidio");
             ctx.spawn.dispatch_midi(Incoming(MidiEndpoint::USB, packet));
         }
     }
@@ -311,7 +312,7 @@ const APP: () = {
         app_state.arp.bump();
 
         let note_on = midi::message::MidiMessage::NoteOn(app_state.arp.channel, app_state.arp.note, velo);
-        ctx.spawn.dispatch_midi(Incoming(MidiEndpoint::Internal(0), note_on.into())).unwrap();
+        ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::Arp(0), note_on.into())).unwrap();
 
         ctx.schedule.arp_note_off(ctx.scheduled + ARP_NOTE_LEN.cycles(), channel, note, velo).unwrap();
         ctx.schedule.arp_note_on(ctx.scheduled + ARP_NOTE_LEN.cycles()).unwrap();
@@ -319,8 +320,8 @@ const APP: () = {
 
     #[task(spawn = [dispatch_midi], capacity = 2)]
     fn arp_note_off(ctx: arp_note_off::Context, channel: Channel, note: Note, velo: Velocity) {
-        let note_off = midi::message::MidiMessage::NoteOff(channel, note, velo);
-        ctx.spawn.dispatch_midi(Incoming(MidiEndpoint::Internal(0), note_off.into())).unwrap();
+        let note_off = midi::message::MidiMessage::NoteOff(channel, note, Velocity::try_from(0).unwrap());
+        ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::Arp(0), note_off.into())).unwrap();
     }
 
     #[task(resources = [on_board_led], schedule = [led_blink])]
@@ -339,6 +340,7 @@ const APP: () = {
             Incoming(MidiEndpoint::USB, packet) => {
                 // echo USB packets
                 ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::USB, packet));
+                ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::Serial(0), packet));
             }
             Outgoing(MidiEndpoint::USB, packet) => {
                 // immediate forward
@@ -347,13 +349,17 @@ const APP: () = {
                 }
             }
             Incoming(MidiEndpoint::Serial(_), packet) => {
-                rprintln!("Received serial MIDI {:?}", packet)
+                rprintln!("WOW RX Serial MIDI {:?}", packet)
             }
             Outgoing(MidiEndpoint::Serial(_), packet) => {
                 ctx.spawn.send_serial_midi(packet);
             }
-            Incoming(MidiEndpoint::Internal(_), _) => {}
-            _ => {}
+            Incoming(MidiEndpoint::Arp(_), _) => {
+
+            }
+            Outgoing(MidiEndpoint::Arp(_), packet) => {
+                ctx.spawn.send_serial_midi(packet);
+            }
         }
     }
 
@@ -361,6 +367,7 @@ const APP: () = {
     /// Use lower priority and enable queuing of tasks (capacity > 1).
     #[task(capacity = 16, priority = 2, resources = [serial_midi_out])]
     fn send_serial_midi(ctx: send_serial_midi::Context, packet: MidiPacket) {
+        rprintln!("Send Serial MIDI: {:?}", packet);
         if let Err(e) = ctx.resources.serial_midi_out.transmit(packet) {
             rprintln!("Failed to send Serial MIDI: {:?}", e)
         }
