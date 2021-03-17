@@ -1,39 +1,39 @@
 use num_enum::TryFromPrimitive;
 use core::convert::TryFrom;
-use crate::midi::MidiError;
-use crate::midi::status::MidiStatus::{SystemStatus, ChannelStatus};
-use crate::midi::status::ChannelCommand::NoteOff;
-use crate::midi::message::{MidiMessage, Channel};
+use crate::midi::{MidiError, message};
+use crate::midi::status::MidiStatus::{System, Channel};
+use crate::midi::message::{RealtimeMessage};
 use crate::midi::u4::U4;
-use self::ChannelCommand::*;
-use self::SystemCommand::*;
+use self::ChannelStatus::*;
+use self::SystemStatus::*;
 
 #[derive(Copy, Clone, Debug)]
 pub enum MidiStatus {
-    ChannelStatus(ChannelCommand, Channel),
-    SystemStatus(SystemCommand),
+    Channel(ChannelStatus, message::Channel),
+    System(SystemStatus),
 }
 
-impl From<&MidiMessage> for MidiStatus {
-    fn from(msg: &MidiMessage) -> Self {
+impl From<&RealtimeMessage> for MidiStatus {
+    fn from(msg: &RealtimeMessage) -> Self {
         match msg {
-            MidiMessage::NoteOff(channel, _, _) => ChannelStatus(NoteOff, *channel),
-            MidiMessage::NoteOn(channel, _, _) => ChannelStatus(NoteOn, *channel),
-            MidiMessage::NotePressure(channel, _, _) => ChannelStatus(NotePressure, *channel),
-            MidiMessage::ChannelPressure(channel, _) => ChannelStatus(ChannelPressure, *channel),
-            MidiMessage::ProgramChange(channel, _) => ChannelStatus(Program, *channel),
-            MidiMessage::ControlChange(channel, _, _) => ChannelStatus(Control, *channel),
-            MidiMessage::PitchBend(channel, _) => ChannelStatus(PitchBend, *channel),
-            MidiMessage::TimeCodeQuarterFrame(_) => SystemStatus(TimeCodeQuarterFrame),
-            MidiMessage::SongPositionPointer(_, _) => SystemStatus(SongPositionPointer),
-            MidiMessage::SongSelect(_) => SystemStatus(SongSelect),
-            MidiMessage::TuneRequest => SystemStatus(TuneRequest),
-            MidiMessage::TimingClock => SystemStatus(TimingClock),
-            MidiMessage::Start => SystemStatus(Start),
-            MidiMessage::Continue => SystemStatus(Continue),
-            MidiMessage::Stop => SystemStatus(Stop),
-            MidiMessage::ActiveSensing => SystemStatus(ActiveSensing),
-            MidiMessage::SystemReset => SystemStatus(SystemReset),
+            RealtimeMessage::NoteOff(channel, _, _) => Channel(NoteOff, *channel),
+            RealtimeMessage::NoteOn(channel, _, _) => Channel(NoteOn, *channel),
+            RealtimeMessage::NotePressure(channel, _, _) => Channel(NotePressure, *channel),
+            RealtimeMessage::ChannelPressure(channel, _) => Channel(ChannelPressure, *channel),
+            RealtimeMessage::ProgramChange(channel, _) => Channel(ProgramChange, *channel),
+            RealtimeMessage::ControlChange(channel, _, _) => Channel(ControlChange, *channel),
+            RealtimeMessage::PitchBend(channel, _) => Channel(PitchBend, *channel),
+            RealtimeMessage::TimeCodeQuarterFrame(_) => System(TimeCodeQuarterFrame),
+            RealtimeMessage::SongPositionPointer(_, _) => System(SongPositionPointer),
+            RealtimeMessage::SongSelect(_) => System(SongSelect),
+            RealtimeMessage::TuneRequest => System(TuneRequest),
+            RealtimeMessage::TimingClock => System(TimingClock),
+            RealtimeMessage::Start => System(Start),
+            RealtimeMessage::Continue => System(Continue),
+            RealtimeMessage::Stop => System(Stop),
+            RealtimeMessage::ActiveSensing => System(ActiveSensing),
+            RealtimeMessage::SystemReset => System(SystemReset),
+            RealtimeMessage::MeasureEnd(_) => System(MeasureEnd),
         }
     }
 }
@@ -44,28 +44,28 @@ impl MidiStatus {
     /// Sysex has no limit, instead being terminated by 0xF7, and thus returns None
     pub fn cmd_len(&self) -> Option<usize> {
         match self {
-            ChannelStatus(NoteOff, _ch) => Some(3),
-            ChannelStatus(NoteOn, _ch) => Some(3),
-            ChannelStatus(NotePressure, _ch) => Some(3),
-            ChannelStatus(Control, _ch) => Some(3),
-            ChannelStatus(Program, _ch) => Some(2),
-            ChannelStatus(ChannelPressure, _ch) => Some(2),
-            ChannelStatus(PitchBend, _ch) => Some(3),
+            Channel(NoteOff, _ch) => Some(3),
+            Channel(NoteOn, _ch) => Some(3),
+            Channel(NotePressure, _ch) => Some(3),
+            Channel(ControlChange, _ch) => Some(3),
+            Channel(ProgramChange, _ch) => Some(2),
+            Channel(ChannelPressure, _ch) => Some(2),
+            Channel(PitchBend, _ch) => Some(3),
 
-            SystemStatus(SysexStart) => None,
+            System(SysexStart) => None,
 
-            SystemStatus(TimeCodeQuarterFrame) => Some(2),
-            SystemStatus(SongPositionPointer) => Some(3),
-            SystemStatus(SongSelect) => Some(2),
-            SystemStatus(TuneRequest) => Some(1),
+            System(TimeCodeQuarterFrame) => Some(2),
+            System(SongPositionPointer) => Some(3),
+            System(SongSelect) => Some(2),
+            System(TuneRequest) => Some(1),
 
-            SystemStatus(TimingClock) => Some(1),
-            SystemStatus(MeasureEnd) => Some(2),
-            SystemStatus(Start) => Some(1),
-            SystemStatus(Continue) => Some(1),
-            SystemStatus(Stop) => Some(1),
-            SystemStatus(ActiveSensing) => Some(1),
-            SystemStatus(SystemReset) => Some(1),
+            System(TimingClock) => Some(1),
+            System(MeasureEnd) => Some(2),
+            System(Start) => Some(1),
+            System(Continue) => Some(1),
+            System(Stop) => Some(1),
+            System(ActiveSensing) => Some(1),
+            System(SystemReset) => Some(1),
         }
     }
 }
@@ -73,8 +73,8 @@ impl MidiStatus {
 impl From<MidiStatus> for u8 {
     fn from(status: MidiStatus) -> Self {
         match status {
-            ChannelStatus(cmd, ch) => cmd as u8 | u8::from(ch),
-            SystemStatus(cmd) => cmd as u8,
+            Channel(cmd, ch) => cmd as u8 | u8::from(ch),
+            System(cmd) => cmd as u8,
         }
     }
 }
@@ -87,27 +87,27 @@ impl TryFrom<u8> for MidiStatus {
             return Err(MidiError::NotAMidiStatus(byte));
         }
         Ok(if byte < 0xF0 {
-            ChannelStatus(
-                ChannelCommand::try_from(byte & 0xF0)
-                    .map_err(|_| MidiError::NotAChanelCommand(byte))?,
+            Channel(
+                ChannelStatus::try_from(byte & 0xF0)
+                    .map_err(|_| MidiError::NotAChannelStatus(byte))?,
                 U4::try_from(byte & 0x0F)?,
             )
         } else {
-            SystemStatus(SystemCommand::try_from(byte)
-                .map_err(|_| MidiError::NotASystemCommand(byte))?)
+            System(SystemStatus::try_from(byte)
+                .map_err(|_| MidiError::NotASystemStatus(byte))?)
         })
     }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
-pub enum ChannelCommand {
+pub enum ChannelStatus {
     // Channel commands, lower bits of discriminants ignored (channel)
     NoteOff = 0x80,
     NoteOn = 0x90,
     NotePressure = 0xA0,
-    Control = 0xB0,
-    Program = 0xC0,
+    ControlChange = 0xB0,
+    ProgramChange = 0xC0,
     ChannelPressure = 0xD0,
     PitchBend = 0xE0,
 }
@@ -123,7 +123,7 @@ pub const SYSEX_END: u8 = 0xF7;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
-pub enum SystemCommand {
+pub enum SystemStatus {
     // System commands
     SysexStart = SYSEX_START,
 

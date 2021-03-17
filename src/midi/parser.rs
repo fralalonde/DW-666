@@ -27,35 +27,7 @@ pub enum ChannelMessage {
     PitchBendChange(channel, value),
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum ParserState {
-    Idle,
-    NoteOnRecvd(Channel),
-    NoteOnNoteRecvd(Channel, Note),
 
-    NoteOffRecvd(Channel),
-    NoteOffNoteRecvd(Channel, Note),
-
-    KeyPressureRecvd(Channel),
-    KeyPressureNoteRecvd(Channel, Note),
-
-    ControlChangeRecvd(Channel),
-    ControlChangeControlRecvd(Channel, Control),
-
-    ProgramChangeRecvd(Channel),
-
-    ChannelPressureRecvd(Channel),
-
-    PitchBendRecvd(Channel),
-    PitchBendFirstByteRecvd(Channel, u8),
-
-    QuarterFrameRecvd,
-
-    SongPositionRecvd,
-    SongPositionLsbRecvd(u8),
-
-    SongSelectRecvd,
-}
 
 /// Check if most significant bit is set which signifies a Midi status byte
 fn is_status_byte(byte: u8) -> bool {

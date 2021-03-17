@@ -3,11 +3,12 @@
 //! Flat notes are associated constants as aliases of sharp notes, like `Note::Bb3`
 
 use crate::midi::u7::U7;
-use crate::midi::Cull;
+use crate::midi::{Cull, MidiError};
 
-use num_enum::TryFromPrimitive;
+use num_enum::UnsafeFromPrimitive;
+use core::convert::TryFrom;
 
-#[derive(Debug, Copy, Clone, TryFromPrimitive)]
+#[derive(Debug, Copy, Clone, UnsafeFromPrimitive)]
 #[repr(u8)]
 pub enum Note {
     /// C1m is the C-1
@@ -141,6 +142,14 @@ pub enum Note {
     Fs9,
     G9,
     Gs9,
+}
+
+impl TryFrom<u8> for Note {
+    type Error = MidiError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(unsafe {Note::from_unchecked(value)})
+    }
 }
 
 impl Into<u8> for Note {

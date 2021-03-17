@@ -18,6 +18,14 @@ impl TryFrom<u16> for U14 {
     }
 }
 
+impl TryFrom<(u8, u8)> for U14 {
+    type Error = MidiError;
+
+    fn try_from(value: (u8, u8)) -> Result<Self, Self::Error> {
+        let (lsb, msb) = value;
+        Ok(U14::from((U7::try_from(lsb)?, U7::try_from(msb)?)))
+    }
+}
 
 /// Returns (LSB, MSB)
 impl From<U14> for (U7, U7) {

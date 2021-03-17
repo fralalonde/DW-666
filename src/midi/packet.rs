@@ -1,14 +1,15 @@
 //! USB-MIDI Event Packet definitions
 //! USB-MIDI is a superset of the MIDI protocol
 
-use crate::midi::message::MidiMessage;
+use crate::midi::message::RealtimeMessage;
 use crate::midi::u4::U4;
 use core::convert::{TryFrom};
 use crate::midi::{MidiError};
-use crate::midi::status::{MidiStatus, SystemCommand};
+use crate::midi::status::{MidiStatus, SystemStatus};
 use CodeIndexNumber::*;
-use MidiStatus::{ChannelStatus, SystemStatus};
-use num_enum::TryFromPrimitive;
+use MidiStatus::{Channel, System};
+
+use num_enum::UnsafeFromPrimitive;
 
 pub type CableNumber = U4;
 
@@ -26,13 +27,17 @@ impl MidiPacket {
         Ok(CableNumber::try_from(self.bytes[0] >> 4)?)
     }
 
-    pub fn code_index_number(&self) -> Result<CodeIndexNumber, MidiError> {
-        Ok(CodeIndexNumber::try_from(self.bytes[0] & 0x0F)?)
+    pub fn code_index_number(&self) -> CodeIndexNumber {
+        CodeIndexNumber::from(self.bytes[0] & 0x0F)
     }
 
-    pub fn payload(&self) -> Result<&[u8], MidiError> {
-        let cin = self.code_index_number()?;
-        Ok(&self.bytes[1..cin.payload_len() + 1])
+    pub fn status(&self) -> Option<MidiStatus> {
+        MidiStatus::try_from(self.payload()[0]).ok()
+    }
+
+    pub fn payload(&self) -> &[u8] {
+        let cin = self.code_index_number();
+        &self.bytes[1..cin.payload_len() + 1]
     }
 
     pub fn with_cable_num(mut self, cable_number: CableNumber) -> Self {
@@ -45,49 +50,49 @@ impl MidiPacket {
     }
 }
 
-impl From<MidiMessage> for MidiPacket {
-    fn from(message: MidiMessage) -> Self {
+impl From<RealtimeMessage> for MidiPacket {
+    fn from(message: RealtimeMessage) -> Self {
         let mut packet = [0; 4];
         let status = MidiStatus::from(&message);
         let code_index_number = CodeIndexNumber::from(status);
         packet[0] = code_index_number as u8;
         packet[1] = u8::from(status);
         match message {
-            MidiMessage::NoteOff(_, note, vel) => {
+            RealtimeMessage::NoteOff(_, note, vel) => {
                 packet[2] = note as u8;
                 packet[3] = u8::from(vel);
             }
-            MidiMessage::NoteOn(_, note, vel) => {
+            RealtimeMessage::NoteOn(_, note, vel) => {
                 packet[2] = note as u8;
                 packet[3] = u8::from(vel);
             }
-            MidiMessage::NotePressure(_, note, pres) => {
+            RealtimeMessage::NotePressure(_, note, pres) => {
                 packet[2] = note as u8;
                 packet[3] = u8::from(pres);
             }
-            MidiMessage::ChannelPressure(_, pres) => {
+            RealtimeMessage::ChannelPressure(_, pres) => {
                 packet[2] = u8::from(pres);
             }
-            MidiMessage::ProgramChange(_, patch) => {
+            RealtimeMessage::ProgramChange(_, patch) => {
                 packet[2] = u8::from(patch);
             }
-            MidiMessage::ControlChange(_, ctrl, val) => {
+            RealtimeMessage::ControlChange(_, ctrl, val) => {
                 packet[2] = u8::from(ctrl);
                 packet[3] = u8::from(val);
             }
-            MidiMessage::PitchBend(_, bend) => {
+            RealtimeMessage::PitchBend(_, bend) => {
                 let (lsb, msb) = bend.into();
                 packet[2] = u8::from(lsb);
                 packet[3] = u8::from(msb);
             }
-            MidiMessage::TimeCodeQuarterFrame(val) => {
+            RealtimeMessage::TimeCodeQuarterFrame(val) => {
                 packet[2] = u8::from(val);
             }
-            MidiMessage::SongPositionPointer(p1, p2) => {
+            RealtimeMessage::SongPositionPointer(p1, p2) => {
                 packet[2] = u8::from(p1);
                 packet[3] = u8::from(p2);
             }
-            MidiMessage::SongSelect(song) => {
+            RealtimeMessage::SongSelect(song) => {
                 packet[2] = u8::from(song);
             }
             // other messages are single byte (status only)
@@ -101,7 +106,7 @@ impl From<MidiMessage> for MidiPacket {
 /// The Code Index Number(CIN) indicates the classification
 /// of the bytes in the MIDI_x fields
 #[allow(unused)]
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, UnsafeFromPrimitive)]
 #[repr(u8)]
 pub enum CodeIndexNumber {
     /// Miscellaneous function codes. Reserved for future extensions
@@ -140,25 +145,31 @@ pub enum CodeIndexNumber {
     SingleByte = 0xF,
 }
 
+impl From<u8> for CodeIndexNumber {
+    fn from(byte: u8) -> Self {
+        unsafe {CodeIndexNumber::from_unchecked(byte & 0x0F)}
+    }
+}
+
 impl From<MidiStatus> for CodeIndexNumber {
     fn from(status: MidiStatus) -> Self {
         match status {
-            ChannelStatus(cmd, _ch) => CodeIndexNumber::try_from((cmd as u8 >> 4) as u8).unwrap(),
+            Channel(cmd, _ch) => CodeIndexNumber::try_from((cmd as u8 >> 4) as u8).unwrap(),
 
-            SystemStatus(SystemCommand::SysexStart) => Sysex,
+            System(SystemStatus::SysexStart) => Sysex,
 
-            SystemStatus(SystemCommand::TimeCodeQuarterFrame) => SystemCommonLen2,
-            SystemStatus(SystemCommand::SongPositionPointer) => SystemCommonLen3,
-            SystemStatus(SystemCommand::TuneRequest) => SystemCommonLen1,
-            SystemStatus(SystemCommand::SongSelect) => SystemCommonLen2,
+            System(SystemStatus::TimeCodeQuarterFrame) => SystemCommonLen2,
+            System(SystemStatus::SongPositionPointer) => SystemCommonLen3,
+            System(SystemStatus::TuneRequest) => SystemCommonLen1,
+            System(SystemStatus::SongSelect) => SystemCommonLen2,
 
-            SystemStatus(SystemCommand::TimingClock) => SystemCommonLen1,
-            SystemStatus(SystemCommand::MeasureEnd) => SystemCommonLen2,
-            SystemStatus(SystemCommand::Start) => SystemCommonLen1,
-            SystemStatus(SystemCommand::Continue) => SystemCommonLen1,
-            SystemStatus(SystemCommand::Stop) => SystemCommonLen1,
-            SystemStatus(SystemCommand::ActiveSensing) => SystemCommonLen1,
-            SystemStatus(SystemCommand::SystemReset) => SystemCommonLen1,
+            System(SystemStatus::TimingClock) => SystemCommonLen1,
+            System(SystemStatus::MeasureEnd) => SystemCommonLen2,
+            System(SystemStatus::Start) => SystemCommonLen1,
+            System(SystemStatus::Continue) => SystemCommonLen1,
+            System(SystemStatus::Stop) => SystemCommonLen1,
+            System(SystemStatus::ActiveSensing) => SystemCommonLen1,
+            System(SystemStatus::SystemReset) => SystemCommonLen1,
         }
     }
 }

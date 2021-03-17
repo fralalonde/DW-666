@@ -310,7 +310,7 @@ const APP: () = {
         let velo = Velocity::try_from(0x7F).unwrap();
         app_state.arp.bump();
 
-        let note_on = midi::message::MidiMessage::NoteOn(app_state.arp.channel, app_state.arp.note, velo);
+        let note_on = midi::message::RealtimeMessage::NoteOn(app_state.arp.channel, app_state.arp.note, velo);
         ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::Arp(0), note_on.into())).unwrap();
 
         ctx.schedule.arp_note_off(ctx.scheduled + ARP_NOTE_LEN.cycles(), channel, note).unwrap();
@@ -319,7 +319,7 @@ const APP: () = {
 
     #[task(spawn = [dispatch_midi], capacity = 2)]
     fn arp_note_off(ctx: arp_note_off::Context, channel: Channel, note: Note) {
-        let note_off = midi::message::MidiMessage::NoteOff(channel, note, Velocity::try_from(0).unwrap());
+        let note_off = midi::message::RealtimeMessage::NoteOff(channel, note, Velocity::try_from(0).unwrap());
         ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::Arp(0), note_off.into())).unwrap();
     }
 
