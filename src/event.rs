@@ -1,4 +1,4 @@
-use crate::midi::packet::MidiPacket;
+use crate::midi::Packet;
 
 pub type Instant = u64;
 pub type Duration = u64;
@@ -48,8 +48,8 @@ pub enum MidiEndpoint {
 
 #[derive(Copy, Clone, Debug)]
 pub enum MidiEvent {
-    Incoming(MidiEndpoint, MidiPacket),
-    Outgoing(MidiEndpoint, MidiPacket),
+    Incoming(MidiEndpoint, Packet),
+    Outgoing(MidiEndpoint, Packet),
 }
 
 #[derive(Copy, Clone, Debug)]

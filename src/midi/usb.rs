@@ -13,7 +13,7 @@ use usb_device::{
 use core::result::Result;
 
 use stm32f1xx_hal::usb::{UsbBusType};
-use crate::midi::packet::MidiPacket;
+use crate::midi::packet::Packet;
 use crate::midi::MidiError;
 use crate::midi;
 use usb_device::class_prelude::EndpointAddress;
@@ -42,7 +42,7 @@ const MS_HEADER_SUBTYPE: u8 = 0x01;
 const MS_GENERAL: u8 = 0x01;
 
 /// Configures the usb device as seen by the operating system.
-pub fn configure_usb<B: UsbBus>(usb_bus: &UsbBusAllocator<B>) -> UsbDevice<B> {
+pub fn usb_device<B: UsbBus>(usb_bus: &UsbBusAllocator<B>) -> UsbDevice<B> {
     let usb_vid_pid = UsbVidPid(0x16c0, 0x27dd);
     let usb_dev = UsbDeviceBuilder::new(usb_bus, usb_vid_pid)
         .manufacturer("M'Roto")
@@ -58,38 +58,28 @@ const TX_FIFO_SIZE: usize = USB_TX_BUFFER_SIZE as usize;
 const RX_FIFO_SIZE: usize = USB_RX_BUFFER_SIZE as usize + PACKET_LEN;
 
 pub struct UsbMidi {
-    usb_dev: UsbDevice<'static, UsbBusType>,
-    midi_class: MidiClass<'static, UsbBusType>,
-
+    pub dev: UsbDevice<'static, UsbBusType>,
+    pub midi_class: MidiClass<'static, UsbBusType>,
 }
 
 impl UsbMidi {
-    pub fn new(usb_dev: UsbDevice<'static, UsbBusType>,
-               midi_class: MidiClass<'static, UsbBusType>,
-    ) -> Self {
-        UsbMidi {
-            midi_class,
-            usb_dev,
-        }
-    }
-
     /// USB upkeep
     pub fn poll(&mut self) -> bool {
-        self.usb_dev.poll(&mut [&mut self.midi_class])
+        self.dev.poll(&mut [&mut self.midi_class])
     }
 }
 
 impl midi::Transmit for UsbMidi {
-    fn transmit(&mut self, packet: MidiPacket) -> Result<(), MidiError> {
+    fn transmit(&mut self, packet: Packet) -> Result<(), MidiError> {
         self.midi_class.send(packet.bytes());
         Ok(())
     }
 }
 
 impl midi::Receive for UsbMidi {
-    fn receive(&mut self) -> Result<Option<MidiPacket>, MidiError> {
+    fn receive(&mut self) -> Result<Option<Packet>, MidiError> {
         if let Some(bytes) = self.midi_class.receive() {
-            return Ok(Some(MidiPacket::from_raw(bytes)));
+            return Ok(Some(Packet::from_raw(bytes)));
         }
         Ok(None)
     }

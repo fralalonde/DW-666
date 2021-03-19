@@ -1,6 +1,6 @@
-use crate::midi::packet::MidiPacket;
-use crate::midi::u4::U4;
-use crate::midi::notes::Note;
+use crate::midi::Packet;
+use crate::midi::U4;
+use crate::midi::Note;
 use core::convert::TryFrom;
 use crate::event::{AppEvent, CtlEvent, RotaryEvent};
 use crate::event::Param::FilterCutoff;
@@ -30,7 +30,6 @@ impl Default for ArpState {
 impl ArpState {
     pub fn bump(&mut self) {
         self.note = Note::try_from(self.note as u8  + 1).unwrap_or(Note::C4);
-        // self.channel = U4::try_from(u8::from(self.channel) + 1).unwrap_or(U4::MIN)
     }
 }
 
@@ -79,7 +78,7 @@ impl AppState {
 }
 
 impl AppState {
-    pub fn midi_update(&mut self, _packet: MidiPacket) -> Option<AppEvent> {
+    pub fn midi_update(&mut self, _packet: Packet) -> Option<AppEvent> {
         None
     }
 

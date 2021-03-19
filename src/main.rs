@@ -36,30 +36,22 @@ use usb_device::bus;
 
 use cortex_m::asm::delay;
 
-use crate::input::{Scan, Controls};
-use midi::usb;
-use crate::midi::{Transmit};
+use input::{Scan, Controls};
 
-use crate::midi::serial::{SerialMidiIn, SerialMidiOut};
-use crate::midi::usb::MidiClass;
+use midi::{SerialIn, SerialOut, MidiClass, Packet, CableNumber,  usb_device, Note, Channel, Velocity, Transmit, Receive};
 use core::result::Result;
 use stm32f1xx_hal::serial;
-
-use crate::midi::packet::{MidiPacket, CableNumber};
-use crate::midi::Receive;
 
 use panic_rtt_target as _;
 use stm32f1xx_hal::serial::{Tx, Rx, StopBits, Event};
 use stm32f1xx_hal::gpio::gpioa::{PA6, PA7};
-// use stm32f1xx_hal::timer::{Event, Timer};
-use crate::midi::message::{Channel, Velocity};
 use core::convert::TryFrom;
 use crate::app::AppState;
 use crate::clock::{CPU_FREQ, PCLK1_FREQ};
 use crate::event::{MidiEndpoint, MidiEvent};
 use stm32f1xx_hal::gpio::gpioc::PC13;
 use crate::event::MidiEvent::{Incoming, Outgoing};
-use crate::midi::notes::Note;
+use crate::midi::Message;
 
 const CTL_SCAN: u32 = 7200;
 const LED_BLINK_CYCLES: u32 = 14_400_000;
@@ -73,9 +65,9 @@ const APP: () = {
         controls: input::Controls<PA6<Input<PullUp>>, PA7<Input<PullUp>>>,
         app_state: app::AppState,
         display: output::Display,
-        usb_midi: midi::usb::UsbMidi,
-        serial_midi_in: SerialMidiIn<Rx<USART2>>,
-        serial_midi_out: SerialMidiOut<Tx<USART2>>,
+        usb_midi: midi::UsbMidi,
+        serial_midi_in: SerialIn<Rx<USART2>>,
+        serial_midi_out: SerialOut<Tx<USART2>>,
     }
 
     #[init(schedule = [led_blink, control_scan, arp_note_on])]
@@ -195,8 +187,8 @@ const APP: () = {
         );
         usart.listen(Event::Rxne);
         let (tx, rx) = usart.split();
-        let serial_midi_out = SerialMidiOut::new(tx);
-        let serial_midi_in = SerialMidiIn::new(rx, CableNumber::MIN);
+        let serial_midi_out = SerialOut::new(tx);
+        let serial_midi_in = SerialIn::new(rx, CableNumber::MIN);
 
         rprintln!("Serial port OK");
 
@@ -213,7 +205,8 @@ const APP: () = {
 
         *USB_BUS = Some(UsbBus::new(usb));
         let midi_class = MidiClass::new(USB_BUS.as_ref().unwrap());
-        let usb_dev = usb::configure_usb(USB_BUS.as_ref().unwrap());
+        // USB device MUST init after classes
+        let usb_dev = usb_device(USB_BUS.as_ref().unwrap());
         rprintln!("USB OK");
 
         // Setup Arp
@@ -230,10 +223,10 @@ const APP: () = {
             display: output::Display {
                 oled,
             },
-            usb_midi: midi::usb::UsbMidi::new(
-                usb_dev,
+            usb_midi: midi::UsbMidi {
+                dev: usb_dev,
                 midi_class,
-            ),
+            },
             serial_midi_in,
             serial_midi_out,
         }
@@ -307,10 +300,10 @@ const APP: () = {
 
         let channel = app_state.arp.channel;
         let note = app_state.arp.note;
-        let velo = Velocity::try_from(0x7F).unwrap();
+        // let velo = Velocity::try_from().unwrap();
         app_state.arp.bump();
 
-        let note_on = midi::message::RealtimeMessage::NoteOn(app_state.arp.channel, app_state.arp.note, velo);
+        let note_on = midi::note_on(app_state.arp.channel, app_state.arp.note, 0x7F).unwrap();
         ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::Arp(0), note_on.into())).unwrap();
 
         ctx.schedule.arp_note_off(ctx.scheduled + ARP_NOTE_LEN.cycles(), channel, note).unwrap();
@@ -319,7 +312,7 @@ const APP: () = {
 
     #[task(spawn = [dispatch_midi], capacity = 2)]
     fn arp_note_off(ctx: arp_note_off::Context, channel: Channel, note: Note) {
-        let note_off = midi::message::RealtimeMessage::NoteOff(channel, note, Velocity::try_from(0).unwrap());
+        let note_off = midi::Message::NoteOff(channel, note, Velocity::try_from(0).unwrap());
         ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::Arp(0), note_off.into())).unwrap();
     }
 
@@ -348,7 +341,16 @@ const APP: () = {
                 }
             }
             Incoming(MidiEndpoint::Serial(_), packet) => {
-                rprintln!("WOW RX Serial MIDI {:?}", packet)
+                if let Ok(message) = Message::try_from(packet) {
+                    match message {
+                        Message::SysexBegin(byte1, byte2) => rprint!("Sysex [ 0x{:x}, 0x{:x}", byte1, byte2),
+                        Message::SysexCont(byte1, byte2, byte3) => rprint!(", 0x{:x}, 0x{:x}, 0x{:x}", byte1, byte2, byte3),
+                        Message::SysexEnd => rprintln!(" ]"),
+                        Message::SysexEnd1(byte1) => rprintln!(", 0x{:x} ]", byte1),
+                        Message::SysexEnd2(byte1, byte2) => rprintln!(", 0x{:x}, 0x{:x} ]", byte1, byte2),
+                        message => rprintln!("{:?}", message)
+                    }
+                }
             }
             Outgoing(MidiEndpoint::Serial(_), packet) => {
                 ctx.spawn.send_serial_midi(packet);
@@ -365,7 +367,7 @@ const APP: () = {
     /// Sending Serial MIDI is a slow, _blocking_ operation (for now?).
     /// Use lower priority and enable queuing of tasks (capacity > 1).
     #[task(capacity = 16, priority = 2, resources = [serial_midi_out])]
-    fn send_serial_midi(ctx: send_serial_midi::Context, packet: MidiPacket) {
+    fn send_serial_midi(ctx: send_serial_midi::Context, packet: Packet) {
         rprintln!("Send Serial MIDI: {:?}", packet);
         if let Err(e) = ctx.resources.serial_midi_out.transmit(packet) {
             rprintln!("Failed to send Serial MIDI: {:?}", e)

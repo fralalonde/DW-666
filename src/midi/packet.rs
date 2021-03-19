@@ -1,26 +1,25 @@
 //! USB-MIDI Event Packet definitions
 //! USB-MIDI is a superset of the MIDI protocol
 
-use crate::midi::message::RealtimeMessage;
+use crate::midi::message::Message;
 use crate::midi::u4::U4;
 use core::convert::{TryFrom};
-use crate::midi::{MidiError};
-use crate::midi::status::{MidiStatus, SystemStatus};
+use crate::midi::{MidiError, Channel, Cull};
+use crate::midi::status::{Status};
 use CodeIndexNumber::*;
-use MidiStatus::{Channel, System};
 
 use num_enum::UnsafeFromPrimitive;
 
 pub type CableNumber = U4;
 
 #[derive(Default, Clone, Copy, Debug)]
-pub struct MidiPacket {
+pub struct Packet {
     bytes: [u8; 4]
 }
 
-impl MidiPacket {
+impl Packet {
     pub fn from_raw(bytes: [u8; 4]) -> Self {
-        MidiPacket { bytes }
+        Packet { bytes }
     }
 
     pub fn cable_number(&self) -> Result<CableNumber, MidiError> {
@@ -31,8 +30,22 @@ impl MidiPacket {
         CodeIndexNumber::from(self.bytes[0] & 0x0F)
     }
 
-    pub fn status(&self) -> Option<MidiStatus> {
-        MidiStatus::try_from(self.payload()[0]).ok()
+    pub fn status(&self) -> Option<Status> {
+        let payload = self.payload();
+        if payload.len() == 0 {
+            None
+        } else {
+            Status::try_from(self.payload()[0]).ok()
+        }
+    }
+
+    pub fn channel(&self) -> Option<Channel> {
+        let byte = self.bytes[1];
+        if byte < NoteOff as u8 {
+            None
+        } else {
+            Some(Channel::cull(byte))
+        }
     }
 
     pub fn payload(&self) -> &[u8] {
@@ -50,49 +63,51 @@ impl MidiPacket {
     }
 }
 
-impl From<RealtimeMessage> for MidiPacket {
-    fn from(message: RealtimeMessage) -> Self {
+impl From<Message> for Packet {
+    fn from(message: Message) -> Self {
         let mut packet = [0; 4];
-        let status = MidiStatus::from(&message);
-        let code_index_number = CodeIndexNumber::from(status);
-        packet[0] = code_index_number as u8;
-        packet[1] = u8::from(status);
+        packet[0] = CodeIndexNumber::from(message) as u8;
+        if let Ok(status) = Status::try_from(&message) {
+            packet[1] = status as u8;
+        } else {
+            unimplemented!("Sysex Messages To Packet")
+        }
         match message {
-            RealtimeMessage::NoteOff(_, note, vel) => {
+            Message::NoteOff(ch, note, vel) => {
                 packet[2] = note as u8;
                 packet[3] = u8::from(vel);
             }
-            RealtimeMessage::NoteOn(_, note, vel) => {
+            Message::NoteOn(_, note, vel) => {
                 packet[2] = note as u8;
                 packet[3] = u8::from(vel);
             }
-            RealtimeMessage::NotePressure(_, note, pres) => {
+            Message::NotePressure(_, note, pres) => {
                 packet[2] = note as u8;
                 packet[3] = u8::from(pres);
             }
-            RealtimeMessage::ChannelPressure(_, pres) => {
+            Message::ChannelPressure(_, pres) => {
                 packet[2] = u8::from(pres);
             }
-            RealtimeMessage::ProgramChange(_, patch) => {
+            Message::ProgramChange(_, patch) => {
                 packet[2] = u8::from(patch);
             }
-            RealtimeMessage::ControlChange(_, ctrl, val) => {
+            Message::ControlChange(_, ctrl, val) => {
                 packet[2] = u8::from(ctrl);
                 packet[3] = u8::from(val);
             }
-            RealtimeMessage::PitchBend(_, bend) => {
+            Message::PitchBend(_, bend) => {
                 let (lsb, msb) = bend.into();
                 packet[2] = u8::from(lsb);
                 packet[3] = u8::from(msb);
             }
-            RealtimeMessage::TimeCodeQuarterFrame(val) => {
+            Message::TimeCodeQuarterFrame(val) => {
                 packet[2] = u8::from(val);
             }
-            RealtimeMessage::SongPositionPointer(p1, p2) => {
+            Message::SongPositionPointer(p1, p2) => {
                 packet[2] = u8::from(p1);
                 packet[3] = u8::from(p2);
             }
-            RealtimeMessage::SongSelect(song) => {
+            Message::SongSelect(song) => {
                 packet[2] = u8::from(song);
             }
             // other messages are single byte (status only)
@@ -147,36 +162,63 @@ pub enum CodeIndexNumber {
 
 impl From<u8> for CodeIndexNumber {
     fn from(byte: u8) -> Self {
-        unsafe {CodeIndexNumber::from_unchecked(byte & 0x0F)}
+        unsafe { CodeIndexNumber::from_unchecked(byte & 0x0F) }
     }
 }
 
-impl From<MidiStatus> for CodeIndexNumber {
-    fn from(status: MidiStatus) -> Self {
+impl From<Status> for CodeIndexNumber {
+    fn from(status: Status) -> Self {
         match status {
-            Channel(cmd, _ch) => CodeIndexNumber::try_from((cmd as u8 >> 4) as u8).unwrap(),
+            Status::SysexStart => Sysex,
+            Status::TimeCodeQuarterFrame => SystemCommonLen2,
+            Status::SongPositionPointer => SystemCommonLen3,
+            Status::TuneRequest => SystemCommonLen1,
+            Status::SongSelect => SystemCommonLen2,
+            Status::TimingClock => SystemCommonLen1,
+            Status::MeasureEnd => SystemCommonLen2,
+            Status::Start => SystemCommonLen1,
+            Status::Continue => SystemCommonLen1,
+            Status::Stop => SystemCommonLen1,
+            Status::ActiveSensing => SystemCommonLen1,
+            Status::SystemReset => SystemCommonLen1,
 
-            System(SystemStatus::SysexStart) => Sysex,
+            channel_status => unsafe { CodeIndexNumber::from_unchecked(channel_status as u8 >> 4) },
+        }
+    }
+}
 
-            System(SystemStatus::TimeCodeQuarterFrame) => SystemCommonLen2,
-            System(SystemStatus::SongPositionPointer) => SystemCommonLen3,
-            System(SystemStatus::TuneRequest) => SystemCommonLen1,
-            System(SystemStatus::SongSelect) => SystemCommonLen2,
-
-            System(SystemStatus::TimingClock) => SystemCommonLen1,
-            System(SystemStatus::MeasureEnd) => SystemCommonLen2,
-            System(SystemStatus::Start) => SystemCommonLen1,
-            System(SystemStatus::Continue) => SystemCommonLen1,
-            System(SystemStatus::Stop) => SystemCommonLen1,
-            System(SystemStatus::ActiveSensing) => SystemCommonLen1,
-            System(SystemStatus::SystemReset) => SystemCommonLen1,
+impl From<Message> for CodeIndexNumber {
+    fn from(message: Message) -> Self {
+        match message {
+            Message::NoteOff(_, _, _) => CodeIndexNumber::NoteOff,
+            Message::NoteOn(_, _, _) => CodeIndexNumber::NoteOn,
+            Message::NotePressure(_, _, _) => CodeIndexNumber::PolyKeypress,
+            Message::ChannelPressure(_, _) => CodeIndexNumber::ChannelPressure,
+            Message::ProgramChange(_, _) => CodeIndexNumber::ProgramChange,
+            Message::ControlChange(_, _, _) => CodeIndexNumber::ControlChange,
+            Message::PitchBend(_, _) => CodeIndexNumber::PitchbendChange,
+            Message::TimeCodeQuarterFrame(_) => CodeIndexNumber::SystemCommonLen2,
+            Message::SongPositionPointer(_, _) => CodeIndexNumber::SystemCommonLen3,
+            Message::SongSelect(_) => CodeIndexNumber::SystemCommonLen2,
+            Message::TuneRequest => CodeIndexNumber::SystemCommonLen1,
+            Message::TimingClock => CodeIndexNumber::SystemCommonLen1,
+            Message::MeasureEnd(_) => CodeIndexNumber::SystemCommonLen2,
+            Message::Start => CodeIndexNumber::SystemCommonLen1,
+            Message::Continue => CodeIndexNumber::SystemCommonLen1,
+            Message::Stop => CodeIndexNumber::SystemCommonLen1,
+            Message::ActiveSensing => CodeIndexNumber::SystemCommonLen1,
+            Message::SystemReset => CodeIndexNumber::NoteOn,
+            Message::SysexBegin(..) => CodeIndexNumber::Sysex,
+            Message::SysexCont(..) => CodeIndexNumber::Sysex,
+            Message::SysexEnd => CodeIndexNumber::SystemCommonLen1,
+            Message::SysexEnd1(..) => CodeIndexNumber::SysexEndsNext2,
+            Message::SysexEnd2(..) => CodeIndexNumber::SysexEndsNext3,
         }
     }
 }
 
 impl CodeIndexNumber {
-
-    pub fn end_sysex(len: usize) -> Result<CodeIndexNumber, MidiError> {
+    pub fn end_sysex(len: u8) -> Result<CodeIndexNumber, MidiError> {
         match len {
             1 => Ok(SystemCommonLen1),
             2 => Ok(SysexEndsNext2),

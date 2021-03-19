@@ -1,32 +1,23 @@
 use crate::midi::u7::U7;
-use crate::midi::u4::U4;
 
-use crate::midi::notes::Note;
-use crate::midi::u14::U14;
-use crate::midi::packet::{MidiPacket, CodeIndexNumber};
-use core::convert::TryFrom;
-use crate::midi::{MidiError, Cull};
-use crate::midi::status::{SystemStatus, MidiStatus, ChannelStatus};
-// use CodeIndexNumber::*;
-use RealtimeMessage::*;
-use MidiStatus::System;
-
-pub type Channel = U4;
-pub type Velocity = U7;
-pub type Control = U7;
-pub type Pressure = U7;
-pub type Patch = U7;
-pub type Bend = U14;
+use crate::midi::note::Note;
+use crate::midi::packet::{Packet, CodeIndexNumber};
+use core::convert::{TryFrom, TryInto};
+use crate::midi::{MidiError, Cull, Channel, Velocity, Pressure, Control, Bend, Program};
+use crate::midi::status::{Status, SYSEX_END, is_non_status};
+use Message::*;
+use CodeIndexNumber::{SystemCommonLen1, SystemCommonLen2, SystemCommonLen3};
 
 /// Excluding Sysex
+#[derive(Clone, Copy, Debug)]
 #[allow(unused)]
-pub enum RealtimeMessage {
+pub enum Message {
     NoteOff(Channel, Note, Velocity),
     NoteOn(Channel, Note, Velocity),
 
     NotePressure(Channel, Note, Pressure),
     ChannelPressure(Channel, Pressure),
-    ProgramChange(Channel, Patch),
+    ProgramChange(Channel, Program),
     ControlChange(Channel, Control, U7),
     PitchBend(Channel, Bend),
 
@@ -44,42 +35,60 @@ pub enum RealtimeMessage {
     Stop,
     ActiveSensing,
     SystemReset,
+
+    // Sysex
+    SysexBegin(u8, u8),
+    SysexCont(u8, u8, u8),
+    SysexEnd,
+    SysexEnd1(u8),
+    SysexEnd2(u8, u8),
 }
 
-impl TryFrom<MidiPacket> for RealtimeMessage {
+pub fn note_on(channel: impl TryInto<Channel>, note: impl TryInto<Note>, velocity: impl TryInto<Velocity>) -> Result<Message, MidiError> {
+    Ok(Message::NoteOn(
+        channel.try_into().map_err(|_| MidiError::InvalidChannel)?,
+        note.try_into().map_err(|_| MidiError::InvalidNote)?,
+        velocity.try_into().map_err(|_| MidiError::InvalidVelocity)?)
+    )
+}
+
+impl TryFrom<Packet> for Message {
     type Error = MidiError;
 
-    fn try_from(packet: MidiPacket) -> Result<Self, Self::Error> {
-        match (packet.code_index_number(), packet.status(), packet.payload()) {
-            (CodeIndexNumber::MiscFunction, ..) => Err(MidiError::NotARealtimeMessage),
-            (CodeIndexNumber::CableEvents, ..) => Err(MidiError::NotARealtimeMessage),
-            (CodeIndexNumber::Sysex, ..) => Err(MidiError::NotARealtimeMessage),
-            (CodeIndexNumber::SysexEndsNext2, ..) => Err(MidiError::NotARealtimeMessage),
-            (CodeIndexNumber::SysexEndsNext3, ..) => Err(MidiError::NotARealtimeMessage),
+    fn try_from(packet: Packet) -> Result<Self, Self::Error> {
+        match (packet.code_index_number(), packet.status(), packet.channel(), packet.payload()) {
+            (CodeIndexNumber::Sysex, _, _, payload) => {
+                if is_non_status(payload[0]) {
+                    Ok(SysexCont(payload[0], payload[1], payload[2]))
+                } else {
+                    Ok(SysexBegin(payload[1], payload[2]))
+                }
+            } ,
+            (SystemCommonLen1, _, _, payload) if payload[0] == SYSEX_END => Ok(SysexEnd),
+            (CodeIndexNumber::SysexEndsNext2, _, _, payload) => Ok(SysexEnd1(payload[0])),
+            (CodeIndexNumber::SysexEndsNext3, _, _, payload) => Ok(SysexEnd2(payload[0], payload[1])),
 
-            (_, Some(System(SystemStatus::TimingClock)), ..) => Ok(TimingClock),
-            (_, Some(System(SystemStatus::TuneRequest)), ..) => Ok(TuneRequest),
-            (_, Some(System(SystemStatus::Start)), ..) => Ok(Start),
-            (_, Some(System(SystemStatus::Continue)), ..) => Ok(Continue),
-            (_, Some(System(SystemStatus::Stop)), ..) => Ok(Stop),
-            (_, Some(System(SystemStatus::ActiveSensing)), ..) => Ok(ActiveSensing),
-            (_, Some(System(SystemStatus::SystemReset)), ..) => Ok(SystemReset),
+            (SystemCommonLen1, Some(Status::TimingClock), ..) => Ok(TimingClock),
+            (SystemCommonLen1, Some(Status::TuneRequest), ..) => Ok(TuneRequest),
+            (SystemCommonLen1, Some(Status::Start), ..) => Ok(Start),
+            (SystemCommonLen1, Some(Status::Continue), ..) => Ok(Continue),
+            (SystemCommonLen1, Some(Status::Stop), ..) => Ok(Stop),
+            (SystemCommonLen1, Some(Status::ActiveSensing), ..) => Ok(ActiveSensing),
+            (SystemCommonLen1, Some(Status::SystemReset), ..) => Ok(SystemReset),
+            (SystemCommonLen2, Some(Status::TimeCodeQuarterFrame), _, payload) => Ok(TimeCodeQuarterFrame(U7::cull(payload[1]))),
+            (SystemCommonLen2, Some(Status::SongSelect), _, payload) => Ok(SongSelect(U7::cull(payload[1]))),
+            (SystemCommonLen2, Some(Status::MeasureEnd), _, payload) => Ok(MeasureEnd(U7::cull(payload[1]))),
+            (SystemCommonLen3, Some(Status::SystemReset), _, payload) => Ok(SongPositionPointer(U7::cull(payload[1]), U7::cull(payload[1]))),
 
-            (_, Some(System(SystemStatus::TimeCodeQuarterFrame)), payload) => Ok(TimeCodeQuarterFrame(U7::cull(payload[1]))),
-            (_, Some(System(SystemStatus::SongSelect)), payload) => Ok(SongSelect(U7::cull(payload[1]))),
-            (_, Some(System(SystemStatus::MeasureEnd)), payload) => Ok(MeasureEnd(U7::cull(payload[1]))),
-            (_, Some(System(SystemStatus::SystemReset)), payload) => Ok(SongPositionPointer(U7::cull(payload[1]), U7::cull(payload[1]))),
+            (_, Some(Status::NoteOff), Some(channel), payload) => Ok(NoteOff(channel, Note::try_from(payload[1])?, Velocity::try_from(payload[2])?)),
+            (_, Some(Status::NoteOn), Some(channel), payload) => Ok(NoteOn(channel, Note::try_from(payload[1])?, Velocity::try_from(payload[2])?)),
+            (_, Some(Status::NotePressure), Some(channel), payload) => Ok(NotePressure(channel, Note::try_from(payload[1])?, Pressure::try_from(payload[2])?)),
+            (_, Some(Status::ChannelPressure), Some(channel), payload) => Ok(ChannelPressure(channel, Pressure::try_from(payload[1])?)),
+            (_, Some(Status::ProgramChange), Some(channel), payload) => Ok(ProgramChange(channel, U7::try_from(payload[1])?)),
+            (_, Some(Status::ControlChange), Some(channel), payload) => Ok(ControlChange(channel, Control::try_from(payload[1])?, U7::try_from(payload[2])?)),
+            (_, Some(Status::PitchBend), Some(channel), payload) => Ok(PitchBend(channel, Bend::try_from((payload[1], payload[2]))?)),
 
-            (_, Some(MidiStatus::Channel(ChannelStatus::NoteOff, channel)), payload) => Ok(NoteOff(channel, Note::try_from(payload[1])?, Velocity::try_from(payload[2])?)),
-            (_, Some(MidiStatus::Channel(ChannelStatus::NoteOn, channel)), payload) => Ok(NoteOn(channel, Note::try_from(payload[1])?, Velocity::try_from(payload[2])?)),
-            (_, Some(MidiStatus::Channel(ChannelStatus::NotePressure, channel)), payload) => Ok(NotePressure(channel, Note::try_from(payload[1])?, Pressure::try_from(payload[2])?)),
-            (_, Some(MidiStatus::Channel(ChannelStatus::ChannelPressure, channel)), payload) => Ok(ChannelPressure(channel, Pressure::try_from(payload[1])?)),
-
-            (_, Some(MidiStatus::Channel(ChannelStatus::ProgramChange, channel)), payload) => Ok(ProgramChange(channel, U7::try_from(payload[1])?)),
-            (_, Some(MidiStatus::Channel(ChannelStatus::ControlChange, channel)), payload) => Ok(ControlChange(channel, Control::try_from(payload[1])?, U7::try_from(payload[2])?)),
-            (_, Some(MidiStatus::Channel(ChannelStatus::PitchBend, channel)), payload) => Ok(PitchBend(channel, Bend::try_from((payload[1], payload[2]))?)),
-
-            (..) => Err(MidiError::NotARealtimeMessage),
+            (..) => Err(MidiError::UnparseablePacket(packet)),
         }
     }
 }
@@ -116,7 +125,7 @@ mod tests {
 
     #[test]
     fn should_parse_note_off() {
-        Parser::new().assert_result(&[0x82, 0x76, 0x34], &[RealtimeMessage::NoteOff(
+        Parser::new().assert_result(&[0x82, 0x76, 0x34], &[Message::NoteOff(
             2.into(),
             0x76.into(),
             0x34.into(),
@@ -131,15 +140,15 @@ mod tests {
                 0x33, 0x65, // Second note_off without status byte
             ],
             &[
-                RealtimeMessage::NoteOff(2.into(), 0x76.into(), 0x34.into()),
-                RealtimeMessage::NoteOff(2.into(), 0x33.into(), 0x65.into()),
+                Message::NoteOff(2.into(), 0x76.into(), 0x34.into()),
+                Message::NoteOff(2.into(), 0x33.into(), 0x65.into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_note_on() {
-        Parser::new().assert_result(&[0x91, 0x04, 0x34], &[RealtimeMessage::NoteOn(
+        Parser::new().assert_result(&[0x91, 0x04, 0x34], &[Message::NoteOn(
             1.into(),
             4.into(),
             0x34.into(),
@@ -154,15 +163,15 @@ mod tests {
                 0x33, 0x65, // Second note on without status byte
             ],
             &[
-                RealtimeMessage::NoteOn(2.into(), 0x76.into(), 0x34.into()),
-                RealtimeMessage::NoteOn(2.into(), 0x33.into(), 0x65.into()),
+                Message::NoteOn(2.into(), 0x76.into(), 0x34.into()),
+                Message::NoteOn(2.into(), 0x33.into(), 0x65.into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_keypressure() {
-        Parser::new().assert_result(&[0xAA, 0x13, 0x34], &[RealtimeMessage::KeyPressure(
+        Parser::new().assert_result(&[0xAA, 0x13, 0x34], &[Message::KeyPressure(
             10.into(),
             0x13.into(),
             0x34.into(),
@@ -177,15 +186,15 @@ mod tests {
                 0x14, 0x56, // Second key_pressure without status byte
             ],
             &[
-                RealtimeMessage::KeyPressure(8.into(), 0x77.into(), 0x03.into()),
-                RealtimeMessage::KeyPressure(8.into(), 0x14.into(), 0x56.into()),
+                Message::KeyPressure(8.into(), 0x77.into(), 0x03.into()),
+                Message::KeyPressure(8.into(), 0x14.into(), 0x56.into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_control_change() {
-        Parser::new().assert_result(&[0xB2, 0x76, 0x34], &[RealtimeMessage::ControlChange(
+        Parser::new().assert_result(&[0xB2, 0x76, 0x34], &[Message::ControlChange(
             2.into(),
             0x76.into(),
             0x34.into(),
@@ -200,15 +209,15 @@ mod tests {
                 0x43, 0x01, // Second control change without status byte
             ],
             &[
-                RealtimeMessage::ControlChange(3.into(), 0x3c.into(), 0x18.into()),
-                RealtimeMessage::ControlChange(3.into(), 0x43.into(), 0x01.into()),
+                Message::ControlChange(3.into(), 0x3c.into(), 0x18.into()),
+                Message::ControlChange(3.into(), 0x43.into(), 0x01.into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_program_change() {
-        Parser::new().assert_result(&[0xC9, 0x15], &[RealtimeMessage::ProgramChange(
+        Parser::new().assert_result(&[0xC9, 0x15], &[Message::ProgramChange(
             9.into(),
             0x15.into(),
         )]);
@@ -222,15 +231,15 @@ mod tests {
                 0x01, // Second program change without status byte
             ],
             &[
-                RealtimeMessage::ProgramChange(3.into(), 0x67.into()),
-                RealtimeMessage::ProgramChange(3.into(), 0x01.into()),
+                Message::ProgramChange(3.into(), 0x67.into()),
+                Message::ProgramChange(3.into(), 0x01.into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_channel_pressure() {
-        Parser::new().assert_result(&[0xDD, 0x37], &[RealtimeMessage::ChannelPressure(
+        Parser::new().assert_result(&[0xDD, 0x37], &[Message::ChannelPressure(
             13.into(),
             0x37.into(),
         )]);
@@ -244,15 +253,15 @@ mod tests {
                 0x43, // Second channel pressure without status byte
             ],
             &[
-                RealtimeMessage::ChannelPressure(6.into(), 0x77.into()),
-                RealtimeMessage::ChannelPressure(6.into(), 0x43.into()),
+                Message::ChannelPressure(6.into(), 0x77.into()),
+                Message::ChannelPressure(6.into(), 0x43.into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_pitchbend() {
-        Parser::new().assert_result(&[0xE8, 0x14, 0x56], &[RealtimeMessage::PitchBendChange(
+        Parser::new().assert_result(&[0xE8, 0x14, 0x56], &[Message::PitchBendChange(
             8.into(),
             (0x14, 0x56).into(),
         )]);
@@ -266,15 +275,15 @@ mod tests {
                 0x43, 0x01, // Second pitchbend without status byte
             ],
             &[
-                RealtimeMessage::PitchBendChange(3.into(), (0x3c, 0x18).into()),
-                RealtimeMessage::PitchBendChange(3.into(), (0x43, 0x01).into()),
+                Message::PitchBendChange(3.into(), (0x3c, 0x18).into()),
+                Message::PitchBendChange(3.into(), (0x43, 0x01).into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_quarter_frame() {
-        Parser::new().assert_result(&[0xf1, 0x7f], &[RealtimeMessage::QuarterFrame(0x7f.into())]);
+        Parser::new().assert_result(&[0xf1, 0x7f], &[Message::QuarterFrame(0x7f.into())]);
     }
 
     #[test]
@@ -285,15 +294,15 @@ mod tests {
                 0x56, // Only send data of next quarter frame
             ],
             &[
-                RealtimeMessage::QuarterFrame(0x7f.into()),
-                RealtimeMessage::QuarterFrame(0x56.into()),
+                Message::QuarterFrame(0x7f.into()),
+                Message::QuarterFrame(0x56.into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_song_position_pointer() {
-        Parser::new().assert_result(&[0xf2, 0x7f, 0x68], &[RealtimeMessage::SongPositionPointer(
+        Parser::new().assert_result(&[0xf2, 0x7f, 0x68], &[Message::SongPositionPointer(
             (0x7f, 0x68).into(),
         )]);
     }
@@ -306,15 +315,15 @@ mod tests {
                 0x23, 0x7b, // Only send data of next song position pointer
             ],
             &[
-                RealtimeMessage::SongPositionPointer((0x7f, 0x68).into()),
-                RealtimeMessage::SongPositionPointer((0x23, 0x7b).into()),
+                Message::SongPositionPointer((0x7f, 0x68).into()),
+                Message::SongPositionPointer((0x23, 0x7b).into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_song_select() {
-        Parser::new().assert_result(&[0xf3, 0x3f], &[RealtimeMessage::SongSelect(0x3f.into())]);
+        Parser::new().assert_result(&[0xf3, 0x3f], &[Message::SongSelect(0x3f.into())]);
     }
 
     #[test]
@@ -325,15 +334,15 @@ mod tests {
                 0x00, // Only send data for next song select
             ],
             &[
-                RealtimeMessage::SongSelect(0x3f.into()),
-                RealtimeMessage::SongSelect(0x00.into()),
+                Message::SongSelect(0x3f.into()),
+                Message::SongSelect(0x00.into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_tune_request() {
-        Parser::new().assert_result(&[0xf6], &[RealtimeMessage::TuneRequest]);
+        Parser::new().assert_result(&[0xf6], &[Message::TuneRequest]);
     }
 
     #[test]
@@ -344,7 +353,7 @@ mod tests {
                 0xf6, // interrupt with tune request
                 0x34, // finish note on, this should be ignored
             ],
-            &[RealtimeMessage::TuneRequest],
+            &[Message::TuneRequest],
         );
     }
 
@@ -379,7 +388,7 @@ mod tests {
 
     #[test]
     fn should_parse_timingclock_message() {
-        Parser::new().assert_result(&[0xf8], &[RealtimeMessage::TimingClock]);
+        Parser::new().assert_result(&[0xf8], &[Message::TimingClock]);
     }
 
     #[test]
@@ -391,15 +400,15 @@ mod tests {
                 0x77, // Finish channel pressure
             ],
             &[
-                RealtimeMessage::TimingClock,
-                RealtimeMessage::ChannelPressure(6.into(), 0x77.into()),
+                Message::TimingClock,
+                Message::ChannelPressure(6.into(), 0x77.into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_start_message() {
-        Parser::new().assert_result(&[0xfa], &[RealtimeMessage::Start]);
+        Parser::new().assert_result(&[0xfa], &[Message::Start]);
     }
 
     #[test]
@@ -411,8 +420,8 @@ mod tests {
                 0x77, // Finish channel pressure
             ],
             &[
-                RealtimeMessage::Start,
-                RealtimeMessage::ChannelPressure(6.into(), 0x77.into()),
+                Message::Start,
+                Message::ChannelPressure(6.into(), 0x77.into()),
             ],
         );
     }
@@ -432,14 +441,14 @@ mod tests {
             ],
             &[
                 Continue,
-                RealtimeMessage::ChannelPressure(6.into(), 0x77.into()),
+                Message::ChannelPressure(6.into(), 0x77.into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_stop_message() {
-        Parser::new().assert_result(&[0xfc], &[RealtimeMessage::Stop]);
+        Parser::new().assert_result(&[0xfc], &[Message::Stop]);
     }
 
     #[test]
@@ -451,15 +460,15 @@ mod tests {
                 0x77, // Finish channel pressure
             ],
             &[
-                RealtimeMessage::Stop,
-                RealtimeMessage::ChannelPressure(6.into(), 0x77.into()),
+                Message::Stop,
+                Message::ChannelPressure(6.into(), 0x77.into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_activesensing_message() {
-        Parser::new().assert_result(&[0xfe], &[RealtimeMessage::ActiveSensing]);
+        Parser::new().assert_result(&[0xfe], &[Message::ActiveSensing]);
     }
 
     #[test]
@@ -471,15 +480,15 @@ mod tests {
                 0x77, // Finish channel pressure
             ],
             &[
-                RealtimeMessage::ActiveSensing,
-                RealtimeMessage::ChannelPressure(6.into(), 0x77.into()),
+                Message::ActiveSensing,
+                Message::ChannelPressure(6.into(), 0x77.into()),
             ],
         );
     }
 
     #[test]
     fn should_parse_reset_message() {
-        Parser::new().assert_result(&[0xff], &[RealtimeMessage::Reset]);
+        Parser::new().assert_result(&[0xff], &[Message::Reset]);
     }
 
     #[test]
@@ -491,8 +500,8 @@ mod tests {
                 0x77, // Finish channel pressure
             ],
             &[
-                RealtimeMessage::Reset,
-                RealtimeMessage::ChannelPressure(6.into(), 0x77.into()),
+                Message::Reset,
+                Message::ChannelPressure(6.into(), 0x77.into()),
             ],
         );
     }
@@ -504,14 +513,14 @@ mod tests {
                 0x92, 0x1b, // Start note off message
                 0x82, 0x76, 0x34, // continue with a complete note on message
             ],
-            &[RealtimeMessage::NoteOff(2.into(), 0x76.into(), 0x34.into())],
+            &[Message::NoteOff(2.into(), 0x76.into(), 0x34.into())],
         );
     }
 
     impl Parser {
         /// Test helper function, asserts if a slice of bytes parses to some set of midi events
-        fn assert_result(&mut self, bytes: &[u8], expected_events: &[RealtimeMessage]) {
-            let events: Vec<RealtimeMessage> = bytes
+        fn assert_result(&mut self, bytes: &[u8], expected_events: &[Message]) {
+            let events: Vec<Message> = bytes
                 .into_iter()
                 .filter_map(|byte| self.advance(*byte))
                 .collect();
