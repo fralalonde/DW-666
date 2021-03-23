@@ -1,6 +1,6 @@
 //! *Midi driver on top of embedded hal serial communications*
 //!
-use crate::midi::status::{SYSEX_END, is_non_status, is_channel_status};
+use crate::midi::status::{SYSEX_END, is_non_status, is_channel_status, SYSEX_START};
 use embedded_hal::serial;
 use crate::midi::packet::{Packet, CableNumber, CodeIndexNumber};
 use crate::midi::{MidiError, Receive, Transmit};
@@ -149,6 +149,34 @@ impl<TX> SerialOut<TX>
             last_status: None,
         }
     }
+
+    fn write_all(&mut self, payload: &[u8]) -> Result<(), MidiError> {
+        for byte in payload {
+            self.write_byte(*byte)?
+        }
+        Ok(())
+    }
+
+    fn write_byte(&mut self, byte: u8) -> Result<(), MidiError> {
+        // TODO try using TXE interrupt callback instead
+        let mut tries = 0;
+        loop {
+            match self.serial_out.write(byte) {
+                Err(nb::Error::WouldBlock) => {
+                    tries += 1;
+                    if tries > 10000 {
+                        rprintln!("Write failed, Serial port _still_ in use after many retries");
+                        return Err(MidiError::SerialError);
+                    }
+                }
+                Err(_err) => {
+                    rprintln!("Failed to write serial payload for reason other than blocking");
+                    return Err(MidiError::SerialError);
+                }
+                _ => return Ok(())
+            }
+        }
+    }
 }
 
 impl<TX> Transmit for SerialOut<TX>
@@ -172,28 +200,14 @@ impl<TX> Transmit for SerialOut<TX>
                 }
             }
         }
+        self.write_all(payload);
+        Ok(())
+    }
 
-        'send_payload:
-        for byte in payload {
-            let mut tries = 0;
-            'blocking_write:
-            loop {
-                match self.serial_out.write(*byte) {
-                    Err(nb::Error::WouldBlock) => {
-                        tries += 1;
-                        if tries > 10000 {
-                            rprintln!("Write failed, Serial port _still_ in use after many retries");
-                            break 'send_payload;
-                        }
-                    }
-                    Err(_err) => {
-                        rprintln!("Failed to write serial payload for reason other than blocking");
-                        break 'send_payload;
-                    }
-                    _ => break 'blocking_write
-                }
-            }
-        }
+    fn transmit_sysex(&mut self, payload: &[u8]) -> Result<(), MidiError> {
+        self.write_byte(SYSEX_START)?;
+        self.write_all(payload)?;
+        self.write_byte(SYSEX_END)?;
         Ok(())
     }
 }

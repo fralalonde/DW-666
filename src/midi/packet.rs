@@ -109,7 +109,8 @@ impl From<Message> for Packet {
                 packet[2] = u8::from(song);
             }
 
-            // Sysex packets will probably not be generated from messages, but let's support it
+            // Sysex packets will probably not be generated from messages,
+            // but let's support it for completeness
             Message::SysexBegin(b1, b2) => {
                 packet[1] = SYSEX_START;
                 packet[2] = u8::from(b1);
@@ -133,7 +134,17 @@ impl From<Message> for Packet {
                 packet[3] = SYSEX_END;
             }
 
-            // other messages are single byte (status only)
+            Message::SysexEmpty => {
+                packet[1] = SYSEX_START;
+                packet[2] = SYSEX_END;
+            }
+            Message::SysexOneByte(b1) => {
+                packet[1] = SYSEX_START;
+                packet[2] = u8::from(b1);
+                packet[3] = SYSEX_END;
+            }
+
+            // remaining messages are single byte (status only)
             _ => {}
         }
         Self::from_raw(packet)
@@ -236,6 +247,8 @@ impl From<Message> for CodeIndexNumber {
             Message::SysexEnd => CodeIndexNumber::SystemCommonLen1,
             Message::SysexEnd1(..) => CodeIndexNumber::SysexEndsNext2,
             Message::SysexEnd2(..) => CodeIndexNumber::SysexEndsNext3,
+            Message::SysexEmpty => CodeIndexNumber::SysexEndsNext2,
+            Message::SysexOneByte(..) => CodeIndexNumber::SysexEndsNext3,
         }
     }
 }

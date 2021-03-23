@@ -42,6 +42,13 @@ pub enum Message {
     SysexEnd,
     SysexEnd1(u8),
     SysexEnd2(u8, u8),
+
+    // "special cases" - as per the USB MIDI spec
+    // Begin & End
+    SysexEmpty,
+    // Begin, Byte & End
+    SysexOneByte(u8),
+
 }
 
 pub fn note_on(channel: impl TryInto<Channel>, note: impl TryInto<Note>, velocity: impl TryInto<Velocity>) -> Result<Message, MidiError> {

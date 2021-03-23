@@ -36,7 +36,11 @@ pub trait Receive {
 }
 
 pub trait Transmit {
+    /// Send a single packet
     fn transmit(&mut self, event: Packet) -> Result<(), MidiError>;
+
+    /// Sending buffered Sysex does not require "packetizing" on serial
+    fn transmit_sysex(&mut self, buffer: &[u8]) -> Result<(), MidiError>;
 }
 
 #[derive(Debug)]
