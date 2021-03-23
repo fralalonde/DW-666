@@ -69,37 +69,31 @@ pub enum Status {
     SystemReset = SYSTEM_RESET,
 }
 
-impl TryFrom<&Message> for Status {
-    type Error = MidiError;
+pub fn status_byte(msg: &Message) -> Option<u8> {
+    match msg {
+        Message::NoteOff(ch, ..) => Some(NoteOff as u8 + u8::from(*ch)),
+        Message::NoteOn(ch, ..) => Some(NoteOn as u8 + u8::from(*ch)),
+        Message::NotePressure(ch, ..) => Some(NotePressure as u8 + u8::from(*ch)),
+        Message::ChannelPressure(ch, ..) => Some(ChannelPressure as u8 + u8::from(*ch)),
+        Message::ProgramChange(ch, ..) => Some(ProgramChange as u8 + u8::from(*ch)),
+        Message::ControlChange(ch, ..) => Some(ControlChange as u8 + u8::from(*ch)),
+        Message::PitchBend(ch, ..) => Some(PitchBend as u8 + u8::from(*ch)),
 
-    fn try_from(msg: &Message) -> Result<Self, Self::Error> {
-        Ok(match msg {
-            Message::NoteOff(..) => NoteOff,
-            Message::NoteOn(..) => NoteOn,
-            Message::NotePressure(..) => NotePressure,
-            Message::ChannelPressure(..) => ChannelPressure,
-            Message::ProgramChange(..) => ProgramChange,
-            Message::ControlChange(..) => ControlChange,
-            Message::PitchBend(..) => PitchBend,
-            Message::TimeCodeQuarterFrame(_) => TimeCodeQuarterFrame,
-            Message::SongPositionPointer(_, _) => SongPositionPointer,
-            Message::SongSelect(_) => SongSelect,
-            Message::TuneRequest => TuneRequest,
-            Message::TimingClock => TimingClock,
-            Message::Start => Start,
-            Message::Continue => Continue,
-            Message::Stop => Stop,
-            Message::ActiveSensing => ActiveSensing,
-            Message::SystemReset => SystemReset,
-            Message::MeasureEnd(_) => MeasureEnd,
-            Message::SysexBegin(..) => SysexStart,
-            Message::SysexCont(..) => Err(MidiError::Unimplemented)?,
-            Message::SysexEnd => Err(MidiError::Unimplemented)?,
-            Message::SysexEnd1(..) => Err(MidiError::Unimplemented)?,
-            Message::SysexEnd2(..) => Err(MidiError::Unimplemented)?,
-        })
+        Message::TimeCodeQuarterFrame(_) => Some(TimeCodeQuarterFrame as u8),
+        Message::SongPositionPointer(_, _) => Some(SongPositionPointer as u8),
+        Message::SongSelect(_) => Some(SongSelect as u8),
+        Message::TuneRequest => Some(TuneRequest as u8),
+        Message::TimingClock => Some(TimingClock as u8),
+        Message::Start => Some(Start as u8),
+        Message::Continue => Some(Continue as u8),
+        Message::Stop => Some(Stop as u8),
+        Message::ActiveSensing => Some(ActiveSensing as u8),
+        Message::SystemReset => Some(SystemReset as u8),
+        Message::MeasureEnd(_) => Some(MeasureEnd as u8),
+        _ => None,
     }
 }
+
 
 impl Status {
     /// Returns expected size in bytes of associated MIDI message

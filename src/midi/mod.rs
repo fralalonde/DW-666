@@ -1,5 +1,17 @@
+use core::array::TryFromSliceError;
+
 use nb;
 use usb_device::UsbError;
+
+pub use message::{Message, note_on};
+pub use note::Note;
+pub use packet::{CableNumber, CodeIndexNumber, Packet};
+pub use serial::{SerialIn, SerialOut};
+pub use status::Status;
+pub use u14::U14;
+pub use u4::U4;
+pub use u7::U7;
+pub use usb::{MidiClass, usb_device, UsbMidi};
 
 mod u4;
 mod u7;
@@ -11,17 +23,6 @@ mod packet;
 mod serial;
 mod usb;
 
-pub use u4::U4;
-pub use u7::U7;
-pub use u14::U14;
-
-pub use message::{Message, note_on};
-pub use packet::{Packet, CodeIndexNumber, CableNumber};
-pub use note::Note;
-pub use serial::{SerialIn, SerialOut};
-pub use usb::{UsbMidi, MidiClass, usb_device};
-pub use status::{Status};
-use core::array::TryFromSliceError;
 
 pub type Channel = U4;
 pub type Velocity = U7;
@@ -45,6 +46,7 @@ pub enum MidiError {
     SysexInterrupted,
     NotAMidiStatus(u8),
     UnparseablePacket(Packet),
+    NoModeForParameter,
     SysexOutOfBounds,
     InvalidCodeIndexNumber,
     InvalidCableNumber,

@@ -6,7 +6,6 @@ use crate::midi::packet::{Packet, CableNumber, CodeIndexNumber};
 use crate::midi::{MidiError, Receive, Transmit};
 use crate::midi::status::Status;
 use core::convert::TryFrom;
-use crate::midi::status::Status::SysexStart;
 
 #[derive(Copy, Clone, Default, Debug)]
 struct PacketBuffer {

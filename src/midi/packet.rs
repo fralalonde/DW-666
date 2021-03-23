@@ -5,7 +5,7 @@ use crate::midi::message::Message;
 use crate::midi::u4::U4;
 use core::convert::{TryFrom};
 use crate::midi::{MidiError, Channel, Cull};
-use crate::midi::status::{Status};
+use crate::midi::status::{Status, status_byte, SYSEX_START, SYSEX_END};
 use CodeIndexNumber::*;
 
 use num_enum::UnsafeFromPrimitive;
@@ -67,13 +67,11 @@ impl From<Message> for Packet {
     fn from(message: Message) -> Self {
         let mut packet = [0; 4];
         packet[0] = CodeIndexNumber::from(message) as u8;
-        if let Ok(status) = Status::try_from(&message) {
-            packet[1] = status as u8;
-        } else {
-            unimplemented!("Sysex Messages To Packet")
+        if let Some(byte) = status_byte(&message) {
+            packet[1] = byte;
         }
         match message {
-            Message::NoteOff(ch, note, vel) => {
+            Message::NoteOff(_ch, note, vel) => {
                 packet[2] = note as u8;
                 packet[3] = u8::from(vel);
             }
@@ -110,10 +108,34 @@ impl From<Message> for Packet {
             Message::SongSelect(song) => {
                 packet[2] = u8::from(song);
             }
+
+            // Sysex packets will probably not be generated from messages, but let's support it
+            Message::SysexBegin(b1, b2) => {
+                packet[1] = SYSEX_START;
+                packet[2] = u8::from(b1);
+                packet[3] = u8::from(b2);
+            }
+            Message::SysexCont(b1, b2, b3) => {
+                packet[1] = u8::from(b1);
+                packet[2] = u8::from(b2);
+                packet[3] = u8::from(b3);
+            }
+            Message::SysexEnd => {
+                packet[1] = SYSEX_END;
+            }
+            Message::SysexEnd1(b1) => {
+                packet[1] = u8::from(b1);
+                packet[2] = SYSEX_END;
+            }
+            Message::SysexEnd2(b1, b2) => {
+                packet[1] = u8::from(b1);
+                packet[2] = u8::from(b2);
+                packet[3] = SYSEX_END;
+            }
+
             // other messages are single byte (status only)
             _ => {}
         }
-        // there is _no_ reason for this to be invalid
         Self::from_raw(packet)
     }
 }
@@ -208,6 +230,7 @@ impl From<Message> for CodeIndexNumber {
             Message::Stop => CodeIndexNumber::SystemCommonLen1,
             Message::ActiveSensing => CodeIndexNumber::SystemCommonLen1,
             Message::SystemReset => CodeIndexNumber::NoteOn,
+
             Message::SysexBegin(..) => CodeIndexNumber::Sysex,
             Message::SysexCont(..) => CodeIndexNumber::Sysex,
             Message::SysexEnd => CodeIndexNumber::SystemCommonLen1,

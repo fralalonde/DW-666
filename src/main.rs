@@ -20,6 +20,8 @@ mod midi;
 mod output;
 mod app;
 
+mod device;
+
 use embedded_hal::digital::v2::OutputPin;
 use rtic::app;
 use rtic::cyccnt::U32Ext as _;
@@ -355,9 +357,7 @@ const APP: () = {
             Outgoing(MidiEndpoint::Serial(_), packet) => {
                 ctx.spawn.send_serial_midi(packet);
             }
-            Incoming(MidiEndpoint::Arp(_), _) => {
-
-            }
+            Incoming(MidiEndpoint::Arp(_), _) => {            }
             Outgoing(MidiEndpoint::Arp(_), packet) => {
                 ctx.spawn.send_serial_midi(packet);
             }
