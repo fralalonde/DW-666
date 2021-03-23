@@ -34,18 +34,19 @@ use ssd1306::{prelude::*, Builder, I2CDIBuilder};
 use stm32f1xx_hal::usb::{Peripheral, UsbBus, UsbBusType};
 use stm32f1xx_hal::device::USART2;
 
+
 use usb_device::bus;
 
 use cortex_m::asm::delay;
 
 use input::{Scan, Controls};
 
-use midi::{SerialIn, SerialOut, MidiClass, Packet, CableNumber,  usb_device, Note, Channel, Velocity, Transmit, Receive};
+use midi::{SerialIn, SerialOut, MidiClass, Packet, CableNumber, usb_device, Note, Channel, Velocity, Transmit, Receive};
 use core::result::Result;
 use stm32f1xx_hal::serial;
 
 use panic_rtt_target as _;
-use stm32f1xx_hal::serial::{Tx, Rx, StopBits, Event};
+use stm32f1xx_hal::serial::{Rx, StopBits};
 use stm32f1xx_hal::gpio::gpioa::{PA6, PA7};
 use core::convert::TryFrom;
 use crate::app::AppState;
@@ -69,7 +70,7 @@ const APP: () = {
         display: output::Display,
         usb_midi: midi::UsbMidi,
         serial_midi_in: SerialIn<Rx<USART2>>,
-        serial_midi_out: SerialOut<Tx<USART2>>,
+        serial_midi_out: SerialOut,
     }
 
     #[init(schedule = [led_blink, control_scan, arp_note_on])]
@@ -181,14 +182,13 @@ const APP: () = {
             &mut afio.mapr,
             serial::Config::default()
                 .baudrate(31250.bps())
-                // .wordlength(WordLength::DataBits8)
                 .stopbits(StopBits::STOP1)
                 .parity_none(),
             clocks,
             &mut rcc.apb1,
         );
-        usart.listen(Event::Rxne);
-        let (tx, rx) = usart.split();
+        let (tx, mut rx) = usart.split();
+        rx.listen();
         let serial_midi_out = SerialOut::new(tx);
         let serial_midi_in = SerialIn::new(rx, CableNumber::MIN);
 
@@ -241,8 +241,7 @@ const APP: () = {
     // #[idle(spawn = [send_serial_midi])]
     #[idle]
     fn idle(_ctx: idle::Context) -> ! {
-        loop {
-        }
+        loop {}
     }
 
     /// USB transmit interrupt
@@ -263,8 +262,12 @@ const APP: () = {
     }
 
     /// Serial receive interrupt
-    #[task(binds = USART2, spawn = [dispatch_midi], resources = [serial_midi_in], priority = 3)]
-    fn serial_rx0(ctx: serial_rx0::Context) {
+    #[task(binds = USART2, spawn = [dispatch_midi], resources = [serial_midi_in, serial_midi_out], priority = 3)]
+    fn serial_irq0(ctx: serial_irq0::Context) {
+        if let Err(_err) = ctx.resources.serial_midi_out.flush() {
+            // TODO record transmission error
+        }
+
         while let Ok(Some(packet)) = ctx.resources.serial_midi_in.receive() {
             ctx.spawn.dispatch_midi(Incoming(MidiEndpoint::Serial(0), packet));
         }
@@ -357,7 +360,7 @@ const APP: () = {
             Outgoing(MidiEndpoint::Serial(_), packet) => {
                 ctx.spawn.send_serial_midi(packet);
             }
-            Incoming(MidiEndpoint::Arp(_), _) => {            }
+            Incoming(MidiEndpoint::Arp(_), _) => {}
             Outgoing(MidiEndpoint::Arp(_), packet) => {
                 ctx.spawn.send_serial_midi(packet);
             }
@@ -367,11 +370,12 @@ const APP: () = {
     /// Sending Serial MIDI is a slow, _blocking_ operation (for now?).
     /// Use lower priority and enable queuing of tasks (capacity > 1).
     #[task(capacity = 16, priority = 2, resources = [serial_midi_out])]
-    fn send_serial_midi(ctx: send_serial_midi::Context, packet: Packet) {
+    fn send_serial_midi(mut ctx: send_serial_midi::Context, packet: Packet) {
         rprintln!("Send Serial MIDI: {:?}", packet);
-        if let Err(e) = ctx.resources.serial_midi_out.transmit(packet) {
-            rprintln!("Failed to send Serial MIDI: {:?}", e)
-        }
+        ctx.resources.serial_midi_out.lock(
+            |serial_out| if let Err(e) = serial_out.transmit(packet) {
+                rprintln!("Failed to send Serial MIDI: {:?}", e)
+            });
     }
 
     extern "C" {

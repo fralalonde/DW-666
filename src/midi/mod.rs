@@ -64,6 +64,7 @@ pub enum MidiError {
     ParseCritical,
     TryFromSliceError,
     UsbError,
+    BufferFull,
 }
 
 impl From<UsbError> for MidiError {

@@ -18,7 +18,6 @@ use crate::midi::{MidiError};
 use crate::midi;
 use usb_device::class_prelude::EndpointAddress;
 use crate::midi::message::Message::{SysexEnd1, SysexEnd2, SysexBegin, SysexEnd, SysexCont, SysexEmpty, SysexOneByte};
-use crate::midi::status::Status::SysexStart;
 
 // TX goes up to 256, but unstable (?), stick with what works
 const USB_TX_BUFFER_SIZE: u16 = 64;

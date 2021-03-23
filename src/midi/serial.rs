@@ -6,6 +6,8 @@ use crate::midi::packet::{Packet, CableNumber, CodeIndexNumber};
 use crate::midi::{MidiError, Receive, Transmit};
 use crate::midi::status::Status;
 use core::convert::TryFrom;
+use stm32f1xx_hal::serial::{Event, Tx};
+use embedded_hal::serial::Write;
 
 #[derive(Copy, Clone, Default, Debug)]
 struct PacketBuffer {
@@ -134,20 +136,63 @@ impl<RX, E> Receive for SerialIn<RX>
     }
 }
 
+const TX_FIFO_SIZE: u8 = 128;
 
-pub struct SerialOut<TX> {
-    serial_out: TX,
+use stm32f1xx_hal::device::USART2;
+
+pub struct SerialOut {
+    serial_out: Tx<USART2>,
     last_status: Option<u8>,
+
+    tx_fifo: [u8; TX_FIFO_SIZE as usize],
+    tx_head: u8,
+    tx_tail: u8,
 }
 
-impl<TX> SerialOut<TX>
-    where TX: serial::Write<u8>
+impl SerialOut
+    // where Tx<USART2>: serial::Write<u8>
 {
-    pub fn new(tx: TX) -> Self {
+    pub fn new(tx: Tx<USART2>) -> Self {
         SerialOut {
             serial_out: tx,
             last_status: None,
+            // serial tx uses a circular buffer
+            tx_fifo: [0; TX_FIFO_SIZE as usize],
+            tx_head: 0,
+            tx_tail: 0,
         }
+    }
+
+    fn buf_len(&self) -> u8 {
+        if self.tx_head > self.tx_tail {
+            self.tx_head - self.tx_tail
+        } else {
+            self.tx_head + (TX_FIFO_SIZE - self.tx_tail)
+        }
+    }
+
+    pub fn flush(&mut self) -> Result<(), MidiError> {
+        while self.buf_len() > 0 {
+            match self.serial_out.write(self.tx_fifo[self.tx_tail as usize]) {
+                Err(nb::Error::WouldBlock) => {
+                    self.serial_out.listen();
+                    return Ok(())
+                }
+                Err(_err) => {
+                    rprintln!("Failed to write serial payload for reason other than blocking");
+                    return Err(MidiError::SerialError);
+                }
+                Ok(_) => {
+                    if self.tx_tail == (TX_FIFO_SIZE - 1) {
+                        self.tx_tail = 0
+                    } else {
+                        self.tx_tail += 1
+                    }
+                }
+            }
+        }
+        self.serial_out.unlisten();
+        Ok(())
     }
 
     fn write_all(&mut self, payload: &[u8]) -> Result<(), MidiError> {
@@ -158,49 +203,43 @@ impl<TX> SerialOut<TX>
     }
 
     fn write_byte(&mut self, byte: u8) -> Result<(), MidiError> {
-        // TODO try using TXE interrupt callback instead
-        let mut tries = 0;
-        loop {
-            match self.serial_out.write(byte) {
-                Err(nb::Error::WouldBlock) => {
-                    tries += 1;
-                    if tries > 10000 {
-                        rprintln!("Write failed, Serial port _still_ in use after many retries");
-                        return Err(MidiError::SerialError);
-                    }
-                }
-                Err(_err) => {
-                    rprintln!("Failed to write serial payload for reason other than blocking");
-                    return Err(MidiError::SerialError);
-                }
-                _ => return Ok(())
-            }
+        if self.buf_len() >= TX_FIFO_SIZE {
+            return Err(MidiError::BufferFull)
         }
+        self.tx_fifo[self.tx_head as usize] = byte;
+        if self.tx_head == (TX_FIFO_SIZE - 1) {
+            self.tx_head = 0
+        } else {
+            self.tx_head += 1
+        }
+        Ok(())
     }
 }
 
-impl<TX> Transmit for SerialOut<TX>
-    where TX: serial::Write<u8>
+impl Transmit for SerialOut
+    // where Tx<USART>: serial::Write<u8>
 {
     fn transmit(&mut self, event: Packet) -> Result<(), MidiError> {
         let mut payload = event.payload();
 
-        // Apply MIDI "running status" optimization
-        match event.code_index_number() {
-            // FIXME full optimization would also include Sysex? (except Realtime class) - whatever
-            CodeIndexNumber::Sysex
-            | CodeIndexNumber::SysexEndsNext2
-            | CodeIndexNumber::SysexEndsNext3 => {}
-            _ => {
-                let new_status = Some(payload[0]);
-                if self.last_status == new_status {
+        // Apply MIDI "running status"
+        if is_channel_status(payload[0]) {
+            if let Some(last_status) = self.last_status {
+                if payload[0] == last_status {
+                    // same status as last time, chop out status byte
                     payload = &payload[1..];
                 } else {
-                    self.last_status = new_status;
+                    // take note of new status
+                    self.last_status = Some(payload[0])
                 }
             }
+        } else {
+            // non-repeatable status or no status (sysex)
+            self.last_status = None
         }
+
         self.write_all(payload);
+        self.flush()?;
         Ok(())
     }
 
@@ -208,6 +247,8 @@ impl<TX> Transmit for SerialOut<TX>
         self.write_byte(SYSEX_START)?;
         self.write_all(payload)?;
         self.write_byte(SYSEX_END)?;
+        self.flush()?;
         Ok(())
     }
 }
+
