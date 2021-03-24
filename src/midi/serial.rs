@@ -139,8 +139,11 @@ impl<RX, E> Receive for SerialIn<RX>
 const TX_FIFO_SIZE: u8 = 128;
 
 use stm32f1xx_hal::device::USART2;
+use stm32f1xx_hal::pac::Interrupt::DMA1_CHANNEL5;
 
-pub struct SerialOut {
+// FIXME USART should be a type parameter but this makes Tx::listen and Tx::unlisten (used in flush()) inaccessible. why?
+// TODO might try using DMA instead
+pub struct SerialOut/*<USART>*/ {
     serial_out: Tx<USART2>,
     last_status: Option<u8>,
 
@@ -149,8 +152,8 @@ pub struct SerialOut {
     tx_tail: u8,
 }
 
-impl SerialOut
-    // where Tx<USART2>: serial::Write<u8>
+impl/*<USART>*/ SerialOut/*<USART>*/
+// where Tx<USART>: serial::Write<u8>
 {
     pub fn new(tx: Tx<USART2>) -> Self {
         SerialOut {
@@ -216,7 +219,7 @@ impl SerialOut
     }
 }
 
-impl Transmit for SerialOut
+impl/*<USART>*/ Transmit for SerialOut/*<USART>*/
     // where Tx<USART>: serial::Write<u8>
 {
     fn transmit(&mut self, event: Packet) -> Result<(), MidiError> {

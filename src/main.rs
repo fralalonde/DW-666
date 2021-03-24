@@ -51,10 +51,10 @@ use stm32f1xx_hal::gpio::gpioa::{PA6, PA7};
 use core::convert::TryFrom;
 use crate::app::AppState;
 use crate::clock::{CPU_FREQ, PCLK1_FREQ};
-use crate::event::{MidiEndpoint, MidiEvent};
+use crate::event::{Endpoint, MidiLane};
 use stm32f1xx_hal::gpio::gpioc::PC13;
-use crate::event::MidiEvent::{Incoming, Outgoing};
 use crate::midi::Message;
+use crate::event::MidiLane::{Src, Dst, Route};
 
 const CTL_SCAN: u32 = 7200;
 const LED_BLINK_CYCLES: u32 = 14_400_000;
@@ -234,11 +234,10 @@ const APP: () = {
         }
     }
 
-    /// RTIC defaults to SLEEP_ON_EXIT on idle, which is very eco-friendly (much wattage - wow)
-    /// Except that sleeping FUCKS with RTT logging, debugging, etc.
-    /// Override this with a puny idle loop (such waste!)
-    // #[allow(clippy::empty_loop)]
-    // #[idle(spawn = [send_serial_midi])]
+    /// RTIC defaults to SLEEP_ON_EXIT on idle, which is very eco-friendly (SUCH WATTAGE)
+    /// Except that sleeping FUCKS with RTT logging, debugging, etc (WOW)
+    /// Override this with a puny idle loop (MUCH WASTE)
+    #[allow(clippy::empty_loop)]
     #[idle]
     fn idle(_ctx: idle::Context) -> ! {
         loop {}
@@ -256,7 +255,7 @@ const APP: () = {
         // poll() is required else receive() might block forever
         if ctx.resources.usb_midi.poll() {
             while let Some(packet) = ctx.resources.usb_midi.receive().unwrap() {
-                ctx.spawn.dispatch_midi(Incoming(MidiEndpoint::USB, packet));
+                ctx.spawn.dispatch_midi(Src(Endpoint::USB), packet);
             }
         }
     }
@@ -269,7 +268,7 @@ const APP: () = {
         }
 
         while let Ok(Some(packet)) = ctx.resources.serial_midi_in.receive() {
-            ctx.spawn.dispatch_midi(Incoming(MidiEndpoint::Serial(0), packet));
+            ctx.spawn.dispatch_midi(Src(Endpoint::Serial(0)), packet);
         }
     }
 
@@ -309,7 +308,7 @@ const APP: () = {
         app_state.arp.bump();
 
         let note_on = midi::note_on(app_state.arp.channel, app_state.arp.note, 0x7F).unwrap();
-        ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::Arp(0), note_on.into())).unwrap();
+        ctx.spawn.dispatch_midi(Route(0), note_on.into()).unwrap();
 
         ctx.schedule.arp_note_off(ctx.scheduled + ARP_NOTE_LEN.cycles(), channel, note).unwrap();
         ctx.schedule.arp_note_on(ctx.scheduled + ARP_NOTE_LEN.cycles()).unwrap();
@@ -318,7 +317,7 @@ const APP: () = {
     #[task(spawn = [dispatch_midi], capacity = 2)]
     fn arp_note_off(ctx: arp_note_off::Context, channel: Channel, note: Note) {
         let note_off = midi::Message::NoteOff(channel, note, Velocity::try_from(0).unwrap());
-        ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::Arp(0), note_off.into())).unwrap();
+        ctx.spawn.dispatch_midi(Route(0), note_off.into()).unwrap();
     }
 
     #[task(resources = [on_board_led], schedule = [led_blink])]
@@ -332,20 +331,20 @@ const APP: () = {
     }
 
     #[task(spawn = [dispatch_midi, send_serial_midi], resources = [usb_midi], priority = 3)]
-    fn dispatch_midi(ctx: dispatch_midi::Context, event: MidiEvent) {
-        match event {
-            Incoming(MidiEndpoint::USB, packet) => {
+    fn dispatch_midi(ctx: dispatch_midi::Context, lane: MidiLane, packet: Packet) {
+        match (lane, packet) {
+            (Src(Endpoint::USB), packet) => {
                 // echo USB packets
-                ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::USB, packet));
-                ctx.spawn.dispatch_midi(Outgoing(MidiEndpoint::Serial(0), packet));
+                ctx.spawn.dispatch_midi(Dst(Endpoint::USB), packet);
+                ctx.spawn.dispatch_midi(Dst(Endpoint::Serial(0)), packet);
             }
-            Outgoing(MidiEndpoint::USB, packet) => {
+            (Dst(Endpoint::USB), packet) => {
                 // immediate forward
                 if let Err(e) = ctx.resources.usb_midi.transmit(packet) {
                     rprintln!("Failed to send USB MIDI: {:?}", e)
                 }
             }
-            Incoming(MidiEndpoint::Serial(_), packet) => {
+            (Src(Endpoint::Serial(_)), packet) => {
                 if let Ok(message) = Message::try_from(packet) {
                     match message {
                         Message::SysexBegin(byte1, byte2) => rprint!("Sysex [ 0x{:x}, 0x{:x}", byte1, byte2),
@@ -357,13 +356,10 @@ const APP: () = {
                     }
                 }
             }
-            Outgoing(MidiEndpoint::Serial(_), packet) => {
+            (Dst(Endpoint::Serial(_)), packet) => {
                 ctx.spawn.send_serial_midi(packet);
             }
-            Incoming(MidiEndpoint::Arp(_), _) => {}
-            Outgoing(MidiEndpoint::Arp(_), packet) => {
-                ctx.spawn.send_serial_midi(packet);
-            }
+            (Route(_), _) => {}
         }
     }
 

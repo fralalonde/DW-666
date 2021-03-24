@@ -1,4 +1,4 @@
-use crate::midi::Packet;
+use crate::midi::{Packet, U4};
 
 pub type Instant = u64;
 pub type Duration = u64;
@@ -40,16 +40,16 @@ pub enum CtlEvent {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum MidiEndpoint {
+pub enum Endpoint {
     USB,
     Serial(u8),
-    Arp(u8),
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum MidiEvent {
-    Incoming(MidiEndpoint, Packet),
-    Outgoing(MidiEndpoint, Packet),
+pub enum MidiLane {
+    Src(Endpoint),
+    Dst(Endpoint),
+    Route(u8),
 }
 
 #[derive(Copy, Clone, Debug)]

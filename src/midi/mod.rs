@@ -22,7 +22,8 @@ mod message;
 mod packet;
 mod serial;
 mod usb;
-
+mod sysex;
+mod route;
 
 pub type Channel = U4;
 pub type Velocity = U7;
@@ -65,6 +66,7 @@ pub enum MidiError {
     TryFromSliceError,
     UsbError,
     BufferFull,
+    SysexBufferFull,
 }
 
 impl From<UsbError> for MidiError {

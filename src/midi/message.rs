@@ -4,7 +4,7 @@ use crate::midi::note::Note;
 use crate::midi::packet::{Packet, CodeIndexNumber};
 use core::convert::{TryFrom, TryInto};
 use crate::midi::{MidiError, Cull, Channel, Velocity, Pressure, Control, Bend, Program};
-use crate::midi::status::{Status, SYSEX_END, is_non_status};
+use crate::midi::status::{Status, SYSEX_END, is_non_status, SYSEX_START};
 use Message::*;
 use CodeIndexNumber::{SystemCommonLen1, SystemCommonLen2, SystemCommonLen3};
 
@@ -47,12 +47,20 @@ pub enum Message {
     // Begin & End
     SysexEmpty,
     // Begin, Byte & End
-    SysexOneByte(u8),
+    SysexSingleByte(u8),
 
 }
 
 pub fn note_on(channel: impl TryInto<Channel>, note: impl TryInto<Note>, velocity: impl TryInto<Velocity>) -> Result<Message, MidiError> {
     Ok(Message::NoteOn(
+        channel.try_into().map_err(|_| MidiError::InvalidChannel)?,
+        note.try_into().map_err(|_| MidiError::InvalidNote)?,
+        velocity.try_into().map_err(|_| MidiError::InvalidVelocity)?)
+    )
+}
+
+pub fn note_off(channel: impl TryInto<Channel>, note: impl TryInto<Note>, velocity: impl TryInto<Velocity>) -> Result<Message, MidiError> {
+    Ok(Message::NoteOff(
         channel.try_into().map_err(|_| MidiError::InvalidChannel)?,
         note.try_into().map_err(|_| MidiError::InvalidNote)?,
         velocity.try_into().map_err(|_| MidiError::InvalidVelocity)?)
@@ -70,10 +78,22 @@ impl TryFrom<Packet> for Message {
                 } else {
                     Ok(SysexBegin(payload[1], payload[2]))
                 }
-            } ,
+            }
             (SystemCommonLen1, _, _, payload) if payload[0] == SYSEX_END => Ok(SysexEnd),
-            (CodeIndexNumber::SysexEndsNext2, _, _, payload) => Ok(SysexEnd1(payload[0])),
-            (CodeIndexNumber::SysexEndsNext3, _, _, payload) => Ok(SysexEnd2(payload[0], payload[1])),
+            (CodeIndexNumber::SysexEndsNext2, _, _, payload) => {
+                if payload[0] == SYSEX_START {
+                    Ok(SysexEmpty)
+                } else {
+                    Ok(SysexEnd1(payload[0]))
+                }
+            },
+            (CodeIndexNumber::SysexEndsNext3, _, _, payload) => {
+                if payload[0] == SYSEX_START {
+                    Ok(SysexSingleByte(payload[1]))
+                } else {
+                    Ok(SysexEnd2(payload[0], payload[1]))
+                }
+            },
 
             (SystemCommonLen1, Some(Status::TimingClock), ..) => Ok(TimingClock),
             (SystemCommonLen1, Some(Status::TuneRequest), ..) => Ok(TuneRequest),

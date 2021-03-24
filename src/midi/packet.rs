@@ -48,6 +48,7 @@ impl Packet {
         }
     }
 
+    /// Payload
     pub fn payload(&self) -> &[u8] {
         let cin = self.code_index_number();
         &self.bytes[1..cin.payload_len() + 1]
@@ -56,6 +57,22 @@ impl Packet {
     pub fn with_cable_num(mut self, cable_number: CableNumber) -> Self {
         self.bytes[0] = self.bytes[0] & 0x0F | u8::from(cable_number) << 4;
         self
+    }
+
+    /// Sysex body _excludes_ SYSEX_START and SYSEX_END markers
+    /// Return an empty slice if packet hold no sysex data
+    pub fn sysex_body(&self) -> &[u8] {
+        match self.code_index_number() {
+            Sysex =>
+                if self.bytes[1] == SYSEX_START {
+                    &self.bytes[2..]
+                } else {
+                    &self.bytes[1..]
+                }
+            SysexEndsNext2 => &self.bytes[1..2],
+            SysexEndsNext3 => &self.bytes[1..3],
+            _ => &[]
+        }
     }
 
     pub fn bytes(&self) -> &[u8] {
@@ -138,7 +155,7 @@ impl From<Message> for Packet {
                 packet[1] = SYSEX_START;
                 packet[2] = SYSEX_END;
             }
-            Message::SysexOneByte(b1) => {
+            Message::SysexSingleByte(b1) => {
                 packet[1] = SYSEX_START;
                 packet[2] = u8::from(b1);
                 packet[3] = SYSEX_END;
@@ -248,7 +265,7 @@ impl From<Message> for CodeIndexNumber {
             Message::SysexEnd1(..) => CodeIndexNumber::SysexEndsNext2,
             Message::SysexEnd2(..) => CodeIndexNumber::SysexEndsNext3,
             Message::SysexEmpty => CodeIndexNumber::SysexEndsNext2,
-            Message::SysexOneByte(..) => CodeIndexNumber::SysexEndsNext3,
+            Message::SysexSingleByte(..) => CodeIndexNumber::SysexEndsNext3,
         }
     }
 }
