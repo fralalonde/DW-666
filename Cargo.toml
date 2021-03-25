@@ -18,7 +18,7 @@ enum-map = "0.6.4"
 num_enum = { version = "0.5", default-features = false }
 nb = "1"
 heapless = {version = "0.6.0", features = ["ufmt-impl", "cas"]}
-#smallvec = "1.6.1"
+const-arrayvec = "0.2.1"
 ufmt = "0.1.0"
 
 rtt-target = { version = "0.3", features = ["cortex-m"] }

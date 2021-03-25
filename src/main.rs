@@ -1,8 +1,7 @@
 #![no_main]
 #![no_std]
-#![feature(alloc_error_handler)]
-
-#![feature(const_mut_refs, slice_as_chunks)]
+// #![feature(alloc_error_handler)]
+#![feature(slice_as_chunks)]
 
 #[macro_use]
 extern crate enum_map;
