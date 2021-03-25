@@ -25,14 +25,7 @@ use embedded_hal::digital::v2::OutputPin;
 use rtic::app;
 use rtic::cyccnt::U32Ext as _;
 
-use stm32f1xx_hal::gpio::{State, Input, PullUp, Output, PushPull};
-use stm32f1xx_hal::i2c::{BlockingI2c, DutyCycle, Mode};
-use stm32f1xx_hal::prelude::*;
-
 use ssd1306::{prelude::*, Builder, I2CDIBuilder};
-use stm32f1xx_hal::usb::{Peripheral, UsbBus, UsbBusType};
-use stm32f1xx_hal::device::USART2;
-
 
 use usb_device::bus;
 
@@ -42,24 +35,48 @@ use input::{Scan, Controls};
 
 use midi::{SerialIn, SerialOut, MidiClass, Packet, CableNumber, usb_device, Note, Channel, Velocity, Transmit, Receive};
 use core::result::Result;
-use stm32f1xx_hal::serial;
 
 use panic_rtt_target as _;
-use stm32f1xx_hal::serial::{Rx, StopBits};
-use stm32f1xx_hal::gpio::gpioa::{PA6, PA7};
 use core::convert::TryFrom;
 use crate::app::AppState;
 use crate::clock::{CPU_FREQ, PCLK1_FREQ};
-use crate::event::{Endpoint, MidiLane};
-use stm32f1xx_hal::gpio::gpioc::PC13;
-use crate::midi::Message;
+
+// STM32F1 specific
+extern crate stm32f1xx_hal as hal;
+use hal::i2c::{BlockingI2c, DutyCycle, Mode};
+use hal::usb::{Peripheral, UsbBus, UsbBusType};
+use hal::serial::StopBits;
+use hal::gpio::State;
+
+// STM32F4 specific
+// extern crate stm32f4xx_hal as hal;
+// use hal::i2c::I2c;
+// use hal::otg_fs::{UsbBusType, UsbBus};
+// use hal::serial::config::StopBits;
+
+// STM32 universal (?)
+use hal::{
+    prelude::*,
+    prelude::*,
+    serial::{self, Serial, Rx, Tx},
+    stm32::USART2,
+    stm32::Peripherals,
+    gpio::{
+        Input, PullUp, Output, PushPull,
+        gpioa::{PA6, PA7},
+        gpioc::{PC13},
+    },
+};
+
 use crate::event::MidiLane::{Src, Dst, Route};
+use crate::event::{Endpoint, MidiLane};
+use crate::midi::Message;
 
 const CTL_SCAN: u32 = 7200;
 const LED_BLINK_CYCLES: u32 = 14_400_000;
 const ARP_NOTE_LEN: u32 = 7200000;
 
-#[app(device = stm32f1xx_hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
+#[app(device = hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
         // clock: rtc::RtcClock,

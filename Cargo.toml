@@ -25,6 +25,14 @@ rtt-target = { version = "0.3", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
 stm32f1xx-hal = { version = "0.6", features = ["rt", "stm32f103", "medium", "stm32-usbd"] }
 
+#
+#stm32f4xx-hal = { version = "0.8", features = ["rt", "stm32f411", "usb_fs"] }
+#
+#[features]
+#default = [ "stm32f1" ]
+#stm32f1 = []
+#stm32f4 = []
+
 [[bin]]
 bench = false
 name = "usbmidi-route"
