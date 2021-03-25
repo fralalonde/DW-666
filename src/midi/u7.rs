@@ -22,8 +22,9 @@ impl TryFrom<u8> for U7 {
 
 /// Takes (LSB, MSB)
 impl From<(U7, U7)> for U14 {
-    fn from(u7s: (U7, U7)) -> Self {
-        U14::saturate(((u7s.1.0 as u16) << 7) | u7s.0.0 as u16)
+    fn from(pair: (U7, U7)) -> Self {
+        let (lsb, msb) = pair;
+        U14::try_from(((msb.0 as u16) << 7) | (lsb.0 as u16)).unwrap()
     }
 }
 
