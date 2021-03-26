@@ -18,15 +18,11 @@ mod midi;
 mod output;
 mod app;
 
-mod device;
+mod devices;
 
 use embedded_hal::digital::v2::OutputPin;
 use rtic::app;
 use rtic::cyccnt::U32Ext as _;
-
-use stm32f4xx_hal::gpio::{Input, PullUp, Output, PushPull};
-// use stm32f4xx_hal::i2c::{Mode};
-use stm32f4xx_hal::prelude::*;
 
 use ssd1306::{prelude::*, Builder, I2CDIBuilder};
 
@@ -44,29 +40,64 @@ use core::convert::TryFrom;
 use crate::app::AppState;
 use crate::clock::{CPU_FREQ, PCLK1_FREQ};
 
-extern crate stm32f4xx_hal as hal;
+// STM32F1 specific
+// extern crate stm32f1xx_hal as hal;
+// use hal::i2c::{BlockingI2c, DutyCycle, Mode};
+// use hal::usb::{Peripheral, UsbBus, UsbBusType};
+// use hal::serial::StopBits;
+// use hal::gpio::State;
+
+#[cfg(feature = "stm32f4xx")]
+use stm32f4 as _;
+#[cfg(feature = "stm32f4xx")]
+use stm32f4xx_hal as hal;
+#[cfg(feature = "stm32f4xx")]
+use stm32f4xx_hal::stm32 as device;
+
+#[cfg(feature = "stm32f4xx")]
+use hal::{gpio::AlternateOD, i2c::I2c};
+
+// #[cfg(feature = "stm32f7xx")]
+// use stm32f7 as _;
+// #[cfg(feature = "stm32f7xx")]
+// use stm32f7xx_hal as hal;
+// #[cfg(feature = "stm32f7xx")]
+// use stm32f7xx_hal::device;
+// #[cfg(feature = "stm32f7xx")]
+// use rtic::export::DWT;
+//
+// #[cfg(feature = "stm32f7xx")]
+// use hal::{
+//     gpio::Alternate,
+//     i2c::{BlockingI2c, Mode},
+// };
+
+// STM32 universal (?)
 use hal::{
-    nb::block,
-    prelude::*,
-    serial::{self, config::Config, Event, Serial, Rx, Tx, config::StopBits},
+    serial::{self, Serial, Rx, Tx, config::StopBits},
     stm32::USART2,
     stm32::Peripherals,
     gpio::{
+        Input, PullUp, Output, PushPull,
         gpioa::{PA6, PA7},
         gpioc::{PC13},
     },
-    otg_fs::{UsbBusType, UsbBus},
-    i2c::I2c,
+    otg_fs::{UsbBusType, UsbBus, USB},
 };
+
+
 use crate::event::MidiLane::{Src, Dst, Route};
 use crate::event::{Endpoint, MidiLane};
 use crate::midi::Message;
+
+use hal::{gpio::GpioExt, gpio::AF4, rcc::RccExt, time::U32Ext};
+
 
 const CTL_SCAN: u32 = 7200;
 const LED_BLINK_CYCLES: u32 = 14_400_000;
 const ARP_NOTE_LEN: u32 = 7200000;
 
-#[app(device = hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
+#[app(device = crate::device, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
         // clock: rtc::RtcClock,
@@ -83,31 +114,42 @@ const APP: () = {
     fn init(ctx: init::Context) -> init::LateResources {
         // for some RTIC reason statics need to go first
         static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
+        static mut EP_MEMORY: [u32; 1024] = [0; 1024];
 
         rtt_init_print!();
 
         // unsafe { ALLOCATOR.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE) }
         // rprintln!("Allocator OK");
 
-        // Enable cycle counter
-        let mut core = ctx.core;
-        core.DWT.enable_cycle_counter();
+        // Initialize (enable) the monotonic timer (CYCCNT)
+        ctx.core.DCB.enable_trace();
+        // required on Cortex-M7 devices that software lock the DWT (e.g. STM32F7)
+        #[cfg(feature = "stm32f7xx")]
+            DWT::unlock();
+        ctx.core.DWT.enable_cycle_counter();
 
-        let peripherals: stm32f4xx_hal::stm32::Peripherals = ctx.device;
+        let peripherals: device::Peripherals = ctx.device;
 
-        // Setup clocks
-        // let mut flash = peripherals.FLASH.constrain();
-        let mut rcc = peripherals.RCC.constrain();
-        // let mut afio = peripherals.AFIO.constrain(&mut rcc.apb2);
-        let clocks = rcc
-            .cfgr
-            .use_hse(8.mhz())
-            // maximum CPU overclock
-            .sysclk(CPU_FREQ.hz())
-            .pclk1(PCLK1_FREQ.hz())
-            .freeze();
+        // init sensor
 
-        assert!(clocks.usbclk_valid());
+        #[cfg(feature = "stm32f4xx")]
+            let rcc = peripherals.RCC.constrain();
+        #[cfg(feature = "stm32f7xx")]
+            let mut rcc = peripherals.RCC.constrain();
+
+        #[cfg(feature = "stm32f4xx")]
+            let clocks = rcc.cfgr.sysclk(50.mhz()).freeze();
+        #[cfg(feature = "stm32f7xx")]
+            let clocks = rcc.cfgr.sysclk(216.mhz()).freeze();
+
+        #[cfg(feature = "stm32f4xx")]
+            let gpioa = peripherals.GPIOA.split();
+        #[cfg(feature = "stm32f4xx")]
+            let gpiob = peripherals.GPIOB.split();
+        #[cfg(feature = "stm32f4xx")]
+            let gpioc = peripherals.GPIOC.split();
+        #[cfg(feature = "stm32f7xx")]
+            let gpioh = peripherals.GPIOH.split();
 
         rprintln!("Clocks OK");
 
@@ -118,11 +160,6 @@ const APP: () = {
         // let clock = rtc::RtcClock::new(rtc);
 
         rprintln!("RTC OK");
-
-        // Get GPIO busses
-        let mut gpioa = peripherals.GPIOA.split(&mut rcc.apb2);
-        let mut gpiob = peripherals.GPIOB.split(&mut rcc.apb2);
-        let mut gpioc = peripherals.GPIOC.split(&mut rcc.apb2);
 
         // // Setup LED
         let mut on_board_led = gpioc
@@ -176,7 +213,7 @@ const APP: () = {
                 .stopbits(StopBits::STOP1)
                 .parity_none(),
             clocks,
-        );
+        ).unwrap();
         let (tx, mut rx) = usart.split();
         rx.listen();
         let serial_midi_out = SerialOut::new(tx);
@@ -189,15 +226,17 @@ const APP: () = {
         usb_dp.set_low().unwrap();
         delay(clocks.sysclk().0 / 100);
 
-        let usb = Peripheral {
-            usb: peripherals.USB,
-            pin_dm: gpioa.pa11,
-            pin_dp: usb_dp.into_floating_input(),
+        let usb = USB {
+            usb_global: peripherals.OTG_FS_GLOBAL,
+            usb_device: peripherals.OTG_FS_DEVICE,
+            usb_pwrclk: peripherals.OTG_FS_PWRCLK,
+            pin_dm: gpioa.pa11.into_alternate_af10(),
+            pin_dp: gpioa.pa12.into_alternate_af10(),
         };
 
-        *USB_BUS = Some(UsbBus::new(usb));
+        *USB_BUS = Some(UsbBus::new(usb, unsafe { EP_MEMORY }));
         let midi_class = MidiClass::new(USB_BUS.as_ref().unwrap());
-        // USB device MUST init after classes
+        // USB devices MUST init after classes
         let usb_dev = usb_device(USB_BUS.as_ref().unwrap());
         rprintln!("USB OK");
 
@@ -366,8 +405,11 @@ const APP: () = {
 
     extern "C" {
         // Reuse some interrupts for software task scheduling.
-        fn DMA1_CHANNEL5();
-        fn DMA1_CHANNEL6();
-        fn DMA1_CHANNEL7();
+        fn EXTI0();
+        fn EXTI1();
+        fn USART1();
+        // fn DMA1_CHANNEL5();
+        // fn DMA1_CHANNEL6();
+        // fn DMA1_CHANNEL7();
     }
 };

@@ -42,7 +42,7 @@ const HEADER_SUBTYPE: u8 = 0x01;
 const MS_HEADER_SUBTYPE: u8 = 0x01;
 const MS_GENERAL: u8 = 0x01;
 
-/// Configures the usb device as seen by the operating system.
+/// Configures the usb devices as seen by the operating system.
 pub fn usb_device<B: UsbBus>(usb_bus: &UsbBusAllocator<B>) -> UsbDevice<B> {
     let usb_vid_pid = UsbVidPid(0x16c0, 0x27dd);
     let usb_dev = UsbDeviceBuilder::new(usb_bus, usb_vid_pid)
@@ -126,7 +126,7 @@ impl midi::Receive for UsbMidi {
 }
 
 ///Note we are using MidiIn here to refer to the fact that
-///The Host sees it as a midi in device
+///The Host sees it as a midi in devices
 ///This class allows you to send types in
 pub struct MidiClass<'a, B: UsbBus> {
     audio_subclass: InterfaceNumber,
@@ -185,7 +185,7 @@ impl<B: UsbBus> MidiClass<'_, B> {
         }
     }
 
-    /// Empty TX FIFO to USB device.
+    /// Empty TX FIFO to USB devices.
     /// Return true if bytes were sent.
     fn tx_flush(&mut self) -> bool {
         let result = self.bulk_in.write(&self.tx_fifo[0..self.tx_len]);
@@ -216,7 +216,7 @@ impl<B: UsbBus> MidiClass<'_, B> {
         if let Some(bytes) = self.rx_pop() {
             Some(bytes)
         } else {
-            // FIFO is empty, check USB device then retry
+            // FIFO is empty, check USB devices then retry
             self.rx_fill();
             self.rx_pop()
         }
@@ -237,7 +237,7 @@ impl<B: UsbBus> MidiClass<'_, B> {
         None
     }
 
-    /// Try to fetch packets bytes from USB device.
+    /// Try to fetch packets bytes from USB devices.
     fn rx_fill(&mut self) {
         // compact any odd bytes to buffer start
         self.rx_fifo.copy_within(self.rx_start..self.rx_end, 0);
@@ -258,7 +258,7 @@ impl<B: UsbBus> MidiClass<'_, B> {
 impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
 
     /// Callback after USB flush (send) completed
-    /// Check for packets that were enqueued while device was busy (UsbErr::WouldBlock)
+    /// Check for packets that were enqueued while devices was busy (UsbErr::WouldBlock)
     /// If any packets are pending re-flush queue immediately
     /// This callback may chain-trigger under high output load (big sysex, etc.) - this is good
     fn endpoint_in_complete(&mut self, addr: EndpointAddress) {

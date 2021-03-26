@@ -7,6 +7,9 @@ use crate::midi::{MidiError, Receive, Transmit};
 use crate::midi::status::Status;
 use core::convert::TryFrom;
 use embedded_hal::serial::Write;
+
+#[cfg(feature = "stm32f4xx")]
+use stm32f4xx_hal as hal;
 use hal::{
     serial::{config::Config, Event, Serial, Rx, Tx, config::StopBits},
     stm32::USART2,

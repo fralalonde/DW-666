@@ -8,7 +8,6 @@
 # runner = "arm-none-eabi-gdb -q -x openocd.gdb"
 # runner = "gdb-multiarch -q -x openocd.gdb"
 # runner = "gdb -q -x openocd.gdb"
-#runner = "probe-run --chip STM32F103C8 --defmt"
 runner = "probe-run --chip STM32F411FEU6 --defmt"
 
 rustflags = [
