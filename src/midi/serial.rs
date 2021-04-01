@@ -6,8 +6,11 @@ use crate::midi::packet::{Packet, CableNumber, CodeIndexNumber};
 use crate::midi::{MidiError, Receive, Transmit};
 use crate::midi::status::Status;
 use core::convert::TryFrom;
-use stm32f1xx_hal::serial::{Event, Tx};
+use stm32f1xx_hal::serial::{Tx};
 use embedded_hal::serial::Write;
+use stm32f1xx_hal::device::USART2;
+
+const TX_FIFO_SIZE: u8 = 128;
 
 #[derive(Copy, Clone, Default, Debug)]
 struct PacketBuffer {
@@ -136,11 +139,6 @@ impl<RX, E> Receive for SerialIn<RX>
     }
 }
 
-const TX_FIFO_SIZE: u8 = 128;
-
-use stm32f1xx_hal::device::USART2;
-use stm32f1xx_hal::pac::Interrupt::DMA1_CHANNEL5;
-
 // FIXME USART should be a type parameter but this makes Tx::listen and Tx::unlisten (used in flush()) inaccessible. why?
 // TODO might try using DMA instead
 pub struct SerialOut/*<USART>*/ {
@@ -241,7 +239,7 @@ impl/*<USART>*/ Transmit for SerialOut/*<USART>*/
             self.last_status = None
         }
 
-        self.write_all(payload);
+        self.write_all(payload)?;
         self.flush()?;
         Ok(())
     }

@@ -17,21 +17,15 @@ usb-device = "0.2"
 enum-map = "0.6.4"
 num_enum = { version = "0.5", default-features = false }
 nb = "1"
-heapless = {version = "0.6.0", features = ["ufmt-impl", "cas"]}
-const-arrayvec = "0.2.1"
+#heapless = {version = "0.6.1", features = ["ufmt-impl", "cas"]}
+heapless = {git = "https://github.com/japaric/heapless.git", branch = "const_generics", features = ["ufmt-impl", "cas"]}
+hash32 = "0.1"
+#hash32-derive = "0.1.0"
 ufmt = "0.1.0"
 
 rtt-target = { version = "0.3", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
 stm32f1xx-hal = { version = "0.6", features = ["rt", "stm32f103", "medium", "stm32-usbd"] }
-
-#
-#stm32f4xx-hal = { version = "0.8", features = ["rt", "stm32f411", "usb_fs"] }
-#
-#[features]
-#default = [ "stm32f1" ]
-#stm32f1 = []
-#stm32f4 = []
 
 [[bin]]
 bench = false

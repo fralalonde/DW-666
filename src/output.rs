@@ -1,6 +1,6 @@
 // use alloc::string::String;
 // use core::fmt::Write;
-use heapless::{consts::*, String};
+use heapless::{String};
 use ufmt::uwrite;
 use embedded_graphics::fonts::{Font12x16};
 use embedded_graphics::prelude::Point;
@@ -31,19 +31,19 @@ impl Display {
     pub fn update(&mut self, event: AppEvent) {
         match event {
             ParamChange(Param::FilterCutoff(cutoff)) => {
-                let mut text: String<U32> = String::new();
+                let mut text: String<32> = String::new();
                 uwrite!(text, "cutoff {}", cutoff).unwrap();
                 self.redraw(text, PATCH_1, PATCH_2)
             }
             ConfigChange(Config::MidiEcho(echo)) => {
-                let mut text: String<U32> = String::new();
+                let mut text: String<32> = String::new();
                 uwrite!(text, "echo {}", echo).unwrap();
                 self.redraw(text, CONFIG_1, CONFIG_2)
             }
         }
     }
 
-    fn redraw(&mut self, text: String<U32>, top_right: Point, btm_left: Point) {
+    fn redraw(&mut self, text: String<32>, top_right: Point, btm_left: Point) {
         let blank_style = PrimitiveStyleBuilder::new()
             .stroke_color(BinaryColor::Off)
             .fill_color(BinaryColor::Off)
