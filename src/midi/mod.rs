@@ -13,7 +13,8 @@ pub use u4::U4;
 pub use u7::U7;
 pub use usb::{MidiClass, usb_device, UsbMidi};
 pub use sysex::{SysexMatcher, SysexToken, VarType, SysexPackets, SysexFragment};
-pub use route::{Interface, RouteId, Router, Filter, Binding};
+pub use route::{Interface, RouteId, Router, RouteBinding, RoutingContext, Route};
+pub use filter::{Filter};
 
 mod u4;
 mod u7;
@@ -26,6 +27,7 @@ mod serial;
 mod usb;
 mod sysex;
 mod route;
+mod filter;
 
 pub type Channel = U4;
 pub type Velocity = U7;

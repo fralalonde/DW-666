@@ -1,5 +1,5 @@
 pub type Instant = u64;
-pub type Duration = u64;
+pub type Duration = u32;
 
 #[derive(Copy, Clone, Debug, Enum)]
 pub enum ButtonId {

@@ -33,7 +33,7 @@ pub struct SysexListenerHandle {}
 pub trait SysexDispatch {
     fn listen(interface: Interface, matcher: SysexMatcher) -> SysexListenerHandle;
     fn unlisten(handle: SysexListenerHandle);
-    fn send(spawn: crate::dispatch_midi::Spawn, interface: Interface, packets: impl IntoIterator<Item=Packet>);
+    fn send(spawn: crate::dispatch_from::Spawn, interface: Interface, packets: impl IntoIterator<Item=Packet>);
 }
 
 #[derive(Debug, Clone, Copy)]
