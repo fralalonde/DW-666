@@ -12,7 +12,8 @@ use usb_device::{
 
 use core::result::Result;
 
-use stm32f4xx_hal::otg_fs::{UsbBusType};
+use hal::otg_fs::{UsbBusType};
+
 use crate::midi::Packet;
 use crate::midi::MidiError;
 use crate::midi;
@@ -44,14 +45,12 @@ const MS_GENERAL: u8 = 0x01;
 
 /// Configures the usb devices as seen by the operating system.
 pub fn usb_device<B: UsbBus>(usb_bus: &UsbBusAllocator<B>) -> UsbDevice<B> {
-    let usb_vid_pid = UsbVidPid(0x16c0, 0x27dd);
-    let usb_dev = UsbDeviceBuilder::new(usb_bus, usb_vid_pid)
+    UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
         .manufacturer("M'Roto")
         .product("USB MIDI Router")
         .serial_number("123")
         .device_class(USB_CLASS_NONE)
-        .build();
-    usb_dev
+        .build()
 }
 
 const PACKET_LEN: usize = 4;

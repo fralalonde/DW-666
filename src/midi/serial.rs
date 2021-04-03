@@ -6,14 +6,18 @@ use crate::midi::packet::{Packet, CableNumber, CodeIndexNumber};
 use crate::midi::{MidiError, Receive, Transmit};
 use crate::midi::status::Status;
 use core::convert::TryFrom;
-use embedded_hal::serial::Write;
+use embedded_hal::serial::{Write, Read};
 
-#[cfg(feature = "stm32f4xx")]
+const TX_FIFO_SIZE: u8 = 128;
+
 use stm32f4xx_hal as hal;
 use hal::{
     serial::{config::Config, Event, Serial, Rx, Tx, config::StopBits},
     stm32::USART2,
 };
+use hal::gpio::AF7;
+use hal::gpio::gpioa::{PA2, PA3};
+use hal::serial::Event::Txe;
 
 #[derive(Copy, Clone, Default, Debug)]
 struct PacketBuffer {
@@ -111,94 +115,56 @@ impl PacketParser {
     }
 }
 
-pub struct SerialIn<RX> {
-    serial_in: RX,
+pub type UartPeripheral = hal::serial::Serial<
+    USART2,
+    (
+        PA2<hal::gpio::Alternate<AF7>>,
+        PA3<hal::gpio::Alternate<AF7>>,
+    ),
+>;
+
+pub type Queue = heapless::spsc::Queue<u8, u8, 32>;
+
+pub struct SerialMidi {
+    pub uart: UartPeripheral,
+    pub tx_fifo: Queue,
     cable_number: CableNumber,
     parser: PacketParser,
+    last_status: Option<u8>,
 }
 
-impl<RX, E> SerialIn<RX>
-    where RX: serial::Read<u8, Error=E>,
-{
-    pub fn new(rx: RX, cable_number: CableNumber) -> Self {
-        SerialIn {
-            serial_in: rx,
+impl SerialMidi {
+    pub fn new(handle: UartPeripheral, cable_number: CableNumber) -> Self {
+        SerialMidi {
+            uart: handle,
+            tx_fifo: unsafe { Queue::u8() },
             cable_number,
             parser: PacketParser::default(),
-        }
-    }
-}
-
-impl<RX, E> Receive for SerialIn<RX>
-    where RX: serial::Read<u8, Error=E>
-{
-    fn receive(&mut self) -> Result<Option<Packet>, MidiError> {
-        let byte = self.serial_in.read()?;
-        let packet = self.parser.advance(byte);
-        if let Ok(Some(packet)) = packet {
-            return Ok(Some(packet.with_cable_num(self.cable_number)));
-        }
-        packet
-    }
-}
-
-const TX_FIFO_SIZE: u8 = 128;
-
-
-// FIXME USART should be a type parameter but this makes Tx::listen and Tx::unlisten (used in flush()) inaccessible. why?
-// TODO might try using DMA instead
-pub struct SerialOut/*<USART>*/ {
-    serial_out: Tx<USART2>,
-    last_status: Option<u8>,
-
-    tx_fifo: [u8; TX_FIFO_SIZE as usize],
-    tx_head: u8,
-    tx_tail: u8,
-}
-
-impl/*<USART>*/ SerialOut/*<USART>*/
-// where Tx<USART>: serial::Write<u8>
-{
-    pub fn new(tx: Tx<USART2>) -> Self {
-        SerialOut {
-            serial_out: tx,
             last_status: None,
-            // serial tx uses a circular buffer
-            tx_fifo: [0; TX_FIFO_SIZE as usize],
-            tx_head: 0,
-            tx_tail: 0,
-        }
-    }
-
-    fn buf_len(&self) -> u8 {
-        if self.tx_head > self.tx_tail {
-            self.tx_head - self.tx_tail
-        } else {
-            self.tx_head + (TX_FIFO_SIZE - self.tx_tail)
         }
     }
 
     pub fn flush(&mut self) -> Result<(), MidiError> {
-        while self.buf_len() > 0 {
-            match self.serial_out.write(self.tx_fifo[self.tx_tail as usize]) {
-                Err(nb::Error::WouldBlock) => {
-                    self.serial_out.listen();
-                    return Ok(())
-                }
-                Err(_err) => {
-                    rprintln!("Failed to write serial payload for reason other than blocking");
-                    return Err(MidiError::SerialError);
-                }
-                Ok(_) => {
-                    if self.tx_tail == (TX_FIFO_SIZE - 1) {
-                        self.tx_tail = 0
-                    } else {
-                        self.tx_tail += 1
+        if self.uart.is_txe() {
+            loop {
+                if let Some(byte) = self.tx_fifo.dequeue() {
+                    match self.uart.write(byte) {
+                        Err(nb::Error::WouldBlock) => {
+                            self.uart.listen(Txe);
+                            return Ok(());
+                        }
+                        Err(_err) => {
+                            rprintln!("Failed to write serial payload for reason other than blocking");
+                            return Err(MidiError::SerialError);
+                        }
+                        Ok(_) => {}
                     }
+                } else {
+                    self.uart.unlisten(Txe);
+                    break;
                 }
             }
         }
-        self.serial_out.unlisten();
         Ok(())
     }
 
@@ -210,22 +176,27 @@ impl/*<USART>*/ SerialOut/*<USART>*/
     }
 
     fn write_byte(&mut self, byte: u8) -> Result<(), MidiError> {
-        if self.buf_len() >= TX_FIFO_SIZE {
-            return Err(MidiError::BufferFull)
-        }
-        self.tx_fifo[self.tx_head as usize] = byte;
-        if self.tx_head == (TX_FIFO_SIZE - 1) {
-            self.tx_head = 0
-        } else {
-            self.tx_head += 1
-        }
-        Ok(())
+        self.tx_fifo.enqueue(byte).map_err(|e| MidiError::BufferFull)
+
     }
 }
 
-impl/*<USART>*/ Transmit for SerialOut/*<USART>*/
-    // where Tx<USART>: serial::Write<u8>
-{
+impl Receive for SerialMidi {
+    fn receive(&mut self) -> Result<Option<Packet>, MidiError> {
+        if self.uart.is_rxne() {
+            let byte = self.uart.read()?;
+            let packet = self.parser.advance(byte);
+            if let Ok(Some(packet)) = packet {
+                return Ok(Some(packet.with_cable_num(self.cable_number)));
+            }
+            packet
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl Transmit for SerialMidi {
     fn transmit(&mut self, event: Packet) -> Result<(), MidiError> {
         let mut payload = event.payload();
 
@@ -245,7 +216,7 @@ impl/*<USART>*/ Transmit for SerialOut/*<USART>*/
             self.last_status = None
         }
 
-        self.write_all(payload);
+        self.write_all(payload)?;
         self.flush()?;
         Ok(())
     }
@@ -258,4 +229,5 @@ impl/*<USART>*/ Transmit for SerialOut/*<USART>*/
         Ok(())
     }
 }
+
 

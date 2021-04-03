@@ -1,7 +1,5 @@
-use crate::midi::{Packet, U4};
-
 pub type Instant = u64;
-pub type Duration = u64;
+pub type Duration = u32;
 
 #[derive(Copy, Clone, Debug, Enum)]
 pub enum ButtonId {
@@ -39,18 +37,6 @@ pub enum CtlEvent {
     Rotary(RotaryId, RotaryEvent),
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum Endpoint {
-    USB,
-    Serial(u8),
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum MidiLane {
-    Src(Endpoint),
-    Dst(Endpoint),
-    Route(u8),
-}
 
 #[derive(Copy, Clone, Debug)]
 pub enum Config {

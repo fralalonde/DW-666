@@ -4,10 +4,10 @@ use enum_map::EnumMap;
 use crate::event::RotaryEvent::{TickClockwise, TickCounterClockwise};
 use crate::event::ButtonEvent::{Down, Up};
 
-const CYCLES_STEPPING: u64 = 1000;
-
-pub const SCAN_FREQ_HZ: u32 = 1_000;
-const SCAN_PERIOD_MICROS: u64 = ((1.0 / SCAN_FREQ_HZ as f64) * 1_000_000.0) as u64;
+// const CYCLES_STEPPING: u64 = 1000;
+//
+// pub const SCAN_FREQ_HZ: u32 = 1_000;
+// const SCAN_PERIOD_MICROS: u64 = ((1.0 / SCAN_FREQ_HZ as f64) * 1_000_000.0) as u64;
 
 pub trait Scan {
     fn scan(&mut self, now: Instant) -> Option<CtlEvent>;

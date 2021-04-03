@@ -6,12 +6,15 @@ use usb_device::UsbError;
 pub use message::{Message, note_on};
 pub use note::Note;
 pub use packet::{CableNumber, CodeIndexNumber, Packet};
-pub use serial::{SerialIn, SerialOut};
+pub use serial::{SerialMidi};
 pub use status::Status;
 pub use u14::U14;
 pub use u4::U4;
 pub use u7::U7;
 pub use usb::{MidiClass, usb_device, UsbMidi};
+pub use sysex::{SysexMatcher, SysexToken, VarType, SysexPackets, SysexFragment};
+pub use route::{Interface, RouteId, Router, RouteBinding, RoutingContext, Route};
+pub use filter::{Filter};
 
 mod u4;
 mod u7;
@@ -24,6 +27,7 @@ mod serial;
 mod usb;
 mod sysex;
 mod route;
+mod filter;
 
 pub type Channel = U4;
 pub type Velocity = U7;
@@ -31,6 +35,7 @@ pub type Control = U7;
 pub type Pressure = U7;
 pub type Program = U7;
 pub type Bend = U14;
+
 
 pub trait Receive {
     fn receive(&mut self) -> Result<Option<Packet>, MidiError>;

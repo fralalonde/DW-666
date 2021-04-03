@@ -1,116 +1,245 @@
-use crate::midi::{Packet, CodeIndexNumber, MidiError};
-use crate::midi::status::{is_non_status, SYSEX_END, SYSEX_START};
-use crate::midi::packet::CodeIndexNumber::SystemCommonLen1;
-use CodeIndexNumber::{SysexEndsNext2, SysexEndsNext3, Sysex};
+use crate::midi::{Packet, CodeIndexNumber, U7, Interface};
 use heapless::Vec;
-use const_arrayvec::ArrayVec;
-use crate::midi::sysex::MatcherState::{Init, PartialMatch, FullMatch};
 
-struct SysexBuffer<const N: usize> {
-    inner: ArrayVec<u8, N>
+use core::ops::{Deref};
+use core::iter::FromIterator;
+use crate::midi::message::Message::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, SysexCont, SysexEmpty, SysexSingleByte};
+
+const MAX_PATTERN_TOKENS: usize = 8;
+const MAX_CAPTURE_TOKENS: usize = 4;
+
+#[derive(Debug, Clone, Copy)]
+pub struct Range {
+    min: u8,
+    max: u8,
 }
 
-impl<const N: usize> SysexBuffer<N> {
-    pub fn new() -> Self {
-        SysexBuffer {
-            inner: ArrayVec::new(),
-        }
-    }
-
-    /// Returns the number of bytes added
-    pub fn append_from(&mut self, packet: Packet) -> Result<u8, MidiError> {
-        let body = packet.sysex_body();
-        if self.inner.len() < body.len() {
-            Err(MidiError::SysexBufferFull)?
-        }
-        self.inner[..body.len()].copy_from_slice(body);
-        Ok(body.len() as u8)
+impl Range {
+    fn contains(&self, byte: u8) -> bool {
+        byte >= self.min && byte < self.max
     }
 }
 
-pub enum ByteMask {
-    ExactMatch,
-    Ignore,
-    // Capture,
+pub fn range(min: u8, max: u8) -> Range {
+    assert!(min < max, "Invalid sysex value range: min ({}) is bigger than max ({})", min, max);
+    Range {
+        min,
+        max,
+    }
 }
 
-pub enum MatcherState {
-    // Until first bytes are received
-    Init,
+pub struct SysexListenerHandle {}
 
-    // Partial match if all bytes received matched but pattern not yet complete
-    PartialMatch,
-
-    // Full match if all bytes matched and complete pattern was covered
-    FullMatch,
-
-    // Matcher
-    Negative,
+pub trait SysexDispatch {
+    fn listen(interface: Interface, matcher: SysexMatcher) -> SysexListenerHandle;
+    fn unlisten(handle: SysexListenerHandle);
+    fn send(spawn: crate::dispatch_from::Spawn, interface: Interface, packets: impl IntoIterator<Item=Packet>);
 }
 
-// #[derive(Copy, Clone)]
-// pub struct SysexMatcher<const N: usize> {
-//     pattern: ArrayVec<u8, N>,
-//     state: MatcherState,
-//     position: usize,
-//     cap_len: usize,
-// }
-//
-// impl<const N: usize> SysexMatcher<N> {
-//     pub fn pattern(pattern: &[u8], cap_len: usize) -> Self {
-//         let mut p = ArrayVec::new();
-//         p.try_extend_from_slice(pattern).unwrap();
-//         SysexMatcher {
-//             pattern: p,
-//             state: Init,
-//             position: 0,
-//             cap_len
-//         }
-//     }
-//
-//     pub fn is_complete(&self) -> bool {
-//         self.position == self.pattern.len()
-//     }
-//
-//     /// Ignore series of bytes
-//     pub fn ignore(mut self, position: usize) -> Self {
-//         self.pattern[position] = 0xFF;
-//         self
-//     }
-//
-//     pub fn collect_and_reset(&mut self) {
-//         // TODO collect
-//         self.position = 0;
-//         self.state = MatcherState::Init;
-//     }
-//
-//     /// Returns the number of bytes added
-//     pub fn match_from(&mut self, incoming: &[u8]) -> MatcherState {
-//         if self.pattern.len() - self.position < incoming.len() {
-//             self.state = return MatcherState::Negative;
-//         }
-//         if self.state != MatcherState::Negative {
-//             for byte in incoming {
-//                 match self.mask[self.position] {
-//                     ByteMask::ExactMatch => {
-//                         if self.pattern[self.position] != byte {
-//                             self.state = MatcherState::Negative;
-//                             break;
-//                         } else {
-//                             self.state = MatcherState::PartialMatch;
-//                         }
-//                     }
-//                     ByteMask::Ignore => {}
-//                     ByteMask::Capture => {
-//                         self.pattern[self.position] = byte
-//                     }
-//                 }
-//                 self.position += 1;
-//             }
-//             if self.state == PartialMatch && self.is_complete() {
-//                 self.state = FullMatch
-//             }
-//         }
-//         *self.state
-//     }
-// }
+#[derive(Debug, Clone, Copy)]
+pub enum VarType {
+    // Sysex Device ID
+    Device,
+    // Indexed parameters (Steps in sequence, generic knob / pad ID)
+    Index,
+    // Parameter code
+    Param,
+    // Value of parameter
+    Value,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum SysexFragment {
+    Slice(&'static [u8]),
+    Byte(u8),
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum SysexToken {
+    Match(&'static [u8]),
+    Ignore(u8),
+    Val(u8),
+    // Unconditional capture (values, etc)
+    Capture(VarType),
+    // Range capture
+    CaptureRange(VarType, Range),
+}
+
+/// Used to send sysex
+#[derive(Debug)]
+pub struct SysexPackets {
+    tokens: Vec<SysexFragment, MAX_PATTERN_TOKENS>,
+    // current token to produce from
+    tok_idx: usize,
+    // current index inside token
+    byte_idx: usize,
+    total_bytes: usize,
+}
+
+impl SysexPackets {
+    pub fn sequence(tokens: &[SysexFragment]) -> Self {
+        SysexPackets {
+            tokens: Vec::from_slice(tokens).unwrap(),
+            tok_idx: 0,
+            byte_idx: 0,
+            total_bytes: 0,
+        }
+    }
+
+    pub fn and_then(mut self, tokens: &[SysexFragment]) -> Self {
+        self.tokens.extend_from_slice(tokens).unwrap();
+        self
+    }
+}
+
+impl Iterator for SysexPackets {
+    type Item = Packet;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.tok_idx > self.tokens.len() {
+            return None
+        }
+        let mut bytes: Vec<u8, 3> = Vec::new();
+        if self.tok_idx == self.tokens.len() {
+            // mark as definitely done
+            self.tok_idx += 1;
+        } else {
+            while bytes.len() < 3 {
+                if self.tok_idx >= self.tokens.len() {
+                    break;
+                }
+                let token = self.tokens[self.tok_idx];
+                let tok_len = match token {
+                    SysexFragment::Slice(slice) => {
+                        bytes.push(slice[self.byte_idx]).unwrap();
+                        slice.len()
+                    }
+                    SysexFragment::Byte(val) => {
+                        bytes.push(val).unwrap();
+                        1
+                    }
+                };
+                self.byte_idx += 1;
+                if self.byte_idx >= tok_len {
+                    // move on to next token
+                    self.tok_idx += 1;
+                    self.byte_idx = 0;
+                }
+            }
+        }
+        self.total_bytes += bytes.len();
+        let done = self.tok_idx >= self.tokens.len();
+        Some(Packet::from(
+            match (bytes.len(), done, self.total_bytes) {
+                (2, false, _) => SysexBegin(bytes[0], bytes[1]),
+                (3, false, _) => SysexCont(bytes[0], bytes[1], bytes[2]),
+
+                // sysex start + end ("special cases")
+                (0, true, 0) => SysexEmpty,
+                (1, true, 1) => SysexSingleByte(bytes[0]),
+
+                // sysex end
+                (0, true, _) => SysexEnd,
+                (1, true, _) => SysexEnd1(bytes[0]),
+                (2, true, _) => SysexEnd2(bytes[0], bytes[1]),
+
+                (p_len, done, t_len) => {
+                    rprintln!("Could not build sysex packet: p_len({}) done({}) t_len({})", p_len, done, t_len);
+                    return None
+                }
+            }
+        ))
+    }
+}
+
+#[derive(Debug)]
+pub struct SysexMatcher {
+    tokens: Vec<SysexToken, MAX_PATTERN_TOKENS>,
+}
+
+impl Deref for SysexMatcher {
+    type Target = [SysexToken];
+
+    fn deref(&self) -> &Self::Target {
+        self.tokens.as_slice()
+    }
+}
+
+impl SysexMatcher {
+    pub fn pattern(tokens: &[SysexToken]) -> Self {
+        SysexMatcher {
+            tokens: Vec::from_slice(tokens).unwrap(),
+        }
+    }
+
+    pub fn matcher(&self) -> Matcher {
+        Matcher {
+            pattern: &self,
+            tok_idx: 0,
+            byte_idx: 0,
+            captured: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Matcher<'a> {
+    pattern: &'a SysexMatcher,
+    // current token to produce from
+    tok_idx: usize,
+    // current index inside token
+    byte_idx: usize,
+    captured: Vec<(VarType, u8), MAX_CAPTURE_TOKENS>,
+}
+
+impl<'a> Matcher<'a> {
+    /// Returns true if new byte matches expected byte value or range, or if byte is captured
+    /// Returns false if new byte does falls outside expected pattern
+    /// Once this method returns false, every subsequent invocation will also return false
+    pub fn advance(&mut self, byte: u8) -> bool {
+        // fast exit if match previously failed
+        if self.tok_idx >= self.pattern.len() {
+            return false;
+        }
+        let mut tok_len = 1;
+        match &self.pattern[self.tok_idx] {
+            SysexToken::Match(token) => {
+                if token[self.byte_idx] != byte {
+                    return self.fail_match();
+                }
+                tok_len = token.len()
+            }
+            SysexToken::Ignore(len) => {
+                tok_len = *len as usize
+            }
+            SysexToken::Val(token) => {
+                if *token != byte {
+                    return self.fail_match();
+                }
+            }
+            SysexToken::Capture(ttype) => {
+                self.captured.push((*ttype, byte)).unwrap();
+            }
+            SysexToken::CaptureRange(ttype, range) => {
+                if range.contains(byte) {
+                    self.captured.push((*ttype, byte)).unwrap();
+                } else {
+                    return self.fail_match();
+                }
+            }
+        };
+        self.byte_idx += 1;
+        if self.byte_idx >= tok_len {
+            // move on to next token
+            self.tok_idx += 1;
+            self.byte_idx = 0;
+        }
+        true
+    }
+
+    #[inline]
+    fn fail_match(&mut self) -> bool {
+        self.tok_idx = self.pattern.len();
+        false
+    }
+}
