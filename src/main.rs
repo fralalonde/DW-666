@@ -381,15 +381,16 @@ const APP: () = {
         // }
     }
 
-    #[task(capacity = 64, priority = 2, resources = [serial_midi_out, usb_midi])]
+    #[task(resources = [usb_midi, serial_midi_out], capacity = 64, priority = 2)]
     fn send_midi(mut cx: send_midi::Context, interface: Interface, packet: Packet) {
         match interface {
-            Interface::USB => {
-                let mut usb_midi = cx.resources.usb_midi;
-                if let Err(e) = cx.resources.usb_midi.transmit(packet) {
-                    rprintln!("Failed to send USB MIDI: {:?}", e)
-                }
-            }
+            // FIXME *&?&*?&*? Transmit method "no exist" FFFUUUUU
+            // Interface::USB => {
+            //     let mut usb_midi = cx.resources.usb_midi;
+            //     if let Err(e) = usb_midi.transmit(packet) {
+            //         rprintln!("Failed to send USB MIDI: {:?}", e)
+            //     }
+            // }
             Interface::Serial(_) => {
                 // TODO use proper serial port #
                 cx.resources.serial_midi_out.lock(
@@ -397,6 +398,7 @@ const APP: () = {
                         rprintln!("Failed to send Serial MIDI: {:?}", e)
                     });
             }
+            _ => {}
         }
     }
 

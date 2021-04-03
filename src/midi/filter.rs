@@ -1,6 +1,6 @@
 use crate::midi::{Channel, SysexMatcher, Packet, U4, Cull, RouteBinding};
 use heapless::Vec;
-use crate::midi::route::RoutingContext;
+use crate::midi::route::{RoutingContext, RouterEvent};
 
 /// Enum used as object class discriminant.
 /// Mutable object state held inside each.
@@ -17,13 +17,15 @@ pub enum Filter {
 
 impl Filter {
     pub fn apply(&mut self, context: &mut RoutingContext) -> bool {
-        for event in context {
+        for event in context.events() {
             match self {
                 Filter::FilterChannel(only) => {
-                    if let Some(channel) = event.packet.channel() {
-                        if channel != only {
-                            // *only = U4::cull(5);
-                            return false;
+                    if let RouterEvent::Packet(_, packet) = event {
+                        if let Some(channel) = packet.channel() {
+                            if channel != *only {
+                                // *only = U4::cull(5);
+                                return false;
+                            }
                         }
                     }
                 }

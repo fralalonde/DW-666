@@ -87,7 +87,7 @@ impl hash32::Hash for Interface {
 
 
 /// Events that may trigger a route
-#[derive(Copy, Clone, Debug,  Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum RouteBinding {
     Src(Interface),
     Dst(Interface),
@@ -97,11 +97,11 @@ pub enum RouteBinding {
 impl hash32::Hash for RouteBinding {
     fn hash<H: hash32::Hasher>(&self, state: &mut H) {
         match self {
-            Src(idx) =>  {
+            Src(idx) => {
                 state.write(&[0x4]);
                 idx.hash(state);
             }
-            Dst(idx) =>  {
+            Dst(idx) => {
                 state.write(&[0x8]);
                 idx.hash(state);
             }
@@ -125,6 +125,7 @@ pub enum RouterEvent {
 
 pub struct ScheduledPacket(Instant, Packet);
 
+#[derive(Debug, Default)]
 pub struct RoutingContext {
     events: Vec<RouterEvent, 64>,
     destinations: FnvIndexSet<Interface, 4>,
@@ -134,6 +135,10 @@ impl RoutingContext {
     fn clear(&mut self) {
         self.events.clear();
         self.destinations.clear();
+    }
+
+    pub fn events(&self) -> &[RouterEvent] {
+        &self.events
     }
 
     pub fn send_packet(&mut self, packet: Packet) {
@@ -157,51 +162,56 @@ type RouteVec = Vec<RouteId, 8>;
 
 #[derive(Debug, Default)]
 pub struct Router {
-    triggers: FnvIndexMap<RouteBinding, RouteVec, 16>,
-    routes: FnvIndexMap<RouteId, Route, 64>,
+    bindings: FnvIndexMap<RouteBinding, RouteVec, 16>,
+    routes: RefCell<FnvIndexMap<RouteId, Route, 64>>,
     // TODO route ID pooling instead
     next_route_id: AtomicU16,
-    context: RoutingContext,
+    context: RefCell<RoutingContext>,
 }
 
 use crate::dispatch_from;
 use rtic::cyccnt::Instant;
+use core::cell::RefCell;
 
 impl Router {
-    pub fn dispatch_from(&mut self, now: Instant, packet: Packet, source: Interface, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
-        if let Some(route_ids) = self.triggers.get(&Src(source)) {
+    pub fn dispatch_from(&self, now: Instant, packet: Packet, source: Interface, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
+        if let Some(route_ids) = self.bindings.get(&Src(source)) {
             self.dispatch(now, RouterEvent::Packet(0, packet), route_ids, spawn, schedule)
         }
     }
 
-    pub fn dispatch_to(&mut self, now: Instant, packet: Packet, destination: Interface, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
-        if let Some(route_ids) = self.triggers.get(&Dst(destination)) {
+    pub fn dispatch_to(&self, now: Instant, packet: Packet, destination: Interface, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
+        if let Some(route_ids) = self.bindings.get(&Dst(destination)) {
             self.dispatch(now, RouterEvent::Packet(0, packet), route_ids, spawn, schedule)
         }
     }
 
-    pub fn dispatch_clock(&mut self, now: Instant, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
-        if let Some(route_ids) = self.triggers.get(&Clock) {
+    pub fn dispatch_clock(&self, now: Instant, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
+        if let Some(route_ids) = self.bindings.get(&Clock) {
             self.dispatch(now, RouterEvent::Clock, route_ids, spawn, schedule)
         }
     }
 
-    fn dispatch(&mut self, now: Instant, event: RouterEvent, route_ids: &RouteVec, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
+    fn dispatch(&self, now: Instant, event: RouterEvent, route_ids: &RouteVec, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
+        let mut routes = self.routes.borrow_mut();
+        let mut context = self.context.borrow_mut();
         for route_id in route_ids {
-            if let Some(mut route) = self.routes.get(route_id) {
-                self.context.clear();
-                self.context.events.push(event);
+            if let Some(mut route) = routes.get_mut(route_id) {
+                context.clear();
+                context.events.push(event);
                 if let Some(dest) = route.destination {
-                    self.context.destinations.insert(dest);
+                    context.destinations.insert(dest);
                 }
-                if route.apply(&mut self.context) {
-                    for event in self.context.events {
-                        if let RouterEvent::Packet(delay, packet) = event {
-                            if delay == 0 {
-                                spawn.send_midi(route.destination, packet).unwrap()
-                            } else {
-                                // quantized or delayed
-                                schedule.send_midi(route.destination, packet).unwrap()
+                if route.apply(&mut context) {
+                    for event in &context.events {
+                        if let Some(destination) = route.destination {
+                            if let RouterEvent::Packet(delay, packet) = event {
+                                if *delay == 0 {
+                                    spawn.send_midi(destination, *packet).unwrap()
+                                } else {
+                                    // quantized or delayed
+                                    schedule.send_midi(Instant::now(), destination, *packet).unwrap()
+                                }
                             }
                         }
                     }
@@ -212,7 +222,7 @@ impl Router {
         }
     }
 
-    pub fn bind(mut self, route: Route) -> RouteId {
+    pub fn bind(&mut self, route: Route) -> RouteId {
         let route_id = self.next_route_id.fetch_add(1, Relaxed);
 
         if let Some(src) = route.source {
@@ -223,52 +233,49 @@ impl Router {
             self.bind_route(&Dst(dst), route_id);
         }
 
-        for f in route.filters {
+        for f in &route.filters {
             for b in f.bindings() {
                 self.bind_route(b, route_id);
             }
         }
 
-        self.routes.insert(route_id, route);
+        self.routes.borrow_mut().insert(route_id, route);
 
         route_id
     }
 
     fn bind_route(&mut self, binding: &RouteBinding, route_id: RouteId) {
         // FIXME heapless fnvmap does not have entry() yet
-        if let Some(route_ids) = self.triggers.get_mut(binding) {
+        if let Some(route_ids) = self.bindings.get_mut(binding) {
             route_ids.push(route_id);
         } else {
             let mut route_ids = Vec::new();
             route_ids.push(route_id);
-            self.sources.insert(*binding, route_ids);
+            self.bindings.insert(*binding, route_ids);
         }
     }
 
     pub fn unbind(&mut self, route_id: RouteId) {
-        if let Some(route) = self.routes.swap_remove(&route_id) {
+        let removed = self.routes.borrow_mut().swap_remove(&route_id);
+        if let Some(route) = removed {
             if let Some(src) = route.source {
-                if let Some(sources) = self.sources.get_mut(&src) {
-                    if let Some((idx, _)) = sources.iter().enumerate().find(|(i, v)| **v == route_id) {
-                        sources.swap_remove(idx);
-                    } else {
-                        rprintln!("Route id {} not found in source {:?} index: {:?}", route_id, src, sources)
-                    }
-                } else {
-                    rprintln!("Route has source {:?} but is index is empty", src)
-                }
+                self.try_remove(route_id, &Src(src));
             }
             if let Some(dst) = route.destination {
-                if let Some(destinations) = self.destinations.get_mut(&dst) {
-                    if let Some((idx, _)) = destinations.iter().enumerate().find(|(i, v)| **v == route_id) {
-                        destinations.swap_remove(idx);
-                    } else {
-                        rprintln!("Route id {} not found in source {:?} index: {:?}", route_id, dst, destinations)
-                    }
-                } else {
-                    rprintln!("Route has source {:?} but is index is empty", dst)
-                }
+                self.try_remove(route_id, &Dst(dst));
             }
+        }
+    }
+
+    fn try_remove(&mut self, route_id: RouteId, bin: &RouteBinding) {
+        if let Some(bins) = self.bindings.get_mut(bin) {
+            if let Some((idx, _)) = bins.iter().enumerate().find(|(i, v)| **v == route_id) {
+                bins.swap_remove(idx);
+            } else {
+                rprintln!("Route id {} not found in bindings {:?} index: {:?}", route_id, bin, bins)
+            }
+        } else {
+            rprintln!("Route has source {:?} but is bindings is empty", bin)
         }
     }
 }
