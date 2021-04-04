@@ -1,18 +1,15 @@
 //! *Midi driver on top of embedded hal serial communications*
 //!
 use crate::midi::status::{SYSEX_END, is_non_status, is_channel_status, SYSEX_START};
-use embedded_hal::serial;
 use crate::midi::packet::{Packet, CableNumber, CodeIndexNumber};
 use crate::midi::{MidiError, Receive, Transmit};
 use crate::midi::status::Status;
 use core::convert::TryFrom;
 use embedded_hal::serial::{Write, Read};
 
-const TX_FIFO_SIZE: u8 = 128;
-
 use stm32f4xx_hal as hal;
 use hal::{
-    serial::{config::Config, Event, Serial, Rx, Tx, config::StopBits},
+    serial::{config::Config,  Serial},
     stm32::USART2,
 };
 use hal::gpio::AF7;
@@ -137,7 +134,7 @@ impl SerialMidi {
     pub fn new(handle: UartPeripheral, cable_number: CableNumber) -> Self {
         SerialMidi {
             uart: handle,
-            tx_fifo: unsafe { Queue::u8() },
+            tx_fifo: Queue::u8(),
             cable_number,
             parser: PacketParser::default(),
             last_status: None,
@@ -176,8 +173,7 @@ impl SerialMidi {
     }
 
     fn write_byte(&mut self, byte: u8) -> Result<(), MidiError> {
-        self.tx_fifo.enqueue(byte).map_err(|e| MidiError::BufferFull)
-
+        self.tx_fifo.enqueue(byte).map_err(|_e| MidiError::BufferFull)
     }
 }
 
