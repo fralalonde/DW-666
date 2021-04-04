@@ -1,5 +1,4 @@
-use heapless::{IndexMap, FnvIndexMap, Vec, FnvIndexSet};
-use enum_map::EnumMap;
+use heapless::{FnvIndexMap, Vec, FnvIndexSet};
 use crate::midi::{Packet, Channel, SysexMatcher, U4, Cull, Filter};
 use crate::midi::status::is_channel_status;
 use self::RouteBinding::*;

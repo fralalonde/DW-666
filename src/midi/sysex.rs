@@ -1,8 +1,7 @@
-use crate::midi::{Packet, CodeIndexNumber, U7, Interface};
+use crate::midi::{Packet, Interface};
 use heapless::Vec;
 
 use core::ops::{Deref};
-use core::iter::FromIterator;
 use crate::midi::message::Message::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, SysexCont, SysexEmpty, SysexSingleByte};
 
 const MAX_PATTERN_TOKENS: usize = 8;
