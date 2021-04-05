@@ -1,5 +1,5 @@
 use crate::midi::{Channel, SysexMatcher, Packet, U4, Cull, RouteBinding};
-use heapless::Vec;
+use alloc::vec::Vec;
 use crate::midi::route::{RoutingContext, RouterEvent};
 
 /// Enum used as object class discriminant.

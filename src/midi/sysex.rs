@@ -1,8 +1,8 @@
 use crate::midi::{Packet, Interface};
-use heapless::Vec;
+use alloc::vec::Vec;
 
 use core::ops::{Deref};
-use crate::midi::message::Message::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, SysexCont, SysexEmpty, SysexSingleByte};
+use crate::midi::Message::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, SysexCont, SysexEmpty, SysexSingleByte};
 
 const MAX_PATTERN_TOKENS: usize = 8;
 const MAX_CAPTURE_TOKENS: usize = 4;
@@ -67,7 +67,7 @@ pub enum SysexToken {
 /// Used to send sysex
 #[derive(Debug)]
 pub struct SysexPackets {
-    tokens: Vec<SysexFragment, MAX_PATTERN_TOKENS>,
+    tokens: Vec<SysexFragment>,
     // current token to produce from
     tok_idx: usize,
     // current index inside token
@@ -78,17 +78,17 @@ pub struct SysexPackets {
 impl SysexPackets {
     pub fn sequence(tokens: &[SysexFragment]) -> Self {
         SysexPackets {
-            tokens: Vec::from_slice(tokens).unwrap(),
+            tokens: Vec::from(tokens),
             tok_idx: 0,
             byte_idx: 0,
             total_bytes: 0,
         }
     }
 
-    pub fn and_then(mut self, tokens: &[SysexFragment]) -> Self {
-        self.tokens.extend_from_slice(tokens).unwrap();
-        self
-    }
+    // pub fn and_then(mut self, tokens: &[SysexFragment]) -> Self {
+    //     self.tokens.extend_from_slice(tokens).unwrap();
+    //     self
+    // }
 }
 
 impl Iterator for SysexPackets {
@@ -98,7 +98,7 @@ impl Iterator for SysexPackets {
         if self.tok_idx > self.tokens.len() {
             return None
         }
-        let mut bytes: Vec<u8, 3> = Vec::new();
+        let mut bytes: Vec<u8> = Vec::new();
         if self.tok_idx == self.tokens.len() {
             // mark as definitely done
             self.tok_idx += 1;
@@ -110,11 +110,11 @@ impl Iterator for SysexPackets {
                 let token = self.tokens[self.tok_idx];
                 let tok_len = match token {
                     SysexFragment::Slice(slice) => {
-                        bytes.push(slice[self.byte_idx]).unwrap();
+                        bytes.push(slice[self.byte_idx]);
                         slice.len()
                     }
                     SysexFragment::Byte(val) => {
-                        bytes.push(val).unwrap();
+                        bytes.push(val);
                         1
                     }
                 };
@@ -153,7 +153,7 @@ impl Iterator for SysexPackets {
 
 #[derive(Debug)]
 pub struct SysexMatcher {
-    tokens: Vec<SysexToken, MAX_PATTERN_TOKENS>,
+    tokens: Vec<SysexToken>,
 }
 
 impl Deref for SysexMatcher {
@@ -167,7 +167,7 @@ impl Deref for SysexMatcher {
 impl SysexMatcher {
     pub fn pattern(tokens: &[SysexToken]) -> Self {
         SysexMatcher {
-            tokens: Vec::from_slice(tokens).unwrap(),
+            tokens: Vec::from(tokens),
         }
     }
 
@@ -188,7 +188,7 @@ pub struct Matcher<'a> {
     tok_idx: usize,
     // current index inside token
     byte_idx: usize,
-    captured: Vec<(VarType, u8), MAX_CAPTURE_TOKENS>,
+    captured: Vec<(VarType, u8)>,
 }
 
 impl<'a> Matcher<'a> {
@@ -217,11 +217,11 @@ impl<'a> Matcher<'a> {
                 }
             }
             SysexToken::Capture(ttype) => {
-                self.captured.push((*ttype, byte)).unwrap();
+                self.captured.push((*ttype, byte));
             }
             SysexToken::CaptureRange(ttype, range) => {
                 if range.contains(byte) {
-                    self.captured.push((*ttype, byte)).unwrap();
+                    self.captured.push((*ttype, byte));
                 } else {
                     return self.fail_match();
                 }

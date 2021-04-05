@@ -1,4 +1,4 @@
-use heapless::{consts::*, String};
+use alloc::string::String;
 use stm32f4xx_hal::rtc::Rtc;
 use ufmt::{uDisplay, uWrite, uwrite, Formatter};
 

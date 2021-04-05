@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 #![feature(slice_as_chunks)]
-#![feature(type_ascription)]
+#![feature(alloc_error_handler)]
 
 #[macro_use]
 extern crate enum_map;
@@ -39,6 +39,7 @@ use midi::{SerialMidi, MidiClass, Packet, CableNumber, usb_device, Note, Channel
 use midi::{Interface, Message};
 use midi::RouteBinding::*;
 use core::result::Result;
+use hashbrown::HashMap;
 
 use panic_rtt_target as _;
 use core::convert::TryFrom;
@@ -71,7 +72,50 @@ const CTL_SCAN: u32 = 100_000;
 const LED_BLINK_CYCLES: u32 = 15_400_000;
 const ARP_NOTE_LEN: u32 = 7200000;
 
-static mut EP_MEMORY: [u32; 1024] = [0; 1024];
+static mut USB_EP_MEMORY: [u32; 1024] = [0; 1024];
+
+extern crate alloc;
+// use self::alloc::vec;
+use core::alloc::Layout;
+use cortex_m::asm;
+// use cortex_m_rt::entry;
+// this is the allocator the application will use
+// use alloc_cortex_m::CortexMHeap;
+// #[global_allocator]
+// static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
+//
+// const HEAP_SIZE: usize = 96 * 1024; // in bytes
+
+// define what happens in an Out Of Memory (OOM) condition
+#[alloc_error_handler]
+fn alloc_error(_layout: Layout) -> ! {
+    asm::bkpt();
+    loop {}
+}
+
+use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
+
+const FAST_HEAP_SIZE: usize = 32 * 1024; // 32 KB
+const HEAP_SIZE: usize = 64 * 1024; // 96KB
+const LEAF_SIZE: usize = 16;
+
+pub static mut FAST_HEAP: [u8; FAST_HEAP_SIZE] = [0u8; FAST_HEAP_SIZE];
+pub static mut HEAP: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
+
+// This allocator can't work in tests since it's non-threadsafe.
+#[cfg_attr(not(test), global_allocator)]
+static ALLOC: NonThreadsafeAlloc = unsafe {
+    let fast_param = FastAllocParam::new(FAST_HEAP.as_ptr(), FAST_HEAP_SIZE);
+    let buddy_param = BuddyAllocParam::new(HEAP.as_ptr(), HEAP_SIZE, LEAF_SIZE);
+    NonThreadsafeAlloc::new(fast_param, buddy_param)
+};
+
+// // fast alloc big stack
+// use core::mem::MaybeUninit;
+// const STACK_SIZE: usize = 64 * 1024;
+// const NTHREADS: usize = 1;
+// #[link_section = ".uninit.STACKS"]
+// static mut STACKS: MaybeUninit<[[u8; STACK_SIZE]; NTHREADS]> = MaybeUninit::uninit();
 
 #[app(device = crate::device, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -96,7 +140,7 @@ const APP: () = {
         rprintln!("Initializing");
 
         // unsafe { ALLOCATOR.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE) }
-        // rprintln!("Allocator OK");
+        rprintln!("Allocator OK");
 
         // Initialize (enable) the monotonic timer (CYCCNT)
         cx.core.DCB.enable_trace();
@@ -171,6 +215,7 @@ const APP: () = {
         let serial_midi = SerialMidi::new(uart, CableNumber::MIN);
 
         rprintln!("Serial port OK");
+        delay(60000);
 
         let usb = USB {
             usb_global: peripherals.OTG_FS_GLOBAL,
@@ -180,18 +225,19 @@ const APP: () = {
             pin_dp: gpioa.pa12.into_alternate_af10(),
         };
 
-        *USB_BUS = Some(UsbBus::new(usb, unsafe { &mut EP_MEMORY }));
+        *USB_BUS = Some(UsbBus::new(usb, unsafe { &mut USB_EP_MEMORY }));
         let usb_bus = USB_BUS.as_ref().unwrap();
         let midi_class = MidiClass::new(usb_bus);
         // USB devices MUST init after classes
         let usb_dev = usb_device(usb_bus);
         rprintln!("USB OK");
+        let mut map: HashMap<u32, u64> = HashMap::new();
+        map.insert(4,8);
+        map.get(&5);
 
-
-
-        let mut midi_router: midi::Router = midi::Router::default();
+        let mut midi_router: midi::Router = midi::Router::new();
         // // TODO add default routes here
-        // let _usb_echo = midi_router.bind(midi::Route::echo(Interface::USB));
+        let _usb_echo = midi_router.bind(midi::Route::echo(Interface::USB));
         // rprintln!("Routes OK");
 
         rprintln!("-> Initialized");

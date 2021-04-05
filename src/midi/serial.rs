@@ -9,7 +9,7 @@ use embedded_hal::serial::{Write, Read};
 
 use stm32f4xx_hal as hal;
 use hal::{
-    serial::{config::Config,  Serial},
+    serial::{config::Config, Serial},
     stm32::USART2,
 };
 use hal::gpio::AF7;
@@ -134,7 +134,7 @@ impl SerialMidi {
     pub fn new(handle: UartPeripheral, cable_number: CableNumber) -> Self {
         SerialMidi {
             uart: handle,
-            tx_fifo: Queue::u8(),
+            tx_fifo: unsafe { Queue::u8() },
             cable_number,
             parser: PacketParser::default(),
             last_status: None,
