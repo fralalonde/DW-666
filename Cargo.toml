@@ -51,7 +51,7 @@ panic = "abort"
 [profile.release]
 codegen-units = 1
 opt-level = "z"
-debug = false
+debug = true
 lto = true
-panic = "abort"
+panic = "unwind"
 rpath = false

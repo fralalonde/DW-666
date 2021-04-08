@@ -66,6 +66,7 @@ use hal::{
     rcc::RccExt,
     time::U32Ext,
 };
+use heapless::Vec;
 
 const CTL_SCAN: u32 = 100_000;
 const LED_BLINK_CYCLES: u32 = 15_400_000;
@@ -188,11 +189,9 @@ const APP: () = {
         rprintln!("USB OK");
 
 
-
         let mut midi_router: midi::Router = midi::Router::default();
-        // // TODO add default routes here
-        // let _usb_echo = midi_router.bind(midi::Route::echo(Interface::USB));
-        // rprintln!("Routes OK");
+        let _usb_echo = midi_router.bind(midi::Route::echo(Interface::USB));
+        rprintln!("Routes OK");
 
         rprintln!("-> Initialized");
 
@@ -217,19 +216,9 @@ const APP: () = {
     /// Except that sleeping FUCKS with RTT logging, debugging, etc (WOW)
     /// Override this with a puny idle loop (MUCH WASTE)
     #[allow(clippy::empty_loop)]
-    #[idle(/*resources = [on_board_led]*/)]
+    #[idle()]
     fn idle(cx: idle::Context) -> ! {
-        // let mut led = cx.resources.on_board_led;
-        // let mut led_on = true;
-        loop {
-            delay(35_000_000);
-            // if led_on {
-            //     led.lock(|led| led.set_high().unwrap());
-            // } else {
-            //     led.lock(|led| led.set_low().unwrap());
-            // }
-            // led_on = !led_on;
-        }
+        loop {}
     }
 
     /// USB receive interrupt
