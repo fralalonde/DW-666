@@ -1,8 +1,5 @@
 use cortex_m::peripheral::DWT;
 
-pub const CPU_FREQ: u32 = 100_000_000;
-pub const PCLK1_FREQ: u32 = CPU_FREQ / 2;
-
 /// regular RTIC Instant/Durations sucks for real time, does not handle rollovers
 /// (and STM32F1 RTC is in seconds only)
 /// Fuck it, let's count cycles ourselves using 64 bit.

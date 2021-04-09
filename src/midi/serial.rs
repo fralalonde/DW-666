@@ -9,7 +9,6 @@ use embedded_hal::serial::{Write, Read};
 
 use stm32f4xx_hal as hal;
 use hal::{
-    serial::{config::Config, Serial},
     stm32::USART2,
 };
 use hal::gpio::AF7;

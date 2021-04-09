@@ -12,7 +12,7 @@ pub use u14::U14;
 pub use u4::U4;
 pub use u7::U7;
 pub use usb::{MidiClass, usb_device, UsbMidi};
-pub use sysex::{SysexMatcher, SysexToken, VarType, SysexPackets, SysexFragment};
+pub use sysex::{Matcher, SysexToken, Tag, Sequence, SysexFragment};
 pub use route::{Interface, RouteId, Router, RouteBinding, RoutingContext, Route};
 pub use filter::{Filter};
 

@@ -31,17 +31,14 @@ use ssd1306::{prelude::*, Builder, I2CDIBuilder};
 
 use usb_device::bus;
 
-use cortex_m::asm::delay;
-
 use input::{Scan, Controls};
 
-use midi::{SerialMidi, MidiClass, Packet, CableNumber, usb_device, Note, Channel, Velocity, Transmit, Receive, RouteBinding, UsbMidi};
+use midi::{SerialMidi, MidiClass, Packet, CableNumber, usb_device, Transmit, Receive, UsbMidi};
 use midi::{Interface, Message};
 use midi::RouteBinding::*;
 use core::result::Result;
 
 use panic_rtt_target as _;
-use core::convert::TryFrom;
 // use crate::app::AppState;
 // use crate::clock::{CPU_FREQ, PCLK1_FREQ};
 
@@ -65,8 +62,13 @@ use hal::{
     otg_fs::{UsbBusType, UsbBus, USB},
     rcc::RccExt,
     time::U32Ext,
+    timer::{Timer},
 };
 use heapless::Vec;
+use crate::midi::{Filter, Matcher};
+
+pub const CPU_FREQ: u32 = 100_000_000;
+const CPU_CYCLES_PER_MICRO: u32 = CPU_FREQ / 1_000_000;
 
 const CTL_SCAN: u32 = 100_000;
 const LED_BLINK_CYCLES: u32 = 15_400_000;
@@ -82,7 +84,7 @@ const APP: () = {
         controls: input::Controls<PA6<Input<PullUp>>, PA7<Input<PullUp>>>,
         app_state: app::AppState,
         display: output::Display,
-        // midi_router: midi::Router,
+        midi_router: midi::Router,
         usb_midi: midi::UsbMidi,
         serial_midi: SerialMidi,
     }
@@ -100,17 +102,16 @@ const APP: () = {
         // rprintln!("Allocator OK");
 
         // Initialize (enable) the monotonic timer (CYCCNT)
-        cx.core.DCB.enable_trace();
+        // cx.core.DCB.enable_trace();
         // required on Cortex-M7 devices that software lock the DWT (e.g. STM32F7)
-        cx.core.DWT.enable_cycle_counter();
+        // cx.core.DWT.enable_cycle_counter();
 
         let peripherals = cx.device;
-
         let rcc = peripherals.RCC.constrain();
 
         let clocks = rcc
             .cfgr
-            .sysclk(100.mhz())
+            .sysclk(CPU_FREQ.hz())
             .freeze();
 
         let gpioa = peripherals.GPIOA.split();
@@ -186,11 +187,15 @@ const APP: () = {
         let midi_class = MidiClass::new(usb_bus);
         // USB devices MUST init after classes
         let usb_dev = usb_device(usb_bus);
+        // USB requires polling every 125us = 8khz
+        let _usb_poll_timer = Timer::tim2(peripherals.TIM2, 8.khz(), clocks);
+
         rprintln!("USB OK");
 
-
         let mut midi_router: midi::Router = midi::Router::default();
-        let _usb_echo = midi_router.bind(midi::Route::echo(Interface::USB));
+        let _usb_echo = midi_router.bind(midi::Route::echo(Interface::USB).filter(Filter::Print));
+        let _serial_print = midi_router.bind(midi::Route::from(Interface::Serial(0)).filter(Filter::Print));
+        // let _evo_match = midi_router.bind(midi::Route::from(Interface::Serial(0)).filter(Filter::SysexCapture(Matcher::new())));
         rprintln!("Routes OK");
 
         rprintln!("-> Initialized");
@@ -200,7 +205,7 @@ const APP: () = {
             controls,
             on_board_led,
             app_state: app::AppState::default(),
-            // midi_router,
+            midi_router,
             display: output::Display {
                 oled,
             },
@@ -212,19 +217,20 @@ const APP: () = {
         }
     }
 
-    /// RTIC defaults to SLEEP_ON_EXIT on idle, which is very eco-friendly (SUCH WATTAGE)
-    /// Except that sleeping FUCKS with RTT logging, debugging, etc (WOW)
-    /// Override this with a puny idle loop (MUCH WASTE)
-    #[allow(clippy::empty_loop)]
-    #[idle()]
-    fn idle(cx: idle::Context) -> ! {
-        loop {}
+    // fn idle(_cx: idle::Context) -> ! {
+    //     loop {}
+    // }
+
+    /// USB polling required every 0.125 millisecond
+    #[task(binds = TIM2, resources = [usb_midi], priority = 3)]
+    fn usb_poll(cx: usb_poll::Context) {
+        let _ = cx.resources.usb_midi.poll();
     }
 
     /// USB receive interrupt
     #[task(binds = OTG_FS, spawn = [dispatch_from], resources = [usb_midi], priority = 3)]
     fn usb_interrupt(cx: usb_interrupt::Context) {
-        // poll() is _required_ here else receive() might block forever!
+        // poll() is also required here else receive may block forever
         if cx.resources.usb_midi.poll() {
             while let Some(packet) = cx.resources.usb_midi.receive().unwrap() {
                 cx.spawn.dispatch_from(Interface::USB, packet);
@@ -303,32 +309,10 @@ const APP: () = {
         cx.schedule.led_blink(cx.scheduled + LED_BLINK_CYCLES.cycles(), !led_on).unwrap();
     }
 
-    #[task(spawn = [send_midi], schedule = [send_midi], /*resources = [midi_router],*/ priority = 3)]
+    #[task(spawn = [send_midi], schedule = [send_midi], resources = [midi_router], priority = 3)]
     fn dispatch_from(cx: dispatch_from::Context, from: Interface, packet: Packet) {
-        // let mut router: &mut midi::Router = cx.resources.midi_router;
-        // router.dispatch_from(cx.scheduled, packet, from, cx.spawn, cx.schedule)
-
-        match (from, packet) {
-            (Interface::USB, packet) => {
-                // echo USB packets
-                cx.spawn.send_midi(Interface::USB, packet);
-                cx.spawn.send_midi(Interface::Serial(0), packet);
-            }
-            (Interface::Serial(_), packet) => {
-                if let Ok(message) = Message::try_from(packet) {
-                    match message {
-                        Message::SysexBegin(byte1, byte2) => rprint!("Sysex [ 0x{:x}, 0x{:x}", byte1, byte2),
-                        Message::SysexCont(byte1, byte2, byte3) => rprint!(", 0x{:x}, 0x{:x}, 0x{:x}", byte1, byte2, byte3),
-                        Message::SysexEnd => rprintln!(" ]"),
-                        Message::SysexEnd1(byte1) => rprintln!(", 0x{:x} ]", byte1),
-                        Message::SysexEnd2(byte1, byte2) => rprintln!(", 0x{:x}, 0x{:x} ]", byte1, byte2),
-                        message => rprintln!("{:?}", message)
-                    }
-                }
-                cx.spawn.send_midi(Interface::Serial(0), packet);
-            }
-            (_, _) => {}
-        }
+        let mut router: &mut midi::Router = cx.resources.midi_router;
+        router.dispatch_from(cx.scheduled, packet, from, cx.spawn, cx.schedule)
     }
 
     #[task(resources = [usb_midi, serial_midi], capacity = 64, priority = 2)]

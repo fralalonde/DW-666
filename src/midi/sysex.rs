@@ -1,7 +1,6 @@
-use crate::midi::{Packet, Interface};
+use crate::midi::{Packet, Message, U7, Saturate};
 use heapless::Vec;
 
-use core::ops::{Deref};
 use crate::midi::message::Message::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, SysexCont, SysexEmpty, SysexSingleByte};
 
 const MAX_PATTERN_TOKENS: usize = 8;
@@ -27,24 +26,36 @@ pub fn range(min: u8, max: u8) -> Range {
     }
 }
 
-pub struct SysexListenerHandle {}
+// pub struct SysexListenerHandle {}
+//
+// pub trait SysexDispatch {
+//     fn listen(interface: Interface, matcher: Pattern) -> SysexListenerHandle;
+//     fn unlisten(handle: SysexListenerHandle);
+//     fn send(spawn: crate::dispatch_from::Spawn, interface: Interface, packets: impl IntoIterator<Item=Packet>);
+// }
 
-pub trait SysexDispatch {
-    fn listen(interface: Interface, matcher: SysexMatcher) -> SysexListenerHandle;
-    fn unlisten(handle: SysexListenerHandle);
-    fn send(spawn: crate::dispatch_from::Spawn, interface: Interface, packets: impl IntoIterator<Item=Packet>);
-}
+use num_enum::IntoPrimitive;
+use core::convert::TryFrom;
 
-#[derive(Debug, Clone, Copy)]
-pub enum VarType {
-    // Sysex Device ID
-    Device,
+#[derive(Debug, Clone, Copy, Eq, PartialEq, IntoPrimitive)]
+#[repr(u8)]
+pub enum Tag {
+    Channel,
+    Velocity,
+    DeviceId,
     // Indexed parameters (Steps in sequence, generic knob / pad ID)
     Index,
     // Parameter code
     Param,
     // Value of parameter
     Value,
+}
+
+impl hash32::Hash for Tag {
+    fn hash<H: hash32::Hasher>(&self, state: &mut H) {
+        let b: u8 = (*self).into();
+        state.write(&[b])
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -59,14 +70,14 @@ pub enum SysexToken {
     Ignore(u8),
     Val(u8),
     // Unconditional capture (values, etc)
-    Capture(VarType),
+    Capture(Tag),
     // Range capture
-    CaptureRange(VarType, Range),
+    CaptureRange(Tag, Range),
 }
 
 /// Used to send sysex
 #[derive(Debug)]
-pub struct SysexPackets {
+pub struct Sequence {
     tokens: Vec<SysexFragment, MAX_PATTERN_TOKENS>,
     // current token to produce from
     tok_idx: usize,
@@ -75,28 +86,23 @@ pub struct SysexPackets {
     total_bytes: usize,
 }
 
-impl SysexPackets {
-    pub fn sequence(tokens: &[SysexFragment]) -> Self {
-        SysexPackets {
+impl Sequence {
+    pub fn new(tokens: &[SysexFragment]) -> Self {
+        Sequence {
             tokens: Vec::from_slice(tokens).unwrap(),
             tok_idx: 0,
             byte_idx: 0,
             total_bytes: 0,
         }
     }
-
-    pub fn and_then(mut self, tokens: &[SysexFragment]) -> Self {
-        self.tokens.extend_from_slice(tokens).unwrap();
-        self
-    }
 }
 
-impl Iterator for SysexPackets {
+impl Iterator for Sequence {
     type Item = Packet;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.tok_idx > self.tokens.len() {
-            return None
+            return None;
         }
         let mut bytes: Vec<u8, 3> = Vec::new();
         if self.tok_idx == self.tokens.len() {
@@ -144,7 +150,7 @@ impl Iterator for SysexPackets {
 
                 (p_len, done, t_len) => {
                     rprintln!("Could not build sysex packet: p_len({}) done({}) t_len({})", p_len, done, t_len);
-                    return None
+                    return None;
                 }
             }
         ))
@@ -152,50 +158,72 @@ impl Iterator for SysexPackets {
 }
 
 #[derive(Debug)]
-pub struct SysexMatcher {
-    tokens: Vec<SysexToken, MAX_PATTERN_TOKENS>,
+pub struct Matcher {
+    pattern: Vec<SysexToken, MAX_PATTERN_TOKENS>,
+    matching: bool,
+    // current token to produce from
+    tok_idx: usize,
+    // current index inside token
+    byte_idx: usize,
+    captured: Vec<(Tag, U7), MAX_CAPTURE_TOKENS>,
 }
 
-impl Deref for SysexMatcher {
-    type Target = [SysexToken];
-
-    fn deref(&self) -> &Self::Target {
-        self.tokens.as_slice()
-    }
-}
-
-impl SysexMatcher {
-    pub fn pattern(tokens: &[SysexToken]) -> Self {
-        SysexMatcher {
-            tokens: Vec::from_slice(tokens).unwrap(),
-        }
-    }
-
-    pub fn matcher(&self) -> Matcher {
+impl Matcher {
+    pub fn new(tokens: &[SysexToken]) -> Self {
         Matcher {
-            pattern: &self,
+            pattern: Vec::from_slice(tokens).unwrap(),
+            matching: false,
             tok_idx: 0,
             byte_idx: 0,
             captured: Vec::new(),
         }
     }
-}
 
-#[derive(Debug)]
-pub struct Matcher<'a> {
-    pattern: &'a SysexMatcher,
-    // current token to produce from
-    tok_idx: usize,
-    // current index inside token
-    byte_idx: usize,
-    captured: Vec<(VarType, u8), MAX_CAPTURE_TOKENS>,
-}
+    pub fn match_packet(&mut self, packet: Packet) -> Option<Vec<(Tag, U7), MAX_CAPTURE_TOKENS>> {
+        if let Ok(message) = Message::try_from(packet) {
+            let mut sysex_end = true;
+            match message  {
+                SysexBegin(byte0, byte1) => {
+                    self.begin_match();
+                    self.matching = self.advance(byte0) && self.advance(byte1);
+                    sysex_end = false;
+                }
+                SysexSingleByte(byte0) => {
+                    self.begin_match();
+                    self.matching = self.advance(byte0);
+                }
+                SysexEmpty => {
+                    self.begin_match();
+                    self.matching = true;
+                }
+                SysexCont(byte0, byte1, byte2) => {
+                    self.matching &= self.advance(byte0) && self.advance(byte1) && self.advance(byte2);
+                    sysex_end = false;
+                }
+                SysexEnd => {}
+                SysexEnd1(byte0) => self.matching &= self.advance(byte0),
+                SysexEnd2(byte0, byte1) => self.matching &= self.advance(byte0) && self.advance(byte1),
+                _ => self.matching = false,
+            }
 
-impl<'a> Matcher<'a> {
-    /// Returns true if new byte matches expected byte value or range, or if byte is captured
-    /// Returns false if new byte does falls outside expected pattern
-    /// Once this method returns false, every subsequent invocation will also return false
-    pub fn advance(&mut self, byte: u8) -> bool {
+            if self.matching & sysex_end {
+                self.matching = false;
+                return Some(self.captured.clone())
+            }
+        }
+        None
+    }
+
+    fn begin_match(&mut self) {
+        self.tok_idx = 0;
+        self.byte_idx = 0;
+        self.captured.clear();
+    }
+
+    /// Returns true if byte matched the pattern or was captured
+    /// Returns false if byte diverges from pattern
+    /// Once this method returns false, every subsequent invocation will also return false until a new Sysex message starts
+    fn advance(&mut self, byte: u8) -> bool {
         // fast exit if match previously failed
         if self.tok_idx >= self.pattern.len() {
             return false;
@@ -217,11 +245,11 @@ impl<'a> Matcher<'a> {
                 }
             }
             SysexToken::Capture(ttype) => {
-                self.captured.push((*ttype, byte)).unwrap();
+                self.captured.push((*ttype, U7::saturate(byte))).unwrap();
             }
             SysexToken::CaptureRange(ttype, range) => {
                 if range.contains(byte) {
-                    self.captured.push((*ttype, byte)).unwrap();
+                    self.captured.push((*ttype, U7::saturate(byte))).unwrap();
                 } else {
                     return self.fail_match();
                 }

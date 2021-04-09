@@ -10,7 +10,7 @@ use embedded_graphics::style::PrimitiveStyleBuilder;
 use embedded_graphics::primitives::Rectangle;
 
 use stm32f4xx_hal::gpio::gpiob::{PB8, PB9};
-use stm32f4xx_hal::gpio::{Alternate, OpenDrain, AlternateOD, AF4};
+use stm32f4xx_hal::gpio::{AlternateOD, AF4};
 use stm32f4xx_hal::i2c::{I2c};
 
 pub struct Display {
@@ -70,7 +70,6 @@ use crate::event::AppEvent::{ParamChange, ConfigChange};
 use crate::event::{Config, Param, AppEvent};
 use stm32f4xx_hal::stm32::I2C1;
 use ssd1306::{I2CDIBuilder, Builder};
-use stm32f4xx_hal::time::U32Ext;
 
 pub fn draw_logo(
     oled: &mut GraphicsMode<

@@ -1,12 +1,9 @@
 use heapless::{FnvIndexMap, Vec, FnvIndexSet};
-use crate::midi::{Packet, Channel, SysexMatcher, U4, Cull, Filter};
-use crate::midi::status::is_channel_status;
+use crate::midi::{Packet, Filter, Tag, U7};
 use self::RouteBinding::*;
 use hash32;
 use core::sync::atomic::AtomicU16;
 use core::sync::atomic::Ordering::Relaxed;
-use core::convert::TryFrom;
-use core::iter::FromIterator;
 use crate::event::{Duration};
 
 
@@ -116,24 +113,24 @@ pub type RouteId = u16;
 #[derive(Debug, Copy, Clone)]
 pub enum RouterEvent {
     /// Original packet gets time "now" by default
-    /// Packets can be scheduled to be sent in the future
+    /// Packets can be scheduled to be sent in the future with Duration > 0
     Packet(Duration, Packet),
     /// Clock events are always "now"
     Clock,
 }
 
-pub struct ScheduledPacket(Instant, Packet);
-
 #[derive(Debug, Default)]
 pub struct RoutingContext {
     events: Vec<RouterEvent, 64>,
     destinations: FnvIndexSet<Interface, 4>,
+    tags: FnvIndexMap<Tag, U7, 4>,
 }
 
 impl RoutingContext {
     fn clear(&mut self) {
         self.events.clear();
         self.destinations.clear();
+        self.tags.clear();
     }
 
     pub fn events(&self) -> &[RouterEvent] {
@@ -145,15 +142,19 @@ impl RoutingContext {
     }
 
     pub fn schedule_packet(&mut self, delay: Duration, packet: Packet) {
-        if let Err(e) = self.events.push(RouterEvent::Packet(0, packet)) {
+        if let Err(_e) = self.events.push(RouterEvent::Packet(delay, packet)) {
             rprintln!("Dropped Packet: Routing buffer full")
         }
     }
 
     pub fn add_destination(&mut self, destination: Interface) {
-        if let Err(e) = self.destinations.insert(destination) {
+        if let Err(_e) = self.destinations.insert(destination) {
             rprintln!("Destination dropped: Routing buffer full")
         }
+    }
+
+    pub fn set_tag(&mut self, tag: Tag, value: U7) {
+        self.tags.insert(tag, value);
     }
 }
 
@@ -161,6 +162,7 @@ type RouteVec = Vec<RouteId, 8>;
 
 #[derive(Debug, Default)]
 pub struct Router {
+    enabled: bool,
     bindings: FnvIndexMap<RouteBinding, RouteVec, 16>,
     routes: FnvIndexMap<RouteId, Route, 64>,
     // TODO route ID pooling instead
@@ -170,9 +172,7 @@ pub struct Router {
 }
 
 use crate::dispatch_from;
-use rtic::cyccnt::Instant;
-use core::cell::RefCell;
-use cortex_m::asm::delay;
+use rtic::cyccnt::{Instant, U32Ext};
 
 impl Router {
     pub fn dispatch_from(&mut self, now: Instant, packet: Packet, source: Interface, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
@@ -197,7 +197,7 @@ impl Router {
         let routes = &mut self.routes;
         let context = &mut self.context;
         for route_id in route_ids {
-            if let Some(mut route) = routes.get_mut(route_id) {
+            if let Some(route) = routes.get_mut(route_id) {
                 context.clear();
                 context.events.push(event);
                 if let Some(dest) = route.destination {
@@ -210,8 +210,9 @@ impl Router {
                                 if *delay == 0 {
                                     spawn.send_midi(destination, *packet).unwrap()
                                 } else {
-                                    // quantized or delayed
-                                    schedule.send_midi(Instant::now(), destination, *packet).unwrap()
+                                    // quantized or delayed => send later
+                                    // FIXME duration should NOT be in cycles
+                                    schedule.send_midi(now + delay.cycles(), destination, *packet).unwrap()
                                 }
                             }
                         }
