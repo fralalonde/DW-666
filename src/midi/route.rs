@@ -52,12 +52,13 @@ impl Route {
         self
     }
 
-    /// Return true if router should proceed sending packets in buffer
-    /// Return false to discard any packets in buffer
+    /// Return true if router should forward event to destinations
+    /// Return false to discard the event
     /// Does not affect other routes
-    fn apply(&mut self, context: &mut RoutingContext) -> bool {
+    fn apply(&mut self, event: RouterEvent) -> bool {
+        let mut context = RouteContext::default();
         for filter in &mut self.filters {
-            if !filter.apply(context) {
+            if !filter.apply(event, &mut context) {
                 return false;
             }
         }
@@ -120,41 +121,27 @@ pub enum RouterEvent {
 }
 
 #[derive(Debug, Default)]
-pub struct RoutingContext {
-    events: Vec<RouterEvent, 64>,
+pub struct RouteContext {
+    // new_events: Vec<RouterEvent, 64>,
     destinations: FnvIndexSet<Interface, 4>,
-    tags: FnvIndexMap<Tag, U7, 4>,
+    pub tags: FnvIndexMap<Tag, Vec<U7, 4>, 4>,
 }
 
-impl RoutingContext {
-    fn clear(&mut self) {
-        self.events.clear();
-        self.destinations.clear();
-        self.tags.clear();
-    }
-
-    pub fn events(&self) -> &[RouterEvent] {
-        &self.events
-    }
-
-    pub fn send_packet(&mut self, packet: Packet) {
-        self.schedule_packet(0, packet)
-    }
-
-    pub fn schedule_packet(&mut self, delay: Duration, packet: Packet) {
-        if let Err(_e) = self.events.push(RouterEvent::Packet(delay, packet)) {
-            rprintln!("Dropped Packet: Routing buffer full")
-        }
-    }
-
+impl RouteContext {
     pub fn add_destination(&mut self, destination: Interface) {
         if let Err(_e) = self.destinations.insert(destination) {
             rprintln!("Destination dropped: Routing buffer full")
         }
     }
 
-    pub fn set_tag(&mut self, tag: Tag, value: U7) {
-        self.tags.insert(tag, value);
+    pub fn add_tag_value(&mut self, tag: Tag, value: U7) {
+        if let Some(mut values) = self.tags.get_mut(&tag) {
+            values.push(value);
+        } else {
+            let mut values = Vec::new();
+            values.push(value);
+            self.tags.insert(tag, values);
+        }
     }
 }
 
@@ -167,7 +154,7 @@ pub struct Router {
     routes: FnvIndexMap<RouteId, Route, 64>,
     // TODO route ID pooling instead
     next_route_id: AtomicU16,
-    context: RoutingContext,
+    // context: RoutingContext,
     bug: RouteVec,
 }
 
@@ -195,25 +182,17 @@ impl Router {
 
     fn dispatch(&mut self, now: Instant, event: RouterEvent, route_ids: &RouteVec, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
         let routes = &mut self.routes;
-        let context = &mut self.context;
         for route_id in route_ids {
             if let Some(route) = routes.get_mut(route_id) {
-                context.clear();
-                context.events.push(event);
-                if let Some(dest) = route.destination {
-                    context.destinations.insert(dest);
-                }
-                if route.apply(context) {
-                    for event in &context.events {
-                        if let Some(destination) = route.destination {
-                            if let RouterEvent::Packet(delay, packet) = event {
-                                if *delay == 0 {
-                                    spawn.send_midi(destination, *packet).unwrap()
-                                } else {
-                                    // quantized or delayed => send later
-                                    // FIXME duration should NOT be in cycles
-                                    schedule.send_midi(now + delay.cycles(), destination, *packet).unwrap()
-                                }
+                if route.apply(event) {
+                    if let Some(destination) = route.destination {
+                        if let RouterEvent::Packet(delay, packet) = event {
+                            if delay == 0 {
+                                spawn.send_midi(destination, packet).unwrap()
+                            } else {
+                                // quantized or delayed => send later
+                                // FIXME duration should NOT be in cycles
+                                schedule.send_midi(now + delay.cycles(), destination, packet).unwrap()
                             }
                         }
                     }

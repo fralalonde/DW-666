@@ -69,7 +69,6 @@ use embedded_graphics::image::{Image, ImageRaw};
 use crate::event::AppEvent::{ParamChange, ConfigChange};
 use crate::event::{Config, Param, AppEvent};
 use stm32f4xx_hal::stm32::I2C1;
-use ssd1306::{I2CDIBuilder, Builder};
 
 pub fn draw_logo(
     oled: &mut GraphicsMode<

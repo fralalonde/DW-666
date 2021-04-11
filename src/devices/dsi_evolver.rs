@@ -2,15 +2,25 @@
 //! Thanks to Richard Wanderlöf and Untergeek
 //! Switching the LEDs on and off:
 
-use crate::midi::{U7, U4, Note, Program, Control, Channel, Cull, MidiError};
+use crate::midi::{U7, U4, Note, Program, Control, Channel, Cull, MidiError, ResponseMatcher, ResponseToken, Tag};
+use ResponseToken::{Ref, Capture};
+use Tag::*;
 
-const GET_CTL_HEADER: &'static [u8] = &[00, 0x20, 0x6B, 0x7F, 0x42, 0x01, 0x00, /* param, control */];
+// const GET_CTL_HEADER: &'static [u8] = &[00, 0x20, 0x6B, 0x7F, 0x42, 0x01, 0x00, /* param, control */];
+//
+// const SET_CTL_HEADER: &'static [u8] = &[00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, /* param, control, value */];
+//
+// const GET_SEQ_HEADER: &'static [u8] = &[00, 0x20, 0x6B, 0x7F, 0x42, 0x01, 0x00, /* param, step */];
+//
+// const SET_SEQ_HEADER: &'static [u8] = &[00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, /* param, step, value */];
 
-const SET_CTL_HEADER: &'static [u8] = &[00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, /* param, control, value */];
+const SEQUENTIAL: u8 = 0x01;
+const EVOLVER: u8 = 0x20;
+const PROGRAM_PARAM: &'static [u8] = &[SEQUENTIAL, EVOLVER, 0x01, 0x01];
 
-const GET_SEQ_HEADER: &'static [u8] = &[00, 0x20, 0x6B, 0x7F, 0x42, 0x01, 0x00, /* param, step */];
-
-const SET_SEQ_HEADER: &'static [u8] = &[00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, /* param, step, value */];
+pub fn program_parameter_matcher() -> ResponseMatcher {
+    ResponseMatcher::new(&[Ref(PROGRAM_PARAM), Capture(ParamId), Capture(LsbValueU4), Capture(MsbValueU4)])
+}
 
 
 // #[derive(Debug)]

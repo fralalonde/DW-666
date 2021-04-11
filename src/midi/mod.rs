@@ -1,22 +1,7 @@
 use core::array::TryFromSliceError;
 
-use nb;
-use usb_device::UsbError;
-
-pub use message::{Message, note_on};
-pub use note::Note;
-pub use packet::{CableNumber, CodeIndexNumber, Packet};
-pub use serial::{SerialMidi};
-pub use status::Status;
-pub use u14::U14;
-pub use u4::U4;
-pub use u7::U7;
-pub use usb::{MidiClass, usb_device, UsbMidi};
-pub use sysex::{Matcher, SysexToken, Tag, Sequence, SysexFragment};
-pub use route::{Interface, RouteId, Router, RouteBinding, RoutingContext, Route};
-pub use filter::{Filter};
-
 mod u4;
+mod u6;
 mod u7;
 mod u14;
 mod status;
@@ -28,6 +13,23 @@ mod usb;
 mod sysex;
 mod route;
 mod filter;
+
+use nb;
+use usb_device::UsbError;
+
+pub use message::{Message, note_on};
+pub use note::Note;
+pub use packet::{CableNumber, CodeIndexNumber, Packet};
+pub use serial::{SerialMidi};
+pub use status::Status;
+pub use u14::U14;
+pub use u4::U4;
+pub use u6::U6;
+pub use u7::{U7};
+pub use usb::{MidiClass, usb_device, UsbMidi};
+pub use sysex::{ResponseMatcher, ResponseToken, Tag, RequestSequence};
+pub use route::{Interface, RouteId, Router, RouteBinding, RouteContext, Route};
+pub use filter::{Filter};
 
 pub type Channel = U4;
 pub type Velocity = U7;
@@ -65,6 +67,7 @@ pub enum MidiError {
     InvalidVelocity,
     InvalidU4,
     InvalidU7,
+    InvalidU6,
     InvalidU14,
     SerialError,
     ParseCritical,

@@ -1,10 +1,10 @@
-use crate::midi::{Packet, Message, U7, Saturate};
+use crate::midi::{Packet, Message, U7, Saturate, Cull};
 use heapless::Vec;
 
 use crate::midi::message::Message::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, SysexCont, SysexEmpty, SysexSingleByte};
 
 const MAX_PATTERN_TOKENS: usize = 8;
-const MAX_CAPTURE_TOKENS: usize = 4;
+const MAX_CAPTURE_TOKENS: usize = 64;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Range {
@@ -36,6 +36,7 @@ pub fn range(min: u8, max: u8) -> Range {
 
 use num_enum::IntoPrimitive;
 use core::convert::TryFrom;
+use core::cell::RefCell;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, IntoPrimitive)]
 #[repr(u8)]
@@ -46,9 +47,15 @@ pub enum Tag {
     // Indexed parameters (Steps in sequence, generic knob / pad ID)
     Index,
     // Parameter code
-    Param,
+    ParamId,
     // Value of parameter
-    Value,
+    ValueU7,
+    // Value of parameter
+    MsbValueU4,
+    // Value of parameter
+    LsbValueU4,
+    // Raw data
+    Dump
 }
 
 impl hash32::Hash for Tag {
@@ -58,27 +65,17 @@ impl hash32::Hash for Tag {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum SysexFragment {
-    Slice(&'static [u8]),
-    Byte(u8),
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum SysexToken {
-    Match(&'static [u8]),
-    Ignore(u8),
-    Val(u8),
-    // Unconditional capture (values, etc)
-    Capture(Tag),
-    // Range capture
-    CaptureRange(Tag, Range),
-}
+// #[derive(Debug, Copy, Clone)]
+// pub enum RequestToken<'a> {
+//     Ref(&'a [u8]),
+//     Val(u8),
+// }
 
 /// Used to send sysex
+/// Accepts same Token as matcher for convenience, but only Match and Val value are sent
 #[derive(Debug)]
-pub struct Sequence {
-    tokens: Vec<SysexFragment, MAX_PATTERN_TOKENS>,
+pub struct RequestSequence {
+    tokens: Vec<ResponseToken, MAX_PATTERN_TOKENS>,
     // current token to produce from
     tok_idx: usize,
     // current index inside token
@@ -86,9 +83,9 @@ pub struct Sequence {
     total_bytes: usize,
 }
 
-impl Sequence {
-    pub fn new(tokens: &[SysexFragment]) -> Self {
-        Sequence {
+impl RequestSequence {
+    pub fn new(tokens: &[ResponseToken]) -> Self {
+        RequestSequence {
             tokens: Vec::from_slice(tokens).unwrap(),
             tok_idx: 0,
             byte_idx: 0,
@@ -97,7 +94,7 @@ impl Sequence {
     }
 }
 
-impl Iterator for Sequence {
+impl Iterator for RequestSequence {
     type Item = Packet;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -115,14 +112,15 @@ impl Iterator for Sequence {
                 }
                 let token = self.tokens[self.tok_idx];
                 let tok_len = match token {
-                    SysexFragment::Slice(slice) => {
+                    ResponseToken::Ref(slice) => {
                         bytes.push(slice[self.byte_idx]).unwrap();
                         slice.len()
                     }
-                    SysexFragment::Byte(val) => {
+                    ResponseToken::Val(val) => {
                         bytes.push(val).unwrap();
                         1
                     }
+                    _ => 0
                 };
                 self.byte_idx += 1;
                 if self.byte_idx >= tok_len {
@@ -157,9 +155,22 @@ impl Iterator for Sequence {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum ResponseToken {
+    Ref(&'static [u8]),
+    Ignore(usize),
+    Val(u8),
+    // Unconditional capture (values, etc)
+    Capture(Tag),
+    // Range capture
+    CaptureRange(Tag, Range),
+    CaptureArray(Tag, &'static [u8]),
+    // RepeatCount(&'static [Token], usize)
+}
+
 #[derive(Debug)]
-pub struct Matcher {
-    pattern: Vec<SysexToken, MAX_PATTERN_TOKENS>,
+pub struct ResponseMatcher {
+    pattern: Vec<ResponseToken, 8>,
     matching: bool,
     // current token to produce from
     tok_idx: usize,
@@ -168,9 +179,9 @@ pub struct Matcher {
     captured: Vec<(Tag, U7), MAX_CAPTURE_TOKENS>,
 }
 
-impl Matcher {
-    pub fn new(tokens: &[SysexToken]) -> Self {
-        Matcher {
+impl ResponseMatcher {
+    pub fn new(tokens: &[ResponseToken]) -> Self {
+        ResponseMatcher {
             pattern: Vec::from_slice(tokens).unwrap(),
             matching: false,
             tok_idx: 0,
@@ -230,29 +241,33 @@ impl Matcher {
         }
         let mut tok_len = 1;
         match &self.pattern[self.tok_idx] {
-            SysexToken::Match(token) => {
+            ResponseToken::Ref(token) => {
                 if token[self.byte_idx] != byte {
                     return self.fail_match();
                 }
                 tok_len = token.len()
             }
-            SysexToken::Ignore(len) => {
+            ResponseToken::Ignore(len) => {
                 tok_len = *len as usize
             }
-            SysexToken::Val(token) => {
+            ResponseToken::Val(token) => {
                 if *token != byte {
                     return self.fail_match();
                 }
             }
-            SysexToken::Capture(ttype) => {
+            ResponseToken::Capture(ttype) => {
                 self.captured.push((*ttype, U7::saturate(byte))).unwrap();
             }
-            SysexToken::CaptureRange(ttype, range) => {
+            ResponseToken::CaptureRange(ttype, range) => {
                 if range.contains(byte) {
                     self.captured.push((*ttype, U7::saturate(byte))).unwrap();
                 } else {
                     return self.fail_match();
                 }
+            }
+            ResponseToken::CaptureArray(ttype, array) => {
+                (*array).push((*ttype, U7::cull(byte))).unwrap();
+                tok_len = array.len();
             }
         };
         self.byte_idx += 1;

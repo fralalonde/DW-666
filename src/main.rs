@@ -9,6 +9,9 @@ extern crate enum_map;
 #[macro_use]
 extern crate rtt_target;
 
+#[macro_use]
+extern crate bitfield;
+
 extern crate cortex_m;
 
 extern crate stm32f4xx_hal as hal;
@@ -33,7 +36,7 @@ use usb_device::bus;
 
 use input::{Scan, Controls};
 
-use midi::{SerialMidi, MidiClass, Packet, CableNumber, usb_device, Transmit, Receive, UsbMidi};
+use midi::{SerialMidi, MidiClass, Packet, CableNumber, usb_device, Transmit, Receive, UsbMidi, Route};
 use midi::{Interface, Message};
 use midi::RouteBinding::*;
 use core::result::Result;
@@ -65,7 +68,9 @@ use hal::{
     timer::{Timer},
 };
 use heapless::Vec;
-use crate::midi::{Filter, Matcher};
+use crate::midi::{Filter, ResponseMatcher};
+use crate::devices::dsi_evolver;
+use Filter::*;
 
 pub const CPU_FREQ: u32 = 100_000_000;
 const CPU_CYCLES_PER_MICRO: u32 = CPU_FREQ / 1_000_000;
@@ -193,9 +198,19 @@ const APP: () = {
         rprintln!("USB OK");
 
         let mut midi_router: midi::Router = midi::Router::default();
-        let _usb_echo = midi_router.bind(midi::Route::echo(Interface::USB).filter(Filter::Print));
-        let _serial_print = midi_router.bind(midi::Route::from(Interface::Serial(0)).filter(Filter::Print));
-        // let _evo_match = midi_router.bind(midi::Route::from(Interface::Serial(0)).filter(Filter::SysexCapture(Matcher::new())));
+        let _usb_echo = midi_router.bind(Route::echo(Interface::USB).filter(Filter::PrintEvent));
+        let _serial_print = midi_router.bind(Route::from(Interface::Serial(0))/*.filter(Filter::PrintEvent)*/);
+        // let _evo_match = midi_router.bind(
+        //     Route::from(Interface::Serial(0))
+        //         .filter(SysexCapture(dsi_evolver::program_parameter_matcher()))
+        //         .filter(PrintTags)
+        // );
+        let _evo_match = midi_router.bind(
+            Route::from(Interface::Serial(0))
+                .filter(SysexCapture(dsi_evolver::program_parameter_matcher()))
+                .filter(PrintTags)
+        );
+
         rprintln!("Routes OK");
 
         rprintln!("-> Initialized");
