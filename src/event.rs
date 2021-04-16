@@ -1,5 +1,4 @@
-pub type Instant = u64;
-pub type Duration = u32;
+use crate::clock::{Instant, Duration};
 
 #[derive(Copy, Clone, Debug, Enum)]
 pub enum ButtonId {

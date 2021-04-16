@@ -1,7 +1,8 @@
 #![no_main]
 #![no_std]
 #![feature(slice_as_chunks)]
-#![feature(type_ascription)]
+#![feature(alloc_error_handler)]
+#![feature(new_uninit)]
 
 #[macro_use]
 extern crate enum_map;
@@ -23,6 +24,7 @@ mod input;
 mod midi;
 mod output;
 mod app;
+mod dw6000_control;
 
 mod devices;
 
@@ -36,9 +38,7 @@ use usb_device::bus;
 
 use input::{Scan, Controls};
 
-use midi::{SerialMidi, MidiClass, Packet, CableNumber, usb_device, Transmit, Receive, UsbMidi, Route};
-use midi::{Interface, Message};
-use midi::RouteBinding::*;
+use midi::{SerialMidi, MidiClass, Packet, CableNumber, usb_device, Transmit, Receive,  Route, Interface};
 use core::result::Result;
 
 use panic_rtt_target as _;
@@ -67,19 +67,54 @@ use hal::{
     time::U32Ext,
     timer::{Timer},
 };
-use heapless::Vec;
-use crate::midi::{Filter, ResponseMatcher};
 use crate::devices::dsi_evolver;
-use Filter::*;
 
 pub const CPU_FREQ: u32 = 100_000_000;
-const CPU_CYCLES_PER_MICRO: u32 = CPU_FREQ / 1_000_000;
+pub const CYCLES_PER_MICRO: u32 = CPU_FREQ / 1_000_000;
+pub const CYCLES_PER_MILLI: u32 = CPU_FREQ / 1_000;
 
 const CTL_SCAN: u32 = 100_000;
 const LED_BLINK_CYCLES: u32 = 15_400_000;
 const ARP_NOTE_LEN: u32 = 7200000;
 
-static mut EP_MEMORY: [u32; 1024] = [0; 1024];
+static mut USB_EP_MEMORY: [u32; 1024] = [0; 1024];
+
+#[macro_use]
+extern crate alloc;
+use core::alloc::Layout;
+use cortex_m::asm;
+
+// define what happens in an Out Of Memory (OOM) condition
+#[alloc_error_handler]
+fn alloc_error(_layout: Layout) -> ! {
+    asm::bkpt();
+    loop {}
+}
+
+use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
+use crate::midi::{capture_sysex, print_tag, event_print};
+
+const FAST_HEAP_SIZE: usize = 32 * 1024; // 32 KB
+const HEAP_SIZE: usize = 64 * 1024; // 96KB
+const LEAF_SIZE: usize = 16;
+
+pub static mut FAST_HEAP: [u8; FAST_HEAP_SIZE] = [0u8; FAST_HEAP_SIZE];
+pub static mut HEAP: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
+
+// This allocator can't work in tests since it's non-threadsafe.
+#[cfg_attr(not(test), global_allocator)]
+static ALLOC: NonThreadsafeAlloc = unsafe {
+    let fast_param = FastAllocParam::new(FAST_HEAP.as_ptr(), FAST_HEAP_SIZE);
+    let buddy_param = BuddyAllocParam::new(HEAP.as_ptr(), HEAP_SIZE, LEAF_SIZE);
+    NonThreadsafeAlloc::new(fast_param, buddy_param)
+};
+
+// // fast alloc big stack
+// use core::mem::MaybeUninit;
+// const STACK_SIZE: usize = 64 * 1024;
+// const NTHREADS: usize = 1;
+// #[link_section = ".uninit.STACKS"]
+// static mut STACKS: MaybeUninit<[[u8; STACK_SIZE]; NTHREADS]> = MaybeUninit::uninit();
 
 #[app(device = crate::device, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -95,7 +130,7 @@ const APP: () = {
     }
 
     #[init(schedule = [led_blink, control_scan])]
-    fn init(mut cx: init::Context) -> init::LateResources {
+    fn init(cx: init::Context) -> init::LateResources {
         // for some RTIC reason statics need to go first
         static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
 
@@ -104,7 +139,7 @@ const APP: () = {
         rprintln!("Initializing");
 
         // unsafe { ALLOCATOR.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE) }
-        // rprintln!("Allocator OK");
+        rprintln!("Allocator OK");
 
         // Initialize (enable) the monotonic timer (CYCCNT)
         // cx.core.DCB.enable_trace();
@@ -187,7 +222,7 @@ const APP: () = {
             pin_dp: gpioa.pa12.into_alternate_af10(),
         };
 
-        *USB_BUS = Some(UsbBus::new(usb, unsafe { &mut EP_MEMORY }));
+        *USB_BUS = Some(UsbBus::new(usb, unsafe { &mut USB_EP_MEMORY }));
         let usb_bus = USB_BUS.as_ref().unwrap();
         let midi_class = MidiClass::new(usb_bus);
         // USB devices MUST init after classes
@@ -195,10 +230,8 @@ const APP: () = {
         // USB requires polling every 125us = 8khz
         let _usb_poll_timer = Timer::tim2(peripherals.TIM2, 8.khz(), clocks);
 
-        rprintln!("USB OK");
-
         let mut midi_router: midi::Router = midi::Router::default();
-        let _usb_echo = midi_router.bind(Route::echo(Interface::USB).filter(Filter::PrintEvent));
+        let _usb_echo = midi_router.bind(Route::echo(Interface::USB).filter(event_print()));
         let _serial_print = midi_router.bind(Route::from(Interface::Serial(0))/*.filter(Filter::PrintEvent)*/);
         // let _evo_match = midi_router.bind(
         //     Route::from(Interface::Serial(0))
@@ -207,8 +240,8 @@ const APP: () = {
         // );
         let _evo_match = midi_router.bind(
             Route::from(Interface::Serial(0))
-                .filter(SysexCapture(dsi_evolver::program_parameter_matcher()))
-                .filter(PrintTags)
+                .filter(capture_sysex(dsi_evolver::program_parameter_matcher()))
+                .filter(print_tag())
         );
 
         rprintln!("Routes OK");
@@ -231,10 +264,6 @@ const APP: () = {
             serial_midi,
         }
     }
-
-    // fn idle(_cx: idle::Context) -> ! {
-    //     loop {}
-    // }
 
     /// USB polling required every 0.125 millisecond
     #[task(binds = TIM2, resources = [usb_midi], priority = 3)]
@@ -326,7 +355,7 @@ const APP: () = {
 
     #[task(spawn = [send_midi], schedule = [send_midi], resources = [midi_router], priority = 3)]
     fn dispatch_from(cx: dispatch_from::Context, from: Interface, packet: Packet) {
-        let mut router: &mut midi::Router = cx.resources.midi_router;
+        let router: &mut midi::Router = cx.resources.midi_router;
         router.dispatch_from(cx.scheduled, packet, from, cx.spawn, cx.schedule)
     }
 

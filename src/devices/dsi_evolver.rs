@@ -2,9 +2,10 @@
 //! Thanks to Richard Wanderlöf and Untergeek
 //! Switching the LEDs on and off:
 
-use crate::midi::{U7, U4, Note, Program, Control, Channel, Cull, MidiError, ResponseMatcher, ResponseToken, Tag};
-use ResponseToken::{Ref, Capture};
+use crate::midi::{ResponseMatcher, ResponseToken, Tag};
+use ResponseToken::{Seq, Cap};
 use Tag::*;
+use alloc::vec;
 
 // const GET_CTL_HEADER: &'static [u8] = &[00, 0x20, 0x6B, 0x7F, 0x42, 0x01, 0x00, /* param, control */];
 //
@@ -19,7 +20,7 @@ const EVOLVER: u8 = 0x20;
 const PROGRAM_PARAM: &'static [u8] = &[SEQUENTIAL, EVOLVER, 0x01, 0x01];
 
 pub fn program_parameter_matcher() -> ResponseMatcher {
-    ResponseMatcher::new(&[Ref(PROGRAM_PARAM), Capture(ParamId), Capture(LsbValueU4), Capture(MsbValueU4)])
+    ResponseMatcher::new(vec![Seq(PROGRAM_PARAM), Cap(ParamId), Cap(LsbValueU4), Cap(MsbValueU4)])
 }
 
 

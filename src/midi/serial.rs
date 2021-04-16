@@ -8,9 +8,7 @@ use core::convert::TryFrom;
 use embedded_hal::serial::{Write, Read};
 
 use stm32f4xx_hal as hal;
-use hal::{
-    stm32::USART2,
-};
+use hal::stm32::USART2;
 use hal::gpio::AF7;
 use hal::gpio::gpioa::{PA2, PA3};
 use hal::serial::Event::Txe;

@@ -28,8 +28,8 @@ pub use u6::U6;
 pub use u7::{U7};
 pub use usb::{MidiClass, usb_device, UsbMidi};
 pub use sysex::{ResponseMatcher, ResponseToken, Tag, RequestSequence};
-pub use route::{Interface, RouteId, Router, RouteBinding, RouteContext, Route};
-pub use filter::{Filter};
+pub use route::{Interface, RouteId, Router, RouteBinding, RouteContext, Route, Service, RouterEvent, Handler};
+pub use filter::{capture_sysex, print_tag, event_print, Filter};
 
 pub type Channel = U4;
 pub type Velocity = U7;

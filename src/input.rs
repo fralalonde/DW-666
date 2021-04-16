@@ -1,5 +1,6 @@
 use embedded_hal::digital::v2::InputPin;
-use crate::event::{CtlEvent, RotaryId, RotaryEvent, ButtonId, Instant};
+use crate::event::{CtlEvent, RotaryId, RotaryEvent, ButtonId};
+use crate::clock::Instant;
 use enum_map::EnumMap;
 use crate::event::RotaryEvent::{TickClockwise, TickCounterClockwise};
 use crate::event::ButtonEvent::{Down, Up};
@@ -106,7 +107,7 @@ pub struct Controls<DT1, CLK1> {
 }
 
 impl <DT1: InputPin, CLK1: InputPin> Scan for Controls<DT1, CLK1> {
-    fn scan(&mut self, now: u64) -> Option<CtlEvent> {
+    fn scan(&mut self, now: Instant) -> Option<CtlEvent> {
         self.encoder1.scan(now)
     }
 }

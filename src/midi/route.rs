@@ -1,18 +1,27 @@
-use heapless::{FnvIndexMap, Vec, FnvIndexSet};
-use crate::midi::{Packet, Filter, Tag, U7};
+use crate::midi::{Packet, Filter, Tag};
 use self::RouteBinding::*;
-use hash32;
+
+// use alloc::collections::{
+//     BTreeMap as HashMap,
+//     BTreeSet as HashSet
+// };
+use alloc::vec::Vec;
+use hashbrown::{HashMap, HashSet};
+
 use core::sync::atomic::AtomicU16;
 use core::sync::atomic::Ordering::Relaxed;
-use crate::event::{Duration};
 
+pub trait Service {
+    fn start(&mut self, router: &mut Router);
+    fn stop(&mut self, router: &mut Router);
+}
 
 #[derive(Debug, Default)]
 pub struct Route {
     priority: u8,
     source: Option<Interface>,
     destination: Option<Interface>,
-    filters: Vec<Filter, 4>,
+    filters: Vec<Box<dyn Filter>>,
 }
 
 impl Route {
@@ -47,7 +56,7 @@ impl Route {
         (Self::link(interface1, interface2), Route::link(interface2, interface1))
     }
 
-    pub fn filter(mut self, filter: Filter) -> Self {
+    pub fn filter(mut self, filter: Box<dyn Filter>) -> Self {
         self.filters.push(filter);
         self
     }
@@ -55,58 +64,31 @@ impl Route {
     /// Return true if router should forward event to destinations
     /// Return false to discard the event
     /// Does not affect other routes
-    fn apply(&mut self, event: RouterEvent) -> bool {
+    fn apply(&mut self, event: RouterEvent) -> Option<RouteContext> {
         let mut context = RouteContext::default();
         for filter in &mut self.filters {
             if !filter.apply(event, &mut context) {
-                return false;
+                return None;
             }
         }
-        true
+        Some(context)
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Interface {
     USB,
     Serial(u8),
+    Virtual(u16),
     // TODO virtual interfaces ?
 }
 
-impl hash32::Hash for Interface {
-    fn hash<H: hash32::Hasher>(&self, state: &mut H) {
-        match self {
-            Interface::USB => state.write(&[0]),
-            Interface::Serial(idx) => state.write(&[0xF + idx])
-        }
-    }
-}
-
-
 /// Events that may trigger a route
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum RouteBinding {
     Src(Interface),
     Dst(Interface),
     Clock,
-}
-
-impl hash32::Hash for RouteBinding {
-    fn hash<H: hash32::Hasher>(&self, state: &mut H) {
-        match self {
-            Src(idx) => {
-                state.write(&[0x4]);
-                idx.hash(state);
-            }
-            Dst(idx) => {
-                state.write(&[0x8]);
-                idx.hash(state);
-            }
-            Clock => {
-                state.write(&[0xA])
-            }
-        }
-    }
 }
 
 pub type RouteId = u16;
@@ -115,62 +97,74 @@ pub type RouteId = u16;
 pub enum RouterEvent {
     /// Original packet gets time "now" by default
     /// Packets can be scheduled to be sent in the future with Duration > 0
-    Packet(Duration, Packet),
+    Packet(Packet),
     /// Clock events are always "now"
     Clock,
 }
 
 #[derive(Debug, Default)]
 pub struct RouteContext {
-    // new_events: Vec<RouterEvent, 64>,
-    destinations: FnvIndexSet<Interface, 4>,
-    pub tags: FnvIndexMap<Tag, Vec<U7, 4>, 4>,
+    pub destinations: HashSet<Interface>,
+    pub tags: HashMap<Tag, Vec<u8>>,
 }
 
-impl RouteContext {
-    pub fn add_destination(&mut self, destination: Interface) {
-        if let Err(_e) = self.destinations.insert(destination) {
-            rprintln!("Destination dropped: Routing buffer full")
-        }
-    }
+pub struct Handler {
+    inner: Box<dyn FnMut(Instant, RouterEvent, RouteContext, dispatch_from::Spawn, dispatch_from::Schedule) + 'static + Send>
+}
 
-    pub fn add_tag_value(&mut self, tag: Tag, value: U7) {
-        if let Some(mut values) = self.tags.get_mut(&tag) {
-            values.push(value);
-        } else {
-            let mut values = Vec::new();
-            values.push(value);
-            self.tags.insert(tag, values);
-        }
+impl Debug for Handler {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        todo!()
     }
 }
 
-type RouteVec = Vec<RouteId, 8>;
+impl Handler {
+    pub fn new<F>(fun: F) -> Self
+        where F: FnMut(Instant, RouterEvent, RouteContext,  dispatch_from::Spawn, dispatch_from::Schedule) + 'static + Send
+    {
+        Handler {
+            inner: Box::new(fun)
+        }
+    }
+
+    pub fn handle(&mut self, now: Instant, event: RouterEvent, ctx: RouteContext, spawn: dispatch_from::Spawn, sched: dispatch_from::Schedule) {
+        (self.inner)(now, event, ctx,  spawn, sched);
+    }
+}
+
+type RouteVec = Vec<RouteId>;
+
+// pub type Virtual = FnMut(Instant, RouterEvent, RouteContext, &mut Router, dispatch_from::Spawn, dispatch_from::Schedule) + 'static + Send;
+
+pub trait Virtual2: Debug + Send {
+    fn apply(&mut self, now: Instant, event: RouterEvent, ctx: RouteContext, router: &mut Router, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule);
+}
 
 #[derive(Debug, Default)]
 pub struct Router {
     enabled: bool,
-    bindings: FnvIndexMap<RouteBinding, RouteVec, 16>,
-    routes: FnvIndexMap<RouteId, Route, 64>,
+    bindings: HashMap<RouteBinding, RouteVec>,
+    virtuals: HashMap<u16, Handler>,
+    routes: HashMap<RouteId, Route>,
     // TODO route ID pooling instead
-    next_route_id: AtomicU16,
-    // context: RoutingContext,
-    bug: RouteVec,
+    next_handle: AtomicU16,
 }
 
 use crate::dispatch_from;
-use rtic::cyccnt::{Instant, U32Ext};
+use rtic::cyccnt::{Instant};
+use alloc::boxed::Box;
+use core::fmt::{Debug, Formatter};
 
 impl Router {
     pub fn dispatch_from(&mut self, now: Instant, packet: Packet, source: Interface, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
         if let Some(route_ids) = self.bindings.get(&Src(source)).cloned() {
-            self.dispatch(now, RouterEvent::Packet(0, packet), &route_ids, spawn, schedule)
+            self.dispatch(now, RouterEvent::Packet(packet), &route_ids, spawn, schedule)
         }
     }
 
     pub fn dispatch_to(&mut self, now: Instant, packet: Packet, destination: Interface, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
         if let Some(route_ids) = self.bindings.get(&Dst(destination)).cloned() {
-            self.dispatch(now, RouterEvent::Packet(0, packet), &route_ids, spawn, schedule)
+            self.dispatch(now, RouterEvent::Packet(packet), &route_ids, spawn, schedule)
         }
     }
 
@@ -181,30 +175,42 @@ impl Router {
     }
 
     fn dispatch(&mut self, now: Instant, event: RouterEvent, route_ids: &RouteVec, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
-        let routes = &mut self.routes;
+        // routes are independent from each other, could be processed concurrently
         for route_id in route_ids {
-            if let Some(route) = routes.get_mut(route_id) {
-                if route.apply(event) {
-                    if let Some(destination) = route.destination {
-                        if let RouterEvent::Packet(delay, packet) = event {
-                            if delay == 0 {
-                                spawn.send_midi(destination, packet).unwrap()
-                            } else {
+            self.dispatch_route_id(*route_id, now, event, spawn, schedule)
+        }
+    }
+
+    pub fn dispatch_route_id(&mut self, route_id: RouteId, now: Instant, event: RouterEvent, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
+        if let Some(route) = self.routes.get_mut(&route_id) {
+            if let Some(context) = route.apply(event) {
+                match route.destination {
+                    Some(Interface::Virtual(virt_id)) => {
+                        if let Some(mut virt) = self.virtuals.get_mut(&virt_id) {
+                            virt.handle(now, event, context, spawn, schedule)
+                        }
+                    }
+                    Some(destination) => {
+                        if let RouterEvent::Packet(packet) = event {
+                            // if delay == 0 {
+                            spawn.send_midi(destination, packet).unwrap()
+/*                            } else {
                                 // quantized or delayed => send later
                                 // FIXME duration should NOT be in cycles
                                 schedule.send_midi(now + delay.cycles(), destination, packet).unwrap()
-                            }
+                            }*/
                         }
                     }
+                    None => {}
                 }
-            } else {
-                rprintln!("Route ID {} triggered but not found", route_id)
             }
+        } else {
+            rprintln!("Route ID {} triggered but not found", route_id)
         }
     }
 
     pub fn bind(&mut self, route: Route) -> RouteId {
-        let route_id = self.next_route_id.fetch_add(1, Relaxed);
+        let route_id = self.next_handle.fetch_add(1, Relaxed);
 
         if let Some(src) = route.source {
             self.bind_route(&Src(src), route_id);
@@ -225,8 +231,13 @@ impl Router {
         route_id
     }
 
+    pub fn create_virtual_interface(&mut self, handler: Handler) -> Interface {
+        let virt_id = self.next_handle.fetch_add(1, Relaxed);
+        self.virtuals.insert(virt_id, handler);
+        Interface::Virtual(virt_id)
+    }
+
     fn bind_route(&mut self, binding: &RouteBinding, route_id: RouteId) {
-        // FIXME heapless fnvmap does not have entry() yet
         if let Some(route_ids) = self.bindings.get_mut(binding) {
             route_ids.push(route_id);
         } else {
@@ -237,7 +248,7 @@ impl Router {
     }
 
     pub fn unbind(&mut self, route_id: RouteId) {
-        let removed = self.routes.swap_remove(&route_id);
+        let removed = self.routes.remove(&route_id);
         if let Some(route) = removed {
             if let Some(src) = route.source {
                 self.try_remove(route_id, &Src(src));
@@ -250,7 +261,7 @@ impl Router {
 
     fn try_remove(&mut self, route_id: RouteId, bin: &RouteBinding) {
         if let Some(bins) = self.bindings.get_mut(bin) {
-            if let Some((idx, _)) = bins.iter().enumerate().find(|(i, v)| **v == route_id) {
+            if let Some((idx, _)) = bins.iter().enumerate().find(|(_i, v)| **v == route_id) {
                 bins.swap_remove(idx);
             } else {
                 rprintln!("Route id {} not found in bindings {:?} index: {:?}", route_id, bin, bins)

@@ -1,45 +1,72 @@
-use crate::midi::{Packet, Message, U7, Saturate, Cull};
-use heapless::Vec;
+use crate::midi::{Packet, Message};
+use alloc::vec::Vec;
 
 use crate::midi::message::Message::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, SysexCont, SysexEmpty, SysexSingleByte};
 
-const MAX_PATTERN_TOKENS: usize = 8;
-const MAX_CAPTURE_TOKENS: usize = 64;
-
-#[derive(Debug, Clone, Copy)]
-pub struct Range {
-    min: u8,
-    max: u8,
-}
-
-impl Range {
-    fn contains(&self, byte: u8) -> bool {
-        byte >= self.min && byte < self.max
-    }
-}
-
-pub fn range(min: u8, max: u8) -> Range {
-    assert!(min < max, "Invalid sysex value range: min ({}) is bigger than max ({})", min, max);
-    Range {
-        min,
-        max,
-    }
-}
-
-// pub struct SysexListenerHandle {}
+// #[derive(Debug, Clone, Copy)]
+// pub struct Range {
+//     min: u8,
+//     max: u8,
+// }
 //
-// pub trait SysexDispatch {
-//     fn listen(interface: Interface, matcher: Pattern) -> SysexListenerHandle;
-//     fn unlisten(handle: SysexListenerHandle);
-//     fn send(spawn: crate::dispatch_from::Spawn, interface: Interface, packets: impl IntoIterator<Item=Packet>);
+// impl Range {
+//     fn contains(&self, byte: u8) -> bool {
+//         byte >= self.min && byte < self.max
+//     }
+// }
+//
+// pub fn range(min: u8, max: u8) -> Range {
+//     assert!(min < max, "Invalid sysex value range: min ({}) is bigger than max ({})", min, max);
+//     Range {
+//         min,
+//         max,
+//     }
 // }
 
-use num_enum::IntoPrimitive;
-use core::convert::TryFrom;
-use core::cell::RefCell;
+// #[derive(Debug, Clone)]
+// pub struct Buffer<T> {
+//     inner: Box<[T]>,
+//     len: usize,
+// }
+//
+// impl<T> Deref for Buffer<T> {
+//     type Target = [T];
+//
+//     fn deref(&self) -> &Self::Target {
+//         self.inner.as_ref()
+//     }
+// }
+//
+// impl<T> Buffer<T> {
+//     pub fn with_capacity(cap: usize) -> Self {
+//         Buffer {
+//             inner: unsafe { Box::new_uninit_slice(cap).assume_init() },
+//             len: 0,
+//         }
+//     }
+//
+//     pub fn capacity(&self) -> usize {
+//         self.inner.len()
+//     }
+//
+//     pub fn push(&mut self, item: T) -> Result<(), MidiError> {
+//         if self.len < self.capacity() {
+//             self.inner[self.len] = item;
+//             Ok(())
+//         } else {
+//             Err(MidiError::BufferFull)
+//         }
+//     }
+//
+//     pub fn clear(&mut self) {
+//         self.len = 0
+//     }
+// }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, IntoPrimitive)]
-#[repr(u8)]
+use core::convert::TryFrom;
+use hashbrown::HashMap;
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum Tag {
     Channel,
     Velocity,
@@ -55,27 +82,23 @@ pub enum Tag {
     // Value of parameter
     LsbValueU4,
     // Raw data
-    Dump
+    Dump(usize),
 }
 
-impl hash32::Hash for Tag {
-    fn hash<H: hash32::Hasher>(&self, state: &mut H) {
-        let b: u8 = (*self).into();
-        state.write(&[b])
+impl Tag {
+    pub fn size(&self) -> usize {
+        match self {
+            Tag::Dump(len) => *len,
+            _ => 1,
+        }
     }
 }
 
-// #[derive(Debug, Copy, Clone)]
-// pub enum RequestToken<'a> {
-//     Ref(&'a [u8]),
-//     Val(u8),
-// }
-
 /// Used to send sysex
 /// Accepts same Token as matcher for convenience, but only Match and Val value are sent
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct RequestSequence {
-    tokens: Vec<ResponseToken, MAX_PATTERN_TOKENS>,
+    tokens: Vec<ResponseToken>,
     // current token to produce from
     tok_idx: usize,
     // current index inside token
@@ -84,9 +107,9 @@ pub struct RequestSequence {
 }
 
 impl RequestSequence {
-    pub fn new(tokens: &[ResponseToken]) -> Self {
+    pub fn new(tokens: Vec<ResponseToken>) -> Self {
         RequestSequence {
-            tokens: Vec::from_slice(tokens).unwrap(),
+            tokens,
             tok_idx: 0,
             byte_idx: 0,
             total_bytes: 0,
@@ -101,7 +124,7 @@ impl Iterator for RequestSequence {
         if self.tok_idx > self.tokens.len() {
             return None;
         }
-        let mut bytes: Vec<u8, 3> = Vec::new();
+        let mut bytes: Vec<u8> = Vec::new();
         if self.tok_idx == self.tokens.len() {
             // mark as definitely done
             self.tok_idx += 1;
@@ -110,14 +133,14 @@ impl Iterator for RequestSequence {
                 if self.tok_idx >= self.tokens.len() {
                     break;
                 }
-                let token = self.tokens[self.tok_idx];
+                let token = &self.tokens[self.tok_idx];
                 let tok_len = match token {
-                    ResponseToken::Ref(slice) => {
-                        bytes.push(slice[self.byte_idx]).unwrap();
+                    ResponseToken::Seq(slice) => {
+                        bytes.push(slice[self.byte_idx]);
                         slice.len()
                     }
                     ResponseToken::Val(val) => {
-                        bytes.push(val).unwrap();
+                        bytes.push(*val);
                         1
                     }
                     _ => 0
@@ -155,45 +178,43 @@ impl Iterator for RequestSequence {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug)]
 pub enum ResponseToken {
-    Ref(&'static [u8]),
-    Ignore(usize),
+    Seq(&'static [u8]),
+    Buf(Vec<u8>),
+    Skip(usize),
     Val(u8),
-    // Unconditional capture (values, etc)
-    Capture(Tag),
-    // Range capture
-    CaptureRange(Tag, Range),
-    CaptureArray(Tag, &'static [u8]),
-    // RepeatCount(&'static [Token], usize)
+    Cap(Tag),
 }
+
+pub type CaptureBuffer = HashMap<Tag, Vec<u8>>;
 
 #[derive(Debug)]
 pub struct ResponseMatcher {
-    pattern: Vec<ResponseToken, 8>,
+    pattern: Vec<ResponseToken>,
     matching: bool,
     // current token to produce from
     tok_idx: usize,
     // current index inside token
     byte_idx: usize,
-    captured: Vec<(Tag, U7), MAX_CAPTURE_TOKENS>,
+    captured: CaptureBuffer,
 }
 
 impl ResponseMatcher {
-    pub fn new(tokens: &[ResponseToken]) -> Self {
+    pub fn new(pattern: Vec<ResponseToken>) -> Self {
         ResponseMatcher {
-            pattern: Vec::from_slice(tokens).unwrap(),
+            pattern,
             matching: false,
             tok_idx: 0,
             byte_idx: 0,
-            captured: Vec::new(),
+            captured: CaptureBuffer::default(),
         }
     }
 
-    pub fn match_packet(&mut self, packet: Packet) -> Option<Vec<(Tag, U7), MAX_CAPTURE_TOKENS>> {
+    pub fn match_packet(&mut self, packet: Packet) -> Option<CaptureBuffer> {
         if let Ok(message) = Message::try_from(packet) {
             let mut sysex_end = true;
-            match message  {
+            match message {
                 SysexBegin(byte0, byte1) => {
                     self.begin_match();
                     self.matching = self.advance(byte0) && self.advance(byte1);
@@ -219,7 +240,7 @@ impl ResponseMatcher {
 
             if self.matching & sysex_end {
                 self.matching = false;
-                return Some(self.captured.clone())
+                return Some(self.captured.clone());
             }
         }
         None
@@ -240,14 +261,14 @@ impl ResponseMatcher {
             return false;
         }
         let mut tok_len = 1;
-        match &self.pattern[self.tok_idx] {
-            ResponseToken::Ref(token) => {
+        match &mut self.pattern[self.tok_idx] {
+            ResponseToken::Seq(token) => {
                 if token[self.byte_idx] != byte {
                     return self.fail_match();
                 }
                 tok_len = token.len()
             }
-            ResponseToken::Ignore(len) => {
+            ResponseToken::Skip(len) => {
                 tok_len = *len as usize
             }
             ResponseToken::Val(token) => {
@@ -255,20 +276,13 @@ impl ResponseMatcher {
                     return self.fail_match();
                 }
             }
-            ResponseToken::Capture(ttype) => {
-                self.captured.push((*ttype, U7::saturate(byte))).unwrap();
+            ResponseToken::Cap(tag) => {
+                self.captured.entry(*tag)
+                    .or_insert_with(|| Vec::with_capacity(tag.size()))
+                    .push(byte);
+                tok_len = tag.size()
             }
-            ResponseToken::CaptureRange(ttype, range) => {
-                if range.contains(byte) {
-                    self.captured.push((*ttype, U7::saturate(byte))).unwrap();
-                } else {
-                    return self.fail_match();
-                }
-            }
-            ResponseToken::CaptureArray(ttype, array) => {
-                (*array).push((*ttype, U7::cull(byte))).unwrap();
-                tok_len = array.len();
-            }
+            ResponseToken::Buf(_) => {}
         };
         self.byte_idx += 1;
         if self.byte_idx >= tok_len {

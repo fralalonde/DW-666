@@ -2,10 +2,11 @@
 //! Thanks to Richard Wanderlöf and Untergeek
 //! Switching the LEDs on and off:
 
-use crate::midi::{U7, U4, U6, Note, Program, Control, Channel, Cull, MidiError, ResponseMatcher, ResponseToken, Tag, RequestSequence};
-use ResponseToken::{Ref, Capture, Val};
+use crate::midi::{U7, U6, ResponseMatcher, ResponseToken, Tag, RequestSequence};
+use ResponseToken::{Seq, Cap, Val, Buf};
 use Tag::*;
-use core::iter::Repeat;
+use core::ops::Deref;
+use alloc::vec::Vec;
 
 pub type DUMP = [u8; 26];
 
@@ -18,41 +19,59 @@ const WRITE_ERR: u8 = 0x22;
 
 const DEVICE_ID: &'static [u8] = &[KORG, FORMAT, DW_6000];
 
-#[derive(Default)]
-pub struct Dump ([u8;26]);
+#[derive(Debug)]
+pub struct Program(Vec<u8>);
 
-static DUMP_BUFFERS: [Dump; 2] = [Dump::default(); 2];
+impl Program {
+    pub fn from(buffer: Vec<u8>) -> Self {
+        Program(buffer)
+    }
+}
+
+impl Deref for Program {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Program {
+    pub fn new() -> Self {
+        Program(Vec::with_capacity(26))
+    }
+}
 
 pub fn device_id_request() -> RequestSequence {
-    RequestSequence::new(&[Ref(&[KORG, FORMAT])])
+    RequestSequence::new(vec![Seq(&[KORG, FORMAT])])
 }
 
 pub fn device_id_matcher() -> ResponseMatcher {
-    ResponseMatcher::new(&[Ref(DEVICE_ID)])
+    ResponseMatcher::new(vec![Seq(DEVICE_ID)])
 }
 
 pub fn write_request(program: U6) -> RequestSequence {
-    RequestSequence::new(&[Ref(DEVICE_ID), Val(0x11), Val(program.into())])
+    RequestSequence::new(vec![Seq(DEVICE_ID), Val(0x11), Val(program.into())])
 }
 
 pub fn write_response() -> ResponseMatcher {
-    ResponseMatcher::new(&[Ref(DEVICE_ID), Capture(Tag::ValueU7)])
+    ResponseMatcher::new(vec![Seq(DEVICE_ID), Cap(ValueU7)])
 }
 
-pub fn dump_write_request(dump: &'static Dump) -> RequestSequence {
-    RequestSequence::new(&[Ref(DEVICE_ID), Ref(dump)])
+pub fn dump_write_request(dump: Vec<u8>) -> RequestSequence {
+    RequestSequence::new(vec![Seq(DEVICE_ID), Buf(dump)])
 }
 
 pub fn param_write_request(param: u8, value: U7) -> RequestSequence {
-    RequestSequence::new(&[Ref(DEVICE_ID), Val(0x41), Val(param.into()), Val(value.into())])
+    RequestSequence::new(vec![Seq(DEVICE_ID), Val(0x41), Val(param.into()), Val(value.into())])
 }
 
-pub fn dump_read_request() -> RequestSequence {
-    RequestSequence::new(&[Ref(DEVICE_ID), Val(0x10)])
+pub fn dump_request() -> RequestSequence {
+    RequestSequence::new(vec![Seq(DEVICE_ID), Val(0x10)])
 }
 
-pub fn dump_read_response(dump: &'static Dump) -> ResponseMatcher {
-    ResponseMatcher::new(&[Ref(DEVICE_ID), Val(0x40), ResponseToken::CaptureArray(Tag::Dump, 26)])
+pub fn dump_response() -> ResponseMatcher {
+    ResponseMatcher::new(vec![Seq(DEVICE_ID), Val(0x40), Cap(Dump(26))])
 }
 
 pub enum Param {
