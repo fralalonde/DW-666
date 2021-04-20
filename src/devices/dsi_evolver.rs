@@ -2,8 +2,8 @@
 //! Thanks to Richard Wanderlöf and Untergeek
 //! Switching the LEDs on and off:
 
-use crate::midi::{ResponseMatcher, ResponseToken, Tag};
-use ResponseToken::{Seq, Cap};
+use crate::midi::{Matcher, Token, Tag};
+use Token::{Seq, Cap};
 use Tag::*;
 use alloc::vec;
 
@@ -19,8 +19,8 @@ const SEQUENTIAL: u8 = 0x01;
 const EVOLVER: u8 = 0x20;
 const PROGRAM_PARAM: &'static [u8] = &[SEQUENTIAL, EVOLVER, 0x01, 0x01];
 
-pub fn program_parameter_matcher() -> ResponseMatcher {
-    ResponseMatcher::new(vec![Seq(PROGRAM_PARAM), Cap(ParamId), Cap(LsbValueU4), Cap(MsbValueU4)])
+pub fn program_parameter_matcher() -> Matcher {
+    Matcher::new(vec![Seq(PROGRAM_PARAM), Cap(ParamId), Cap(LsbValueU4), Cap(MsbValueU4)])
 }
 
 

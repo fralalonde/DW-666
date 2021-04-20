@@ -24,9 +24,8 @@ mod input;
 mod midi;
 mod output;
 mod app;
-mod dw6000_control;
-
 mod devices;
+mod dw6000_control;
 
 use embedded_hal::digital::v2::OutputPin;
 use rtic::app;
@@ -38,7 +37,8 @@ use usb_device::bus;
 
 use input::{Scan, Controls};
 
-use midi::{SerialMidi, MidiClass, Packet, CableNumber, usb_device, Transmit, Receive,  Route, Interface};
+use midi::{SerialMidi, MidiClass, CableNumber, usb_device,  Route};
+use midi::{Packet, Interface, Transmit, Receive};
 use core::result::Result;
 
 use panic_rtt_target as _;
@@ -92,29 +92,22 @@ fn alloc_error(_layout: Layout) -> ! {
 }
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
-use crate::midi::{capture_sysex, print_tag, event_print};
+use crate::midi::{capture_sysex, print_tag, event_print, Channel, Cull, Service};
+use crate::dw6000_control::Dw6000Control;
 
-const FAST_HEAP_SIZE: usize = 32 * 1024; // 32 KB
-const HEAP_SIZE: usize = 64 * 1024; // 96KB
+const FAST_HEAP_SIZE: usize = 16 * 1024; // 32 KB
+const HEAP_SIZE: usize = 48 * 1024; // 96KB
 const LEAF_SIZE: usize = 16;
 
 pub static mut FAST_HEAP: [u8; FAST_HEAP_SIZE] = [0u8; FAST_HEAP_SIZE];
 pub static mut HEAP: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
 
-// This allocator can't work in tests since it's non-threadsafe.
 #[cfg_attr(not(test), global_allocator)]
 static ALLOC: NonThreadsafeAlloc = unsafe {
     let fast_param = FastAllocParam::new(FAST_HEAP.as_ptr(), FAST_HEAP_SIZE);
     let buddy_param = BuddyAllocParam::new(HEAP.as_ptr(), HEAP_SIZE, LEAF_SIZE);
     NonThreadsafeAlloc::new(fast_param, buddy_param)
 };
-
-// // fast alloc big stack
-// use core::mem::MaybeUninit;
-// const STACK_SIZE: usize = 64 * 1024;
-// const NTHREADS: usize = 1;
-// #[link_section = ".uninit.STACKS"]
-// static mut STACKS: MaybeUninit<[[u8; STACK_SIZE]; NTHREADS]> = MaybeUninit::uninit();
 
 #[app(device = crate::device, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -130,7 +123,7 @@ const APP: () = {
     }
 
     #[init(schedule = [led_blink, control_scan])]
-    fn init(cx: init::Context) -> init::LateResources {
+    fn init(mut cx: init::Context) -> init::LateResources {
         // for some RTIC reason statics need to go first
         static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
 
@@ -142,9 +135,9 @@ const APP: () = {
         rprintln!("Allocator OK");
 
         // Initialize (enable) the monotonic timer (CYCCNT)
-        // cx.core.DCB.enable_trace();
+        cx.core.DCB.enable_trace();
         // required on Cortex-M7 devices that software lock the DWT (e.g. STM32F7)
-        // cx.core.DWT.enable_cycle_counter();
+        cx.core.DWT.enable_cycle_counter();
 
         let peripherals = cx.device;
         let rcc = peripherals.RCC.constrain();
@@ -232,17 +225,19 @@ const APP: () = {
 
         let mut midi_router: midi::Router = midi::Router::default();
         let _usb_echo = midi_router.bind(Route::echo(Interface::USB).filter(event_print()));
-        let _serial_print = midi_router.bind(Route::from(Interface::Serial(0))/*.filter(Filter::PrintEvent)*/);
+        let _serial_print = midi_router.bind(Route::from(Interface::Serial(0)).filter(event_print()));
         // let _evo_match = midi_router.bind(
         //     Route::from(Interface::Serial(0))
         //         .filter(SysexCapture(dsi_evolver::program_parameter_matcher()))
         //         .filter(PrintTags)
         // );
-        let _evo_match = midi_router.bind(
-            Route::from(Interface::Serial(0))
-                .filter(capture_sysex(dsi_evolver::program_parameter_matcher()))
-                .filter(print_tag())
-        );
+        // let _evo_match = midi_router.bind(
+        //     Route::from(Interface::Serial(0))
+        //         .filter(capture_sysex(dsi_evolver::program_parameter_matcher()))
+        //         .filter(print_tag())
+        // );
+        let mut dwctrl = Dw6000Control::new((Interface::Serial(0), Channel::cull(1)), (Interface::USB, Channel::cull(1)));
+        dwctrl.start(&mut midi_router);
 
         rprintln!("Routes OK");
 
@@ -257,11 +252,11 @@ const APP: () = {
             display: output::Display {
                 oled,
             },
+            serial_midi,
             usb_midi: midi::UsbMidi {
                 dev: usb_dev,
                 midi_class,
             },
-            serial_midi,
         }
     }
 

@@ -1,4 +1,4 @@
-use crate::midi::{Packet, Filter, Tag};
+use crate::midi::{Packet, Filter, Tag, Interface};
 use self::RouteBinding::*;
 
 // use alloc::collections::{
@@ -75,13 +75,6 @@ impl Route {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum Interface {
-    USB,
-    Serial(u8),
-    Virtual(u16),
-    // TODO virtual interfaces ?
-}
 
 /// Events that may trigger a route
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -176,6 +169,7 @@ impl Router {
 
     fn dispatch(&mut self, now: Instant, event: RouterEvent, route_ids: &RouteVec, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
         // routes are independent from each other, could be processed concurrently
+        rprintln!("dispatch to {:?}", route_ids);
         for route_id in route_ids {
             self.dispatch_route_id(*route_id, now, event, spawn, schedule)
         }
@@ -231,7 +225,7 @@ impl Router {
         route_id
     }
 
-    pub fn create_virtual_interface(&mut self, handler: Handler) -> Interface {
+    pub fn add_interface(&mut self, handler: Handler) -> Interface {
         let virt_id = self.next_handle.fetch_add(1, Relaxed);
         self.virtuals.insert(virt_id, handler);
         Interface::Virtual(virt_id)

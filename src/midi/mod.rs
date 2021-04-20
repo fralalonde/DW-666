@@ -20,15 +20,16 @@ use usb_device::UsbError;
 pub use message::{Message, note_on};
 pub use note::Note;
 pub use packet::{CableNumber, CodeIndexNumber, Packet};
-pub use serial::{SerialMidi};
 pub use status::Status;
 pub use u14::U14;
 pub use u4::U4;
 pub use u6::U6;
 pub use u7::{U7};
+
+pub use serial::{SerialMidi};
 pub use usb::{MidiClass, usb_device, UsbMidi};
-pub use sysex::{ResponseMatcher, ResponseToken, Tag, RequestSequence};
-pub use route::{Interface, RouteId, Router, RouteBinding, RouteContext, Route, Service, RouterEvent, Handler};
+pub use sysex::{Matcher, Token, Tag, Sysex};
+pub use route::{RouteId, Router, RouteBinding, RouteContext, Route, Service, RouterEvent, Handler};
 pub use filter::{capture_sysex, print_tag, event_print, Filter};
 
 pub type Channel = U4;
@@ -38,6 +39,13 @@ pub type Pressure = U7;
 pub type Program = U7;
 pub type Bend = U14;
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum Interface {
+    USB,
+    Serial(u8),
+    Virtual(u16),
+    // TODO virtual interfaces ?
+}
 
 pub trait Receive {
     fn receive(&mut self) -> Result<Option<Packet>, MidiError>;

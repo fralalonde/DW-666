@@ -1,4 +1,4 @@
-use crate::midi::{ResponseMatcher, U4, RouteBinding, Message};
+use crate::midi::{Matcher, U4, RouteBinding, Message};
 use crate::midi::route::{RouteContext, RouterEvent};
 use core::convert::TryFrom;
 use core::fmt::Debug;
@@ -14,7 +14,7 @@ pub trait Filter: Debug + Send {
 
 #[derive(Debug)]
 struct SysexCapture {
-    pub matcher: ResponseMatcher,
+    pub matcher: Matcher,
 }
 
 impl Filter for SysexCapture {
@@ -28,7 +28,7 @@ impl Filter for SysexCapture {
     }
 }
 
-pub fn capture_sysex(matcher: ResponseMatcher) -> Box<dyn Filter> {
+pub fn capture_sysex(matcher: Matcher) -> Box<dyn Filter> {
     Box::new(SysexCapture { matcher })
 }
 
@@ -61,7 +61,11 @@ impl Filter for EventPrint {
                     Message::SysexEnd => rprintln!(" ]"),
                     Message::SysexEnd1(byte1) => rprintln!(", 0x{:x} ]", byte1),
                     Message::SysexEnd2(byte1, byte2) => rprintln!(", 0x{:x}, 0x{:x} ]", byte1, byte2),
-                    message => rprintln!("{:?}", message)
+                    message => if let Some(ch) = packet.channel() {
+                        rprintln!("ch:{:?} {:?}", ch, message)
+                    } else {
+                        rprintln ! ("{:?}", message)
+                    }
                 }
             }
         }

@@ -97,8 +97,8 @@ impl Tag {
 /// Used to send sysex
 /// Accepts same Token as matcher for convenience, but only Match and Val value are sent
 // #[derive(Debug)]
-pub struct RequestSequence {
-    tokens: Vec<ResponseToken>,
+pub struct Sysex {
+    tokens: Vec<Token>,
     // current token to produce from
     tok_idx: usize,
     // current index inside token
@@ -106,9 +106,9 @@ pub struct RequestSequence {
     total_bytes: usize,
 }
 
-impl RequestSequence {
-    pub fn new(tokens: Vec<ResponseToken>) -> Self {
-        RequestSequence {
+impl Sysex {
+    pub fn new(tokens: Vec<Token>) -> Self {
+        Sysex {
             tokens,
             tok_idx: 0,
             byte_idx: 0,
@@ -117,7 +117,7 @@ impl RequestSequence {
     }
 }
 
-impl Iterator for RequestSequence {
+impl Iterator for Sysex {
     type Item = Packet;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -135,11 +135,11 @@ impl Iterator for RequestSequence {
                 }
                 let token = &self.tokens[self.tok_idx];
                 let tok_len = match token {
-                    ResponseToken::Seq(slice) => {
+                    Token::Seq(slice) => {
                         bytes.push(slice[self.byte_idx]);
                         slice.len()
                     }
-                    ResponseToken::Val(val) => {
+                    Token::Val(val) => {
                         bytes.push(*val);
                         1
                     }
@@ -179,7 +179,7 @@ impl Iterator for RequestSequence {
 }
 
 #[derive(Debug)]
-pub enum ResponseToken {
+pub enum Token {
     Seq(&'static [u8]),
     Buf(Vec<u8>),
     Skip(usize),
@@ -190,8 +190,8 @@ pub enum ResponseToken {
 pub type CaptureBuffer = HashMap<Tag, Vec<u8>>;
 
 #[derive(Debug)]
-pub struct ResponseMatcher {
-    pattern: Vec<ResponseToken>,
+pub struct Matcher {
+    pattern: Vec<Token>,
     matching: bool,
     // current token to produce from
     tok_idx: usize,
@@ -200,9 +200,9 @@ pub struct ResponseMatcher {
     captured: CaptureBuffer,
 }
 
-impl ResponseMatcher {
-    pub fn new(pattern: Vec<ResponseToken>) -> Self {
-        ResponseMatcher {
+impl Matcher {
+    pub fn new(pattern: Vec<Token>) -> Self {
+        Matcher {
             pattern,
             matching: false,
             tok_idx: 0,
@@ -262,27 +262,27 @@ impl ResponseMatcher {
         }
         let mut tok_len = 1;
         match &mut self.pattern[self.tok_idx] {
-            ResponseToken::Seq(token) => {
+            Token::Seq(token) => {
                 if token[self.byte_idx] != byte {
                     return self.fail_match();
                 }
                 tok_len = token.len()
             }
-            ResponseToken::Skip(len) => {
+            Token::Skip(len) => {
                 tok_len = *len as usize
             }
-            ResponseToken::Val(token) => {
+            Token::Val(token) => {
                 if *token != byte {
                     return self.fail_match();
                 }
             }
-            ResponseToken::Cap(tag) => {
+            Token::Cap(tag) => {
                 self.captured.entry(*tag)
                     .or_insert_with(|| Vec::with_capacity(tag.size()))
                     .push(byte);
                 tok_len = tag.size()
             }
-            ResponseToken::Buf(_) => {}
+            Token::Buf(_) => {}
         };
         self.byte_idx += 1;
         if self.byte_idx >= tok_len {
