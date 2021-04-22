@@ -2,52 +2,53 @@
 //! Thanks to Richard Wanderlöf and Untergeek
 //! Switching the LEDs on and off:
 
-use crate::midi::{Matcher, Token, Tag, Sysex, MidiError};
+use crate::midi::{Matcher, Token, Tag, Sysex};
 use Token::{Seq, Cap, Val, Buf};
 use Tag::*;
 use alloc::vec::Vec;
-use core::{mem, slice};
 
 const KORG: u8 = 0x42;
-const FORMAT: u8 = 0x30;
 const DW_6000: u8 = 0x04;
+
+const ID_FORMAT: u8 = 0x40;
+const DATA_FORMAT: u8 = 0x30;
 
 const WRITE_OK: u8 = 0x21;
 const WRITE_ERR: u8 = 0x22;
 
-const DEVICE_ID: &'static [u8] = &[KORG, FORMAT, DW_6000];
+const ID_HEADER: &'static [u8] = &[KORG, ID_FORMAT];
+const DATA_HEADER: &'static [u8] = &[KORG, DATA_FORMAT, DW_6000];
 
-pub fn device_request() -> Sysex {
-    Sysex::new(vec![Seq(&[KORG, FORMAT])])
+pub fn id_request() -> Sysex {
+    Sysex::new(vec![Seq(ID_HEADER)])
 }
 
-pub fn device_matcher() -> Matcher {
-    Matcher::new(vec![Seq(DEVICE_ID)])
+pub fn id_matcher() -> Matcher {
+    Matcher::new(vec![Seq(ID_HEADER), Val(DW_6000)])
 }
 
-pub fn program(program: u8) -> Sysex {
-    Sysex::new(vec![Seq(DEVICE_ID), Val(0x11), Val(program)])
+pub fn write(program: u8) -> Sysex {
+    Sysex::new(vec![Seq(DATA_HEADER), Val(0x11), Val(program)])
 }
 
 pub fn load(dump: Vec<u8>) -> Sysex {
-    Sysex::new(vec![Seq(DEVICE_ID), Buf(dump)])
+    Sysex::new(vec![Seq(DATA_HEADER), Buf(dump)])
 }
 
 pub fn parameter(param: u8, value: u8) -> Sysex {
-    Sysex::new(vec![Seq(DEVICE_ID), Val(0x41), Val(param), Val(value)])
+    Sysex::new(vec![Seq(DATA_HEADER), Val(0x41), Val(param), Val(value)])
 }
 
 pub fn write_matcher() -> Matcher {
-    Matcher::new(vec![Seq(DEVICE_ID), Cap(ValueU7)])
+    Matcher::new(vec![Seq(DATA_HEADER), Cap(ValueU7)])
 }
 
-
 pub fn dump_request() -> Sysex {
-    Sysex::new(vec![Seq(DEVICE_ID), Val(0x10)])
+    Sysex::new(vec![Seq(DATA_HEADER), Val(0x10)])
 }
 
 pub fn dump_matcher() -> Matcher {
-    Matcher::new(vec![Seq(DEVICE_ID), Val(0x40), Cap(Dump(26))])
+    Matcher::new(vec![Seq(DATA_HEADER), Val(0x40), Cap(Dump(26))])
 }
 
 #[allow(unused)]

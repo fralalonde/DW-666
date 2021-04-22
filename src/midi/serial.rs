@@ -1,6 +1,6 @@
-//! *Midi driver on top of embedded hal serial communications*
-//!
-use crate::midi::status::{SYSEX_END, is_non_status, is_channel_status, SYSEX_START};
+//! MIDI using HAL Serial
+
+use crate::midi::status::{SYSEX_END, is_non_status, is_channel_status};
 use crate::midi::packet::{Packet, CableNumber, CodeIndexNumber};
 use crate::midi::{MidiError, Receive, Transmit};
 use crate::midi::status::Status;
@@ -11,7 +11,8 @@ use stm32f4xx_hal as hal;
 use hal::stm32::USART2;
 use hal::gpio::AF7;
 use hal::gpio::gpioa::{PA2, PA3};
-use hal::serial::Event::Txe;
+use alloc::collections::VecDeque;
+use hal::serial::Event;
 
 #[derive(Copy, Clone, Default, Debug)]
 struct PacketBuffer {
@@ -35,11 +36,11 @@ impl PacketBuffer {
         self.bytes[self.len as usize] = byte;
     }
 
-    fn build(&mut self, cin: CodeIndexNumber) -> Option<Packet> {
+    fn build(&mut self, cin: CodeIndexNumber) -> Packet {
         self.bytes[0] = cin as u8;
         let packet = Packet::from_raw(self.bytes);
         self.clear(self.expected_len);
-        Some(packet)
+        packet
     }
 
     fn clear(&mut self, new_limit: u8) {
@@ -71,20 +72,19 @@ impl PacketParser {
                     self.buffer.clear(self.buffer.expected_len);
                     self.buffer.push(status as u8);
                 }
-
                 self.buffer.push(byte);
 
-                return Ok(if self.buffer.is_full() {
-                    if byte == SYSEX_END {
-                        self.status = None;
-                        self.buffer.build(CodeIndexNumber::end_sysex(self.buffer.len)?)
-                    } else {
-                        self.buffer.build(CodeIndexNumber::from(status))
-                    }
-                } else {
-                    None
-                });
+                if byte == SYSEX_END {
+                    self.status = None;
+                    return Ok(Some(self.buffer.build(CodeIndexNumber::end_sysex(self.buffer.len)?)))
+                }
+                if self.buffer.is_full() {
+                    return Ok(Some(self.buffer.build(CodeIndexNumber::from(status))));
+                }
+            } else {
+                rprintln!("Ignoring non-status byte {:x?}", byte);
             }
+            return Ok(None);
         }
 
         if let Ok(status) = Status::try_from(byte) {
@@ -103,7 +103,7 @@ impl PacketParser {
                 }
             }
         } else {
-            rprintln!("status parse error");
+            rprintln!("Status parse error. byte {:x?}", byte);
         }
         Ok(None)
     }
@@ -117,11 +117,9 @@ pub type UartPeripheral = hal::serial::Serial<
     ),
 >;
 
-pub type Queue = heapless::spsc::Queue<u8, u8, 32>;
-
 pub struct SerialMidi {
     pub uart: UartPeripheral,
-    pub tx_fifo: Queue,
+    pub tx_fifo: VecDeque<u8>,
     cable_number: CableNumber,
     parser: PacketParser,
     last_status: Option<u8>,
@@ -131,7 +129,7 @@ impl SerialMidi {
     pub fn new(handle: UartPeripheral, cable_number: CableNumber) -> Self {
         SerialMidi {
             uart: handle,
-            tx_fifo: unsafe { Queue::u8() },
+            tx_fifo: VecDeque::new(),
             cable_number,
             parser: PacketParser::default(),
             last_status: None,
@@ -139,27 +137,20 @@ impl SerialMidi {
     }
 
     pub fn flush(&mut self) -> Result<(), MidiError> {
-        if self.uart.is_txe() {
-            loop {
-                if let Some(byte) = self.tx_fifo.dequeue() {
-                    match self.uart.write(byte) {
-                        Err(nb::Error::WouldBlock) => {
-                            self.uart.listen(Txe);
-                            return Ok(());
-                        }
-                        Err(_err) => {
-                            rprintln!("Failed to write serial payload for reason other than blocking");
-                            return Err(MidiError::SerialError);
-                        }
-                        Ok(_) => {}
-                    }
+        'write_bytes:
+        loop {
+            if self.uart.is_txe() {
+                if let Some(byte) = self.tx_fifo.pop_front() {
+                    self.uart.write(byte)?;
+                    continue 'write_bytes;
                 } else {
-                    self.uart.unlisten(Txe);
-                    break;
+                    self.uart.unlisten(Event::Txe)
                 }
+            } else {
+                self.uart.listen(Event::Txe)
             }
+            return Ok(());
         }
-        Ok(())
     }
 
     fn write_all(&mut self, payload: &[u8]) -> Result<(), MidiError> {
@@ -170,7 +161,8 @@ impl SerialMidi {
     }
 
     fn write_byte(&mut self, byte: u8) -> Result<(), MidiError> {
-        self.tx_fifo.enqueue(byte).map_err(|_e| MidiError::BufferFull)
+        self.tx_fifo.push_back(byte);
+        Ok(())
     }
 }
 
@@ -192,7 +184,6 @@ impl Receive for SerialMidi {
 impl Transmit for SerialMidi {
     fn transmit(&mut self, event: Packet) -> Result<(), MidiError> {
         let mut payload = event.payload();
-
         // Apply MIDI "running status"
         if is_channel_status(payload[0]) {
             if let Some(last_status) = self.last_status {
@@ -210,14 +201,6 @@ impl Transmit for SerialMidi {
         }
 
         self.write_all(payload)?;
-        self.flush()?;
-        Ok(())
-    }
-
-    fn transmit_sysex(&mut self, payload: &[u8]) -> Result<(), MidiError> {
-        self.write_byte(SYSEX_START)?;
-        self.write_all(payload)?;
-        self.write_byte(SYSEX_END)?;
         self.flush()?;
         Ok(())
     }

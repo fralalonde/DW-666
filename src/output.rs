@@ -1,5 +1,5 @@
-use heapless::{String};
-use ufmt::uwrite;
+// use heapless::{String};
+// use ufmt::uwrite;
 use embedded_graphics::fonts::{Font12x16};
 use embedded_graphics::prelude::Point;
 use embedded_graphics::{
@@ -29,19 +29,17 @@ impl Display {
     pub fn update(&mut self, event: AppEvent) {
         match event {
             ParamChange(Param::FilterCutoff(cutoff)) => {
-                let mut text: String<32> = String::new();
-                uwrite!(text, "cutoff {}", cutoff).unwrap();
+                let mut text = format!("cutoff {}", cutoff);
                 self.redraw(text, PATCH_1, PATCH_2)
             }
             ConfigChange(Config::MidiEcho(echo)) => {
-                let mut text: String<32> = String::new();
-                uwrite!(text, "echo {}", echo).unwrap();
+                let mut text = format!("echo {}", echo);
                 self.redraw(text, CONFIG_1, CONFIG_2)
             }
         }
     }
 
-    fn redraw(&mut self, text: String<32>, top_right: Point, btm_left: Point) {
+    fn redraw(&mut self, text: String, top_right: Point, btm_left: Point) {
         let blank_style = PrimitiveStyleBuilder::new()
             .stroke_color(BinaryColor::Off)
             .fill_color(BinaryColor::Off)
@@ -69,6 +67,7 @@ use embedded_graphics::image::{Image, ImageRaw};
 use crate::event::AppEvent::{ParamChange, ConfigChange};
 use crate::event::{Config, Param, AppEvent};
 use stm32f4xx_hal::stm32::I2C1;
+use alloc::string::String;
 
 pub fn draw_logo(
     oled: &mut GraphicsMode<

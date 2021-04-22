@@ -65,6 +65,7 @@ use crate::midi::message::Message::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, 
 
 use core::convert::TryFrom;
 use hashbrown::HashMap;
+use alloc::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum Tag {
@@ -103,16 +104,16 @@ pub struct Sysex {
     tok_idx: usize,
     // current index inside token
     byte_idx: usize,
-    total_bytes: usize,
+    window: VecDeque<u8>,
 }
 
 impl Sysex {
     pub fn new(tokens: Vec<Token>) -> Self {
         Sysex {
-            tokens,
+            tokens/*: buffer*/,
             tok_idx: 0,
             byte_idx: 0,
-            total_bytes: 0,
+            window: VecDeque::with_capacity(3),
         }
     }
 }
@@ -122,63 +123,52 @@ impl Iterator for Sysex {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.tok_idx > self.tokens.len() {
+            // final packet already generated
             return None;
         }
-        let mut bytes: Vec<u8> = Vec::new();
-        if self.tok_idx == self.tokens.len() {
-            // mark as definitely done
-            self.tok_idx += 1;
-        } else {
-            while bytes.len() < 3 {
-                if self.tok_idx >= self.tokens.len() {
-                    break;
-                }
-                let token = &self.tokens[self.tok_idx];
-                let tok_len = match token {
-                    Token::Seq(slice) => {
-                        bytes.push(slice[self.byte_idx]);
-                        slice.len()
-                    }
-                    Token::Val(val) => {
-                        bytes.push(*val);
-                        1
-                    }
-                    _ => 0
-                };
-                self.byte_idx += 1;
-                if self.byte_idx >= tok_len {
-                    // move on to next token
-                    self.tok_idx += 1;
-                    self.byte_idx = 0;
-                }
+        let start = self.tok_idx == 0 && self.byte_idx == 0;
+        while self.window.len() < 3 {
+            if self.tok_idx >= self.tokens.len() {
+                break;
             }
-        }
-        self.total_bytes += bytes.len();
-        let done = self.tok_idx >= self.tokens.len();
-        Some(Packet::from(
-            match (bytes.len(), done, self.total_bytes) {
-                (2, false, _) => SysexBegin(bytes[0], bytes[1]),
-                (3, false, _) => SysexCont(bytes[0], bytes[1], bytes[2]),
-
-                // sysex start + end ("special cases")
-                (0, true, 0) => SysexEmpty,
-                (1, true, 1) => SysexSingleByte(bytes[0]),
-
-                // sysex end
-                (0, true, _) => SysexEnd,
-                (1, true, _) => SysexEnd1(bytes[0]),
-                (2, true, _) => SysexEnd2(bytes[0], bytes[1]),
-
-                (p_len, done, t_len) => {
-                    rprintln!("Could not build sysex packet: p_len({}) done({}) t_len({})", p_len, done, t_len);
-                    return None;
+            match &self.tokens[self.tok_idx] {
+                Token::Seq(slice) => {
+                    self.window.push_back(slice[self.byte_idx]);
+                    self.byte_idx += 1;
+                    if self.byte_idx == slice.len() {
+                        self.tok_idx += 1;
+                        self.byte_idx = 0;
+                    }
                 }
+                Token::Val(val) => {
+                    self.window.push_back(*val);
+                    self.tok_idx += 1;
+                }
+                _ => {}
+            };
+        }
+        if !start && self.window.len() < 3 {
+            // mark as done
+            self.tok_idx += 1;
+        }
+        Some(Packet::from(
+            match (start, self.window.len()) {
+                (true, 0) => SysexEmpty,
+                (true, 1) => SysexSingleByte(self.window.pop_front().unwrap()),
+                (true, _) => SysexBegin(self.window.pop_front().unwrap(), self.window.pop_front().unwrap()),
+
+                (false, 0) => SysexEnd,
+                (false, 1) => SysexEnd1(self.window.pop_front().unwrap()),
+                (false, 2) => SysexEnd2(self.window.pop_front().unwrap(), self.window.pop_front().unwrap()),
+
+                (false, _) => SysexCont(self.window.pop_front().unwrap(), self.window.pop_front().unwrap(), self.window.pop_front().unwrap()),
             }
         ))
     }
 }
 
-#[derive(Debug)]
+#[allow(unused)]
+#[derive(Debug, Clone)]
 pub enum Token {
     Seq(&'static [u8]),
     Buf(Vec<u8>),

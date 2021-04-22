@@ -22,7 +22,7 @@ impl core::ops::Sub for Instant {
 
 impl Duration {
     pub fn millis(&self) -> u32 {
-        (self.0 / crate::CYCLES_PER_MILLI as u64) as u32
+        (self.0 / crate::MILLI as u64) as u32
     }
 }
 

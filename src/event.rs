@@ -1,6 +1,6 @@
 use crate::clock::{Instant, Duration};
 
-#[derive(Copy, Clone, Debug, Enum)]
+#[derive(Copy, Clone, Debug)]
 pub enum ButtonId {
     MAIN,
 }
@@ -25,7 +25,7 @@ pub enum RotaryEvent {
     Turn(i32)
 }
 
-#[derive(Copy, Clone, Debug, Enum)]
+#[derive(Copy, Clone, Debug)]
 pub enum RotaryId {
     MAIN,
 }

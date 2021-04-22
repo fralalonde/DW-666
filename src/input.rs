@@ -1,7 +1,7 @@
 use embedded_hal::digital::v2::InputPin;
 use crate::event::{CtlEvent, RotaryId, RotaryEvent, ButtonId};
 use crate::clock::Instant;
-use enum_map::EnumMap;
+// use enum_map::EnumMap;
 use crate::event::RotaryEvent::{TickClockwise, TickCounterClockwise};
 use crate::event::ButtonEvent::{Down, Up};
 
@@ -102,7 +102,7 @@ impl<T: InputPin> Scan for Button<T> {
 }
 
 pub struct Controls<DT1, CLK1> {
-    velocities: EnumMap<RotaryId, i8>,
+    // velocities: EnumMap<RotaryId, i8>,
     encoder1: Encoder<DT1, CLK1>,
 }
 
@@ -117,7 +117,7 @@ impl <DT1, CLK1> Controls<DT1, CLK1> {
     pub fn new(encoder1: Encoder<DT1, CLK1>) -> Self {
         Controls {
             encoder1,
-            velocities: EnumMap::new(),
+            // velocities: EnumMap::new(),
         }
     }
 

@@ -1,4 +1,4 @@
-use crate::midi::{Interface, Channel, RouteId, Router, Route, capture_sysex, Service, Message, Note, RouterEvent, Tag, Handler,  U7, RouteContext};
+use crate::midi::{Interface, Channel, RouteId, Router, Route, capture_sysex, Service, Message, Note, RouterEvent, Tag, Handler, RouteContext};
 use crate::{devices, clock, midi};
 use alloc::vec::Vec;
 use alloc::sync::Arc;
@@ -129,6 +129,12 @@ impl Service for Dw6000Control {
                 .filter(capture_sysex(dump_matcher()))
         ));
 
+        // self.routes.push(router.bind(
+        //     Route::from(self.dw6000.interface)
+        //         // .filter(capture_sysex(id_matcher()))
+        //         .filter(event_print())
+        // ));
+
         rprintln!("dw6000_control active")
     }
 
@@ -145,7 +151,7 @@ fn handle_pages(event: RouterEvent, mut state: MutexGuard<InnerState>) {
                     if let Some(page) = note_page(note) {
                         state.temp_page = Some((page, long_now()));
                     }
-                    rprintln!("note_on {:?}", state)
+                    // rprintln!("note_on {:?}", state)
                 }
 
                 Message::NoteOff(_, note, _) => {
@@ -160,7 +166,7 @@ fn handle_pages(event: RouterEvent, mut state: MutexGuard<InnerState>) {
                             }
                         }
                     }
-                    rprintln!("note_off {:?}", state)
+                    // rprintln!("note_off {:?}", state)
                 }
                 _ => {}
             }
@@ -187,14 +193,11 @@ fn handle_cc(dw6000: Interface, event: RouterEvent, spawn: crate::dispatch_from:
                         for packet in param_to_sysex(param, dump.as_slice()) {
                             spawn.send_midi(dw6000, packet).unwrap();
                         }
-                        rprintln!("cc {:?}", state)
-
                     } else {
                         // TODO init dump eagerly, then keep it synced
                         for packet in dump_request() {
                             spawn.send_midi(dw6000, packet).unwrap();
                         }
-                        rprintln!("dump req {:?}", state)
                     }
                 }
             }

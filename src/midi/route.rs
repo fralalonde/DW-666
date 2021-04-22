@@ -169,7 +169,6 @@ impl Router {
 
     fn dispatch(&mut self, now: Instant, event: RouterEvent, route_ids: &RouteVec, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
         // routes are independent from each other, could be processed concurrently
-        rprintln!("dispatch to {:?}", route_ids);
         for route_id in route_ids {
             self.dispatch_route_id(*route_id, now, event, spawn, schedule)
         }

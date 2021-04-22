@@ -62,9 +62,9 @@ impl Filter for EventPrint {
                     Message::SysexEnd1(byte1) => rprintln!(", 0x{:x} ]", byte1),
                     Message::SysexEnd2(byte1, byte2) => rprintln!(", 0x{:x}, 0x{:x} ]", byte1, byte2),
                     message => if let Some(ch) = packet.channel() {
-                        rprintln!("ch:{:?} {:?}", ch, message)
+                        rprintln!("ch:{:x?} {:x?}", ch, message)
                     } else {
-                        rprintln ! ("{:?}", message)
+                        rprintln ! ("{:x?}", message)
                     }
                 }
             }

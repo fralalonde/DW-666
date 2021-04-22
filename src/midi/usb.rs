@@ -18,9 +18,7 @@ use crate::midi::Packet;
 use crate::midi::MidiError;
 use crate::midi;
 use usb_device::class_prelude::EndpointAddress;
-use crate::midi::message::Message::{SysexEnd1, SysexEnd2, SysexBegin, SysexEnd, SysexCont, SysexEmpty, SysexSingleByte};
 
-// TX goes up to 256, but unstable (?), stick with what works
 const USB_TX_BUFFER_SIZE: u16 = 64;
 
 const USB_RX_BUFFER_SIZE: u16 = 64;
@@ -73,45 +71,6 @@ impl midi::Transmit for UsbMidi {
     fn transmit(&mut self, packet: Packet) -> Result<(), MidiError> {
         self.midi_class.send(packet.bytes());
         Ok(())
-    }
-
-    fn transmit_sysex(&mut self, mut buffer: &[u8]) -> Result<(), MidiError> {
-        match buffer.len() {
-            0 => {
-                self.transmit(Packet::from(SysexEmpty))?;
-                return Ok(())
-            }
-            1 => {
-                self.transmit(Packet::from(SysexSingleByte(buffer[0])))?;
-                return Ok(())
-            },
-            _ => {
-                // start "normal" sysex
-                self.transmit(Packet::from(SysexBegin(buffer[0], buffer[1])))?;
-                buffer = &buffer[2..]
-            },
-        }
-        loop {
-            match buffer.len() {
-                0 => {
-                    self.transmit(Packet::from(SysexEnd))?;
-                    return Ok(())
-                }
-                1 => {
-                    self.transmit(Packet::from(SysexEnd1(buffer[0])))?;
-                    return Ok(())
-                },
-                2 => {
-                    self.transmit(Packet::from(SysexEnd2(buffer[0], buffer[1])))?;
-                    return Ok(())
-                },
-                _ => {
-                    // "normal" sysex
-                    self.transmit(Packet::from(SysexCont(buffer[0], buffer[1], buffer[2])))?;
-                    buffer = &buffer[3..]
-                },
-            }
-        }
     }
 }
 
