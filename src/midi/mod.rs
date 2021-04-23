@@ -17,7 +17,7 @@ mod filter;
 use nb;
 use usb_device::UsbError;
 
-pub use message::{Message, note_on};
+pub use message::{Message, note_on, program_change, note_off};
 pub use note::Note;
 pub use packet::{CableNumber, CodeIndexNumber, Packet};
 pub use status::Status;
@@ -31,8 +31,18 @@ pub use usb::{MidiClass, usb_device, UsbMidi};
 pub use sysex::{Matcher, Token, Tag, Sysex};
 pub use route::{RouteId, Router, RouteBinding, RouteContext, Route, Service, RouterEvent, Handler};
 pub use filter::{capture_sysex, print_tag, event_print, Filter};
+use num::PrimInt;
 
-pub type Channel = U4;
+#[derive(Clone, Copy, Debug)]
+/// MIDI channel, stored as 0-15
+pub struct Channel(u8);
+
+/// "Natural" channel builder, takes integers 1-16 as input, wraparound
+pub fn channel(ch: impl Into<u8>) -> Channel {
+    let mut ch = ch.into() % 16;
+    Channel(ch - 1)
+}
+
 pub type Velocity = U7;
 pub type Control = U7;
 pub type Pressure = U7;
@@ -68,6 +78,7 @@ pub enum MidiError {
     InvalidCodeIndexNumber,
     InvalidCableNumber,
     InvalidChannel,
+    InvalidProgram,
     InvalidNote,
     InvalidVelocity,
     InvalidU4,

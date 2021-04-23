@@ -97,10 +97,10 @@ pub fn event_print() -> Box<dyn Filter> {
 // }
 
 
-fn only_channel(event: RouterEvent, only: &mut U4) -> bool {
+fn only_channel(event: RouterEvent, only: &mut u8) -> bool {
     if let RouterEvent::Packet(packet) = event {
         if let Some(channel) = packet.channel() {
-            if channel != *only {
+            if channel.0 != *only {
                 return false;
             }
         }

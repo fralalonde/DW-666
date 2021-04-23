@@ -1,13 +1,16 @@
-use crate::midi::{Interface, Channel, RouteId, Router, Route, capture_sysex, Service, Message, Note, RouterEvent, Tag, Handler, RouteContext};
+use crate::midi::{Interface, Channel, RouteId, Router, Route, capture_sysex, Service, Message, Note, RouterEvent, Tag, Handler, RouteContext, program_change, MidiError};
 use crate::{devices, clock, midi};
 use alloc::vec::Vec;
 use alloc::sync::Arc;
 use core::convert::TryFrom;
 use crate::clock::{Instant, Duration};
 use clock::long_now;
-use devices::korg_dw6000::*;
+use devices::korg::dw6000::*;
 use spin::MutexGuard;
+use num_enum::TryFromPrimitive;
+use num::Integer;
 
+#[derive(Copy, Clone, Debug)]
 pub struct Endpoint {
     interface: Interface,
     channel: Channel,
@@ -35,11 +38,18 @@ impl Dw6000Control {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, TryFromPrimitive)]
+#[repr(u8)]
 enum KnobPage {
     Osc,
     Env,
     Mod,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum ProgPage {
+    Lo(u8),
+    Hi(u8),
 }
 
 #[derive(Debug)]
@@ -60,6 +70,7 @@ struct InnerState {
     base_page: KnobPage,
     // if temp_page is released quickly, is becomes base_page
     temp_page: Option<(KnobPage, Instant)>,
+    bank: Option<u8>,
     // arp_enabled: bool,
     // arp_mode: ArpMode,
     // arp_oct: u8, // 1..4
@@ -72,11 +83,22 @@ impl InnerState {
 }
 
 fn note_page(note: Note) -> Option<KnobPage> {
-    match note {
-        Note::C0 => Some(KnobPage::Osc),
-        Note::C1 => Some(KnobPage::Env),
-        Note::C2 => Some(KnobPage::Mod),
-        _ => None
+    KnobPage::try_from(note as u8).ok()
+}
+
+fn note_bank(note: Note) -> Option<u8> {
+    let note_u8 = note as u8;
+    match note_u8.div_rem(&8) {
+        (1, n) => Some(n),
+        _ => None,
+    }
+}
+
+fn note_prog(note: Note) -> Option<u8> {
+    let note_u8 = note as u8;
+    match note_u8.div_rem(&8) {
+        (0, n) => Some(n),
+        _ => None,
     }
 }
 
@@ -91,37 +113,32 @@ impl Service for Dw6000Control {
                 current_dump: None,
                 base_page: KnobPage::Osc,
                 temp_page: None,
+                bank: None,
             }))
         };
 
-        // PAGE SELECT ROUTE
+        // FROM BEATSTEP
         let page_state: State = state.clone();
-        let page_if = router.add_interface(Handler::new(move |_now, event, _ctx, _spawn, _sched| {
-            let state = page_state.inner.lock();
-            handle_pages(event, state)
+        let dw6000 = self.dw6000;
+        let page_if = router.add_interface(Handler::new(move |_now, event, _ctx, spawn, _sched| {
+            if let RouterEvent::Packet(packet) = event {
+                if let Ok(msg) = Message::try_from(packet) {
+                    let state = page_state.inner.lock();
+                    if let Err(e) = from_beatstep(dw6000, msg, spawn, state) {
+                        rprintln!("Error from Beatstep {:?}", e);
+                    }
+                }
+            }
         }));
 
         self.routes.push(router.bind(
             Route::link(self.beatstep.interface, page_if)
         ));
 
-        // CC ROUTE
-        let dest = self.dw6000.interface;
-        let cc_state: State = state.clone();
-        let cc_if = router.add_interface(Handler::new(move |_now, event, _ctx, spawn, _sched| {
-            let state = cc_state.inner.lock();
-            handle_cc(dest, event, spawn, state)
-        }));
-
-        self.routes.push(router.bind(
-            Route::link(self.beatstep.interface, cc_if)
-        ));
-
-        // DUMP ROUTE
-        let dump_state: State = state.clone();
+        // FROM DW-6000
         let dump_if = router.add_interface(Handler::new(move |_now, _event, ctx, _spawn, _sched| {
-            let state = dump_state.inner.lock();
-            handle_dump(ctx, state)
+            let state = state.inner.lock();
+            from_dw6000(ctx, state)
         }));
 
         self.routes.push(router.bind(
@@ -129,13 +146,7 @@ impl Service for Dw6000Control {
                 .filter(capture_sysex(dump_matcher()))
         ));
 
-        // self.routes.push(router.bind(
-        //     Route::from(self.dw6000.interface)
-        //         // .filter(capture_sysex(id_matcher()))
-        //         .filter(event_print())
-        // ));
-
-        rprintln!("dw6000_control active")
+        rprintln!("DW6000 Controller Active")
     }
 
     fn stop(&mut self, router: &mut Router) {
@@ -143,67 +154,65 @@ impl Service for Dw6000Control {
     }
 }
 
-fn handle_pages(event: RouterEvent, mut state: MutexGuard<InnerState>) {
-    if let RouterEvent::Packet(packet) = event {
-        if let Ok(msg) = Message::try_from(packet) {
-            match msg {
-                Message::NoteOn(_, note, _) => {
-                    if let Some(page) = note_page(note) {
-                        state.temp_page = Some((page, long_now()));
-                    }
-                    // rprintln!("note_on {:?}", state)
+fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Spawn, mut state: MutexGuard<InnerState>) -> Result<(), MidiError> {
+    match msg {
+        Message::NoteOn(_, note, _) => {
+            if let Some(bank) = note_bank(note) {
+                state.bank = Some(bank)
+            } else if let Some(prog) = note_prog(note) {
+                if let Some(bank) = state.bank {
+                    rprintln!("bank {:x?} prog {:x?} patch {:x?}", bank as u8, prog as u8, (bank * 8) + prog);
+                    spawn.send_midi(dw6000.interface, program_change(dw6000.channel, (bank * 8) + prog)?.into());
+                    return Ok(())
                 }
-
-                Message::NoteOff(_, note, _) => {
-                    if let Some((temp_page, press_time)) = state.temp_page {
-                        if let Some(note_page) = note_page(note) {
-                            if note_page == temp_page {
-                                let held_for: Duration = long_now() - press_time;
-                                if held_for.millis() < SHORT_PRESS {
-                                    state.base_page = temp_page;
-                                }
-                                state.temp_page = None;
-                            }
-                        }
-                    }
-                    // rprintln!("note_off {:?}", state)
-                }
-                _ => {}
+            }
+            if let Some(page) = note_page(note) {
+                state.temp_page = Some((page, long_now()));
             }
         }
+        Message::NoteOff(_, note, _) => {
+            if state.bank == note_bank(note) {
+                state.bank = None
+            }
+            if let Some((temp_page, press_time)) = state.temp_page {
+                if let Some(note_page) = note_page(note) {
+                    if note_page == temp_page {
+                        let held_for: Duration = long_now() - press_time;
+                        if held_for.millis() < SHORT_PRESS {
+                            state.base_page = temp_page;
+                        }
+                        state.temp_page = None;
+                    }
+                }
+            }
+        }
+        Message::ControlChange(_ch, cc, value) =>
+            if let Some(param) = cc_to_param(cc, state.active_page()) {
+                if let Some((dump, ref mut time)) = &mut state.current_dump {
+                    set_param_value(param, value.into(), dump.as_mut_slice());
+                    *time = long_now();
+                    for packet in param_to_sysex(param, dump.as_slice()) {
+                        spawn.send_midi(dw6000.interface, packet).unwrap();
+                    }
+                } else {
+                    // TODO init dump eagerly, then keep it synced
+                    for packet in dump_request() {
+                        spawn.send_midi(dw6000.interface, packet).unwrap();
+                    }
+                }
+            }
+        _ => {}
     }
+    Ok(())
 }
 
-fn handle_dump(ctx: RouteContext, mut state: MutexGuard<InnerState>) {
+fn from_dw6000(ctx: RouteContext, mut state: MutexGuard<InnerState>) {
     if let Some(dump) = ctx.tags.get(&Tag::Dump(26)) {
         let long_now = long_now();
         state.current_dump = Some((dump.clone(), long_now));
-        rprintln!("dump {:?}", state)
     }
 }
 
-fn handle_cc(dw6000: Interface, event: RouterEvent, spawn: crate::dispatch_from::Spawn, mut state: MutexGuard<InnerState>) {
-    if let RouterEvent::Packet(packet) = event {
-        if let Ok(msg) = Message::try_from(packet) {
-            if let Message::ControlChange(_ch, cc, value) = msg {
-                if let Some(param) = cc_to_param(cc, state.active_page()) {
-                    if let Some((dump, ref mut time)) = &mut state.current_dump {
-                        set_param_value(param, value.into(), dump.as_mut_slice());
-                        *time = long_now();
-                        for packet in param_to_sysex(param, dump.as_slice()) {
-                            spawn.send_midi(dw6000, packet).unwrap();
-                        }
-                    } else {
-                        // TODO init dump eagerly, then keep it synced
-                        for packet in dump_request() {
-                            spawn.send_midi(dw6000, packet).unwrap();
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 fn cc_to_param(cc: midi::Control, page: KnobPage) -> Option<Param> {
     match cc.into() {

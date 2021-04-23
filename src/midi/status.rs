@@ -71,13 +71,13 @@ pub enum Status {
 
 pub fn status_byte(msg: &Message) -> Option<u8> {
     match msg {
-        Message::NoteOff(ch, ..) => Some(NoteOff as u8 + u8::from(*ch)),
-        Message::NoteOn(ch, ..) => Some(NoteOn as u8 + u8::from(*ch)),
-        Message::NotePressure(ch, ..) => Some(NotePressure as u8 + u8::from(*ch)),
-        Message::ChannelPressure(ch, ..) => Some(ChannelPressure as u8 + u8::from(*ch)),
-        Message::ProgramChange(ch, ..) => Some(ProgramChange as u8 + u8::from(*ch)),
-        Message::ControlChange(ch, ..) => Some(ControlChange as u8 + u8::from(*ch)),
-        Message::PitchBend(ch, ..) => Some(PitchBend as u8 + u8::from(*ch)),
+        Message::NoteOff(ch, ..) => Some(NoteOff as u8 + ch.0),
+        Message::NoteOn(ch, ..) => Some(NoteOn as u8 + ch.0),
+        Message::NotePressure(ch, ..) => Some(NotePressure as u8 + ch.0),
+        Message::ChannelPressure(ch, ..) => Some(ChannelPressure as u8 + ch.0),
+        Message::ProgramChange(ch, ..) => Some(ProgramChange as u8 + ch.0),
+        Message::ControlChange(ch, ..) => Some(ControlChange as u8 + ch.0),
+        Message::PitchBend(ch, ..) => Some(PitchBend as u8 + ch.0),
 
         Message::TimeCodeQuarterFrame(_) => Some(TimeCodeQuarterFrame as u8),
         Message::SongPositionPointer(_, _) => Some(SongPositionPointer as u8),

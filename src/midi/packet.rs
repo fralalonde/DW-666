@@ -4,7 +4,7 @@
 use crate::midi::message::Message;
 use crate::midi::u4::U4;
 use core::convert::{TryFrom};
-use crate::midi::{MidiError, Channel, Cull};
+use crate::midi::{MidiError, Channel, Cull, channel};
 use crate::midi::status::{Status, status_byte, SYSEX_START, SYSEX_END};
 use CodeIndexNumber::*;
 
@@ -44,7 +44,7 @@ impl Packet {
         if byte < NoteOff as u8 {
             None
         } else {
-            Some(Channel::cull(byte))
+            Some(channel(byte))
         }
     }
 

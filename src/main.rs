@@ -65,7 +65,7 @@ use hal::{
     timer::Timer,
     i2c::I2c,
 };
-use crate::devices::dsi_evolver;
+use crate::devices::sequential::    evolver;
 
 pub const CPU_FREQ: u32 = 96_000_000;
 pub const MICRO: u32 = CPU_FREQ / 1_000_000;
@@ -92,7 +92,7 @@ fn alloc_error(_layout: Layout) -> ! {
 }
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
-use crate::midi::{capture_sysex, print_tag, event_print, Channel, Cull, Service};
+use crate::midi::{capture_sysex, print_tag, event_print, Channel, Cull, Service, channel};
 use crate::dw6000_control::Dw6000Control;
 use cortex_m::asm::delay;
 
@@ -207,7 +207,7 @@ const APP: () = {
         // );
         // let _bstep_2_dw = midi_router.bind(Route::link(Interface::USB, Interface::Serial(0)));
 
-        let mut dwctrl = Dw6000Control::new((Interface::Serial(0), Channel::cull(1)), (Interface::USB, Channel::cull(1)));
+        let mut dwctrl = Dw6000Control::new((Interface::Serial(0), channel(1)), (Interface::USB, channel(1)));
         dwctrl.start(&mut midi_router);
 
         rprintln!("Routes OK");

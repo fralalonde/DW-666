@@ -67,6 +67,13 @@ pub fn note_off(channel: impl TryInto<Channel>, note: impl TryInto<Note>, veloci
     )
 }
 
+pub fn program_change(channel: impl TryInto<Channel>, program: impl TryInto<Program>) -> Result<Message, MidiError> {
+    Ok(Message::ProgramChange(
+        channel.try_into().map_err(|_| MidiError::InvalidChannel)?,
+        program.try_into().map_err(|_| MidiError::InvalidProgram)?,
+    ))
+}
+
 impl TryFrom<Packet> for Message {
     type Error = MidiError;
 
