@@ -95,6 +95,7 @@ use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 use crate::midi::{capture_sysex, print_tag, event_print, Channel, Cull, Service, channel};
 use crate::dw6000_control::Dw6000Control;
 use cortex_m::asm::delay;
+use hal::stm32::DWT;
 
 const FAST_HEAP_SIZE: usize = 16 * 1024;
 // 32 KB
@@ -115,7 +116,8 @@ static ALLOC: NonThreadsafeAlloc = unsafe {
 #[app(device = crate::device, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
-        // clock: rtc::RtcClock,
+        // HAL RTC does not support subseconds, maybe someday.
+        // clock: Rtc,
         on_board_led: PC13<Output<PushPull>>,
         controls: input::Controls<PA6<Input<PullUp>>, PA7<Input<PullUp>>>,
         app_state: app::AppState,
@@ -126,7 +128,7 @@ const APP: () = {
     }
 
     #[init(schedule = [control_scan])]
-    fn init(cx: init::Context) -> init::LateResources {
+    fn init(mut cx: init::Context) -> init::LateResources {
         // RTIC needs statics to go first
         static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
 
@@ -136,6 +138,11 @@ const APP: () = {
         let peripherals = cx.device;
         let rcc = peripherals.RCC.constrain();
         let clocks = rcc.cfgr.sysclk(CPU_FREQ.hz()).freeze();
+
+        // Initialize (enable) the monotonic timer (CYCCNT)
+        cx.core.DCB.enable_trace();
+        // required on Cortex-M7 devices that software lock the DWT (e.g. STM32F7)
+        cx.core.DWT.enable_cycle_counter();
 
         let gpioa = peripherals.GPIOA.split();
         let gpiob = peripherals.GPIOB.split();

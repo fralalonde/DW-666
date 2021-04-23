@@ -41,9 +41,20 @@ impl Dw6000Control {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
 enum KnobPage {
-    Osc,
-    Env,
-    Mod,
+    Osc = 0,
+    Env = 1,
+    Mod = 2,
+    Arp = 3,
+}
+
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, TryFromPrimitive)]
+#[repr(u8)]
+enum TogglePage {
+    Arp = 4,
+    Latch = 5,
+    Polarity = 6,
+    Chorus = 7,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -84,6 +95,10 @@ impl InnerState {
 
 fn note_page(note: Note) -> Option<KnobPage> {
     KnobPage::try_from(note as u8).ok()
+}
+
+fn toggle_page(note: Note) -> Option<TogglePage> {
+    TogglePage::try_from(note as u8).ok()
 }
 
 fn note_bank(note: Note) -> Option<u8> {
@@ -161,13 +176,40 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Sp
                 state.bank = Some(bank)
             } else if let Some(prog) = note_prog(note) {
                 if let Some(bank) = state.bank {
-                    rprintln!("bank {:x?} prog {:x?} patch {:x?}", bank as u8, prog as u8, (bank * 8) + prog);
                     spawn.send_midi(dw6000.interface, program_change(dw6000.channel, (bank * 8) + prog)?.into());
-                    return Ok(())
+                    return Ok(());
                 }
             }
             if let Some(page) = note_page(note) {
                 state.temp_page = Some((page, long_now()));
+            }
+            if let Some(tog) = toggle_page(note) {
+                if let Some((dump, ref mut time)) = &mut state.current_dump {
+                    match tog {
+                        TogglePage::Arp => { todo!("add inner switches state") }
+                        TogglePage::Latch => { todo!("add inner switches state") }
+                        TogglePage::Polarity => {
+                            let mut polarity = get_param_value(Param::Polarity, dump.as_slice());
+                            polarity = polarity ^ 1;
+                            set_param_value(Param::Polarity, polarity, dump.as_mut_slice());
+                            for packet in param_to_sysex(Param::Polarity, dump.as_slice()) {
+                                spawn.send_midi(dw6000.interface, packet).unwrap();
+                            }
+                        }
+                        TogglePage::Chorus => {
+                            let mut chorus = get_param_value(Param::Chorus, dump.as_slice());
+                            rprintln!("chorus {:x?}", chorus);
+                            chorus = chorus ^ 1;
+                            rprintln!("chorus {:x?}", chorus);
+                            set_param_value(Param::Chorus, chorus, dump.as_mut_slice());
+                            chorus = get_param_value(Param::Chorus, dump.as_slice());
+                            rprintln!("chorus {:x?}", chorus);
+                            for packet in param_to_sysex(Param::Chorus, dump.as_slice()) {
+                                spawn.send_midi(dw6000.interface, packet).unwrap();
+                            }
+                        }
+                    }
+                }
             }
         }
         Message::NoteOff(_, note, _) => {
@@ -179,7 +221,10 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Sp
                     if note_page == temp_page {
                         let held_for: Duration = long_now() - press_time;
                         if held_for.millis() < SHORT_PRESS {
+                            rprintln!("short press {:x?}", held_for.millis());
                             state.base_page = temp_page;
+                        } else {
+                            rprintln!("long press {:x?}", held_for.millis());
                         }
                         state.temp_page = None;
                     }
@@ -272,10 +317,13 @@ fn cc_to_param(cc: midi::Control, page: KnobPage) -> Option<Param> {
             5 => Some(Param::BendOsc),
             6 => Some(Param::BendVcf),
             7 => Some(Param::PortamentoTime),
-
-            // TODO Arp control (Rate, Oct, Mode, Order)
             // TODO LFO2 (? - Rate, Sync, Shape, Amt, Target)
             _ => None,
+        }
+        KnobPage::Arp => match cc.into() {
+            // TODO Arp control (Rate, Oct, Mode, Order)
+            0 => None,
+           _ => None,
         }
     }
 }

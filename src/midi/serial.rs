@@ -200,6 +200,7 @@ impl Transmit for SerialMidi {
             self.last_status = None
         }
 
+        // rprintln!("write {:x?}", payload);
         self.write_all(payload)?;
         self.flush()?;
         Ok(())
