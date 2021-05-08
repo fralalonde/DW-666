@@ -1,4 +1,4 @@
-use crate::midi::{Matcher, U4, RouteBinding, Message};
+use crate::midi::{Matcher, Message};
 use crate::midi::route::{RouteContext, RouterEvent};
 use core::convert::TryFrom;
 use core::fmt::Debug;
@@ -7,9 +7,6 @@ use alloc::boxed::Box;
 pub trait Filter: Debug + Send {
     /// Apply the filter logic
     fn apply(&mut self, event: RouterEvent, context: &mut RouteContext) -> bool;
-
-    /// Informs router of additional event types the filtered route should is interested in
-    fn bindings(&self) -> &'static [RouteBinding] { &[] }
 }
 
 #[derive(Debug)]

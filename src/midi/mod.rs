@@ -29,17 +29,17 @@ pub use u7::{U7};
 pub use serial::{SerialMidi};
 pub use usb::{MidiClass, usb_device, UsbMidi};
 pub use sysex::{Matcher, Token, Tag, Sysex};
-pub use route::{RouteId, Router, RouteBinding, RouteContext, Route, Service, RouterEvent, Handler};
+pub use route::{Router, RouteBinding, RouteContext, Route, Service, RouterEvent, Handler};
 pub use filter::{capture_sysex, print_tag, event_print, Filter};
-use num::PrimInt;
 
 #[derive(Clone, Copy, Debug)]
 /// MIDI channel, stored as 0-15
 pub struct Channel(u8);
 
 /// "Natural" channel builder, takes integers 1-16 as input, wraparound
+/// FIXME rollover fails in checked builds!
 pub fn channel(ch: impl Into<u8>) -> Channel {
-    let mut ch = ch.into() % 16;
+    let ch = ch.into() - 1 % 16;
     Channel(ch - 1)
 }
 

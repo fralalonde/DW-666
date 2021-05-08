@@ -1,19 +1,14 @@
 use crate::midi::{Packet, Filter, Tag, Interface};
 use self::RouteBinding::*;
 
-// use alloc::collections::{
-//     BTreeMap as HashMap,
-//     BTreeSet as HashSet
-// };
 use alloc::vec::Vec;
 use hashbrown::{HashMap, HashSet};
 
-use core::sync::atomic::AtomicU16;
 use core::sync::atomic::Ordering::Relaxed;
 
 pub trait Service {
-    fn start(&mut self, router: &mut Router);
-    fn stop(&mut self, router: &mut Router);
+    fn start(&mut self, now: rtic::cyccnt::Instant, router: &mut Router, schedule: crate::init::Schedule);
+    fn stop(&mut self, _router: &mut Router) {}
 }
 
 #[derive(Debug, Default)]
@@ -84,7 +79,6 @@ pub enum RouteBinding {
     Clock,
 }
 
-pub type RouteId = u16;
 
 #[derive(Debug, Copy, Clone)]
 pub enum RouterEvent {
@@ -106,7 +100,7 @@ pub struct Handler {
 }
 
 impl Debug for Handler {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> core::fmt::Result {
         todo!()
     }
 }
@@ -125,7 +119,7 @@ impl Handler {
     }
 }
 
-type RouteVec = Vec<RouteId>;
+type RouteVec = Vec<Handle>;
 
 // pub type Virtual = FnMut(Instant, RouterEvent, RouteContext, &mut Router, dispatch_from::Spawn, dispatch_from::Schedule) + 'static + Send;
 
@@ -138,12 +132,11 @@ pub struct Router {
     enabled: bool,
     bindings: HashMap<RouteBinding, RouteVec>,
     virtuals: HashMap<u16, Handler>,
-    routes: HashMap<RouteId, Route>,
+    routes: HashMap<Handle, Route>,
     // TODO route ID pooling instead
-    next_handle: AtomicU16,
 }
 
-use crate::dispatch_from;
+use crate::{dispatch_from, Handle, NEXT_HANDLE};
 use rtic::cyccnt::{Instant};
 use alloc::boxed::Box;
 use core::fmt::{Debug, Formatter};
@@ -174,12 +167,12 @@ impl Router {
         }
     }
 
-    pub fn dispatch_route_id(&mut self, route_id: RouteId, now: Instant, event: RouterEvent, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
+    pub fn dispatch_route_id(&mut self, route_id: Handle, now: Instant, event: RouterEvent, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
         if let Some(route) = self.routes.get_mut(&route_id) {
             if let Some(context) = route.apply(event) {
                 match route.destination {
                     Some(Interface::Virtual(virt_id)) => {
-                        if let Some(mut virt) = self.virtuals.get_mut(&virt_id) {
+                        if let Some(virt) = self.virtuals.get_mut(&virt_id) {
                             virt.handle(now, event, context, spawn, schedule)
                         }
                     }
@@ -202,8 +195,8 @@ impl Router {
         }
     }
 
-    pub fn bind(&mut self, route: Route) -> RouteId {
-        let route_id = self.next_handle.fetch_add(1, Relaxed);
+    pub fn bind(&mut self, route: Route) -> Handle {
+        let route_id = NEXT_HANDLE.fetch_add(1, Relaxed);
 
         if let Some(src) = route.source {
             self.bind_route(&Src(src), route_id);
@@ -213,24 +206,17 @@ impl Router {
             self.bind_route(&Dst(dst), route_id);
         }
 
-        for f in &route.filters {
-            for b in f.bindings() {
-                self.bind_route(b, route_id);
-            }
-        }
-
         self.routes.insert(route_id, route);
-
         route_id
     }
 
     pub fn add_interface(&mut self, handler: Handler) -> Interface {
-        let virt_id = self.next_handle.fetch_add(1, Relaxed);
+        let virt_id = NEXT_HANDLE.fetch_add(1, Relaxed);
         self.virtuals.insert(virt_id, handler);
         Interface::Virtual(virt_id)
     }
 
-    fn bind_route(&mut self, binding: &RouteBinding, route_id: RouteId) {
+    fn bind_route(&mut self, binding: &RouteBinding, route_id: Handle) {
         if let Some(route_ids) = self.bindings.get_mut(binding) {
             route_ids.push(route_id);
         } else {
@@ -240,7 +226,7 @@ impl Router {
         }
     }
 
-    pub fn unbind(&mut self, route_id: RouteId) {
+    pub fn unbind(&mut self, route_id: Handle) {
         let removed = self.routes.remove(&route_id);
         if let Some(route) = removed {
             if let Some(src) = route.source {
@@ -252,7 +238,7 @@ impl Router {
         }
     }
 
-    fn try_remove(&mut self, route_id: RouteId, bin: &RouteBinding) {
+    fn try_remove(&mut self, route_id: Handle, bin: &RouteBinding) {
         if let Some(bins) = self.bindings.get_mut(bin) {
             if let Some((idx, _)) = bins.iter().enumerate().find(|(_i, v)| **v == route_id) {
                 bins.swap_remove(idx);

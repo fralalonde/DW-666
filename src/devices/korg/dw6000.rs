@@ -35,7 +35,7 @@ pub fn load(dump: Vec<u8>) -> Sysex {
     Sysex::new(vec![Seq(DATA_HEADER), Buf(dump)])
 }
 
-pub fn parameter(param: u8, value: u8) -> Sysex {
+pub fn parameter_set(param: u8, value: u8) -> Sysex {
     Sysex::new(vec![Seq(DATA_HEADER), Val(0x41), Val(param), Val(value)])
 }
 
@@ -52,7 +52,7 @@ pub fn dump_matcher() -> Matcher {
 }
 
 #[allow(unused)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Param {
     Osc1Wave,
     Osc1Level,
@@ -127,12 +127,12 @@ pub struct Dump {
     pub osc2_interval_osc2_detune: Osc2IntervalOsc2Detune,
 }
 
-fn as_dump_ref_mut(buf: &mut [u8]) -> &mut Dump {
+pub fn as_dump_ref_mut(buf: &mut [u8]) -> &mut Dump {
     let p: *mut Dump = buf.as_ptr() as *mut Dump;
     unsafe { &mut *p }
 }
 
-fn as_dump_ref(buf: &[u8]) -> &Dump {
+pub fn as_dump_ref(buf: &[u8]) -> &Dump {
     let p: *const Dump = buf.as_ptr() as *const Dump;
     unsafe { &*p }
 }
@@ -219,37 +219,71 @@ pub fn set_param_value(param: Param, value: u8, dump_buf: &mut [u8]) {
     }
 }
 
-pub fn param_to_sysex(param: Param, dump_buf: &[u8]) -> Sysex {
-    let dump = as_dump_ref(dump_buf);
-    match param {
-        Param::AssignMode | Param::BendOsc => parameter(0, dump.assign_mode_bend_osc.0),
-        Param::PortamentoTime => parameter(1, dump.portamento_time.0),
-        Param::Osc1Level => parameter(2, dump.osc1_level.0),
-        Param::Osc2Level => parameter(3, dump.osc2_level.0),
-        Param::NoiseLevel => parameter(4, dump.noise_level.0),
-        Param::Cutoff => parameter(5, dump.cutoff.0),
-        Param::Resonance => parameter(6, dump.resonance.0),
-        Param::VcfEgInt => parameter(7, dump.vcf_eg_int.0),
-        Param::VcfEgAttack => parameter(8, dump.vcf_eg_attack.0),
-        Param::VcfEgDecay => parameter(9, dump.vcf_eg_decay.0),
-        Param::VcfEgBreakpoint => parameter(10, dump.vcf_eg_breakpoint.0),
-        Param::VcfEgSlope => parameter(11, dump.vcf_eg_slope.0),
-        Param::VcfEgSustain => parameter(12, dump.vcf_eg_sustain.0),
-        Param::VcfEgRelease => parameter(13, dump.vcf_eg_release.0),
-        Param::VcaEgAttack => parameter(14, dump.vca_eg_attack.0),
-        Param::VcaEgDecay => parameter(15, dump.vca_eg_decay.0),
-        Param::VcaEgBreakpoint => parameter(16, dump.vca_eg_breakpoint.0),
-        Param::VcaEgSlope => parameter(17, dump.vca_eg_slope.0),
-        Param::BendVcf | Param::VcaEgSustain => parameter(18, dump.bend_vcf_vca_eg_sustain.0),
-        Param::Osc1Octave | Param::VcaEgRelease => parameter(19, dump.osc1_oct_vca_eg_release.0),
-        Param::Osc2Octave | Param::MgFreq => parameter(20, dump.osc2_oct_mg_freq.0),
-        Param::KbdTrack | Param::MgDelay => parameter(21, dump.kbd_track_mg_delay.0),
-        Param::Polarity | Param::MgOsc => parameter(22, dump.polarity_mg_osc.0),
-        Param::Chorus | Param::MgVcf => parameter(23, dump.chorus_mg_vcf.0),
-        Param::Osc1Wave | Param::Osc2Wave  => parameter(24, dump.osc1_wave_osc2_wave.0),
-        Param::Osc2Detune | Param::Osc2Interval => parameter(25, dump.osc2_interval_osc2_detune.0),
+impl Param {
+    pub fn dump_index(&self) -> usize {
+        match self {
+            Param::AssignMode | Param::BendOsc => 0,
+            Param::PortamentoTime => 1,
+            Param::Osc1Level => 2,
+            Param::Osc2Level => 3,
+            Param::NoiseLevel => 4,
+            Param::Cutoff => 5,
+            Param::Resonance => 6,
+            Param::VcfEgInt => 7,
+            Param::VcfEgAttack => 8,
+            Param::VcfEgDecay => 9,
+            Param::VcfEgBreakpoint => 10,
+            Param::VcfEgSlope => 11,
+            Param::VcfEgSustain => 12,
+            Param::VcfEgRelease => 13,
+            Param::VcaEgAttack => 14,
+            Param::VcaEgDecay => 15,
+            Param::VcaEgBreakpoint => 16,
+            Param::VcaEgSlope => 17,
+            Param::BendVcf | Param::VcaEgSustain => 18,
+            Param::Osc1Octave | Param::VcaEgRelease => 19,
+            Param::Osc2Octave | Param::MgFreq => 20,
+            Param::KbdTrack | Param::MgDelay => 21,
+            Param::Polarity | Param::MgOsc => 22,
+            Param::Chorus | Param::MgVcf => 23,
+            Param::Osc1Wave | Param::Osc2Wave  => 24,
+            Param::Osc2Detune | Param::Osc2Interval => 25,
+        }
+    }
+
+    pub fn dump_value(&self, dump_buf: &[u8]) -> u8 {
+        let dump = as_dump_ref(dump_buf);
+        match self {
+            Param::AssignMode | Param::BendOsc => dump.assign_mode_bend_osc.0,
+            Param::PortamentoTime => dump.portamento_time.0,
+            Param::Osc1Level => dump.osc1_level.0,
+            Param::Osc2Level => dump.osc2_level.0,
+            Param::NoiseLevel => dump.noise_level.0,
+            Param::Cutoff => dump.cutoff.0,
+            Param::Resonance => dump.resonance.0,
+            Param::VcfEgInt => dump.vcf_eg_int.0,
+            Param::VcfEgAttack => dump.vcf_eg_attack.0,
+            Param::VcfEgDecay => dump.vcf_eg_decay.0,
+            Param::VcfEgBreakpoint => dump.vcf_eg_breakpoint.0,
+            Param::VcfEgSlope => dump.vcf_eg_slope.0,
+            Param::VcfEgSustain => dump.vcf_eg_sustain.0,
+            Param::VcfEgRelease => dump.vcf_eg_release.0,
+            Param::VcaEgAttack => dump.vca_eg_attack.0,
+            Param::VcaEgDecay => dump.vca_eg_decay.0,
+            Param::VcaEgBreakpoint => dump.vca_eg_breakpoint.0,
+            Param::VcaEgSlope => dump.vca_eg_slope.0,
+            Param::BendVcf | Param::VcaEgSustain => dump.bend_vcf_vca_eg_sustain.0,
+            Param::Osc1Octave | Param::VcaEgRelease => dump.osc1_oct_vca_eg_release.0,
+            Param::Osc2Octave | Param::MgFreq => dump.osc2_oct_mg_freq.0,
+            Param::KbdTrack | Param::MgDelay => dump.kbd_track_mg_delay.0,
+            Param::Polarity | Param::MgOsc => dump.polarity_mg_osc.0,
+            Param::Chorus | Param::MgVcf => dump.chorus_mg_vcf.0,
+            Param::Osc1Wave | Param::Osc2Wave  => dump.osc1_wave_osc2_wave.0,
+            Param::Osc2Detune | Param::Osc2Interval => dump.osc2_interval_osc2_detune.0,
+        }
     }
 }
+
 
 bitfield! {
     pub struct AssignModeBendOsc(u8);
