@@ -55,6 +55,7 @@ use crate::clock::long_now;
 use crate::devices::sequential::    evolver;
 use crate::apps::dw6000_control::Dw6000Control;
 use crate::midi::{channel, event_print, Service};
+use alloc::string::String;
 
 mod event;
 mod clock;
@@ -269,7 +270,7 @@ const APP: () = {
         }
     }
 
-    #[task(spawn = [send_midi], schedule = [timer_task], resources = [midi_router], priority = 3)]
+    #[task(spawn = [send_midi, redraw], schedule = [timer_task], resources = [midi_router], priority = 3)]
     fn dispatch_from(cx: dispatch_from::Context, from: Interface, packet: Packet) {
         let router: &mut midi::Router = cx.resources.midi_router;
         router.dispatch_from(cx.scheduled, packet, from, cx.spawn, cx.schedule)
@@ -297,8 +298,8 @@ const APP: () = {
     }
 
     #[task(resources = [display])]
-    fn redraw(ctx: redraw::Context) {
-        // ctx.resources.display.dispatch(event)
+    fn redraw(ctx: redraw::Context, text: String) {
+        ctx.resources.display.print(text)
     }
 
     extern "C" {

@@ -5,7 +5,7 @@ use crate::midi::u14::U14;
 
 /// A primitive value that can be from 0-0x7F
 #[derive(Copy, Clone, Debug, Eq, PartialOrd, PartialEq, Ord)]
-pub struct U6(u8);
+pub struct U6(pub u8);
 
 impl TryFrom<u8> for U6 {
     type Error = MidiError;

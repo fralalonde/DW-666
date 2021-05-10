@@ -11,12 +11,17 @@ use alloc::collections::VecDeque;
 use rtic::cyccnt::{U32Ext, Duration};
 use spin::mutex::spin::SpinMutex;
 use alloc::sync::Arc;
+use num::PrimInt;
+
+// Just a bigger cycle counter
+#[derive(Copy, Clone, Debug)]
+pub struct BigInstant(pub u64);
 
 #[derive(Copy, Clone, Debug)]
-pub struct BigInstant(u64);
+pub struct BigDuration(pub u64);
 
-#[derive(Copy, Clone, Debug)]
-pub struct BigDuration(u64);
+#[derive(PartialEq, PartialOrd, Clone, Copy)]
+pub struct Hertz(pub f32);
 
 impl core::ops::Sub for BigInstant {
     type Output = BigDuration;

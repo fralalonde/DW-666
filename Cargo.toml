@@ -20,7 +20,7 @@ num = { version = "0.4", default-features = false }
 nb = "1"
 bitfield = "0.13"
 spin = "0.9"
-
+micromath = "1"
 rtt-target = { version = "0.3", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
 

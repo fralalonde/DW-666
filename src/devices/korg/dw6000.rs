@@ -61,27 +61,27 @@ pub enum Param {
     Osc2Level,
     Osc2Octave,
     Osc2Detune,
-    Osc2Interval,
-    NoiseLevel,
+    Interval,
+    Noise,
     Cutoff,
     Resonance,
-    VcfEgInt,
-    VcfEgAttack,
-    VcfEgDecay,
-    VcfEgBreakpoint,
-    VcfEgSlope,
-    VcfEgSustain,
-    VcfEgRelease,
-    VcaEgAttack,
-    VcaEgDecay,
-    VcaEgBreakpoint,
-    VcaEgSlope,
-    VcaEgSustain,
-    VcaEgRelease,
+    VcfInt,
+    VcfAttack,
+    VcfDecay,
+    VcfBreak,
+    VcfSlope,
+    VcfSustain,
+    VcfRelease,
+    VcaAttack,
+    VcaDecay,
+    VcaBreak,
+    VcaSlope,
+    VcaSustain,
+    VcaRelease,
     BendVcf,
     BendOsc,
     AssignMode,
-    PortamentoTime,
+    Portamento,
     MgFreq,
     MgDelay,
     MgOsc,
@@ -95,28 +95,28 @@ pub enum Param {
 #[derive(Debug)]
 pub struct Dump {
     pub assign_mode_bend_osc: AssignModeBendOsc,
-    pub portamento_time: PortamentoTime,
+    pub portamento_time: Portamento,
     pub osc1_level: Osc1Level,
     pub osc2_level: Osc2Level,
-    pub noise_level: NoiseLevel,
+    pub noise_level: Noise,
 
     pub cutoff: Cutoff,
     pub resonance: Resonance,
 
-    pub vcf_eg_int: VcfEgInt,
-    pub vcf_eg_attack: VcfEgAttack,
-    pub vcf_eg_decay: VcfEgDecay,
-    pub vcf_eg_breakpoint: VcfEgBreakpoint,
-    pub vcf_eg_slope: VcfEgSlope,
-    pub vcf_eg_sustain: VcfEgSustain,
-    pub vcf_eg_release: VcfEgRelease,
+    pub vcf_eg_int: VcfInt,
+    pub vcf_eg_attack: VcfAttack,
+    pub vcf_eg_decay: VcfDecay,
+    pub vcf_eg_breakpoint: VcfBreak,
+    pub vcf_eg_slope: VcfSlope,
+    pub vcf_eg_sustain: VcfSustain,
+    pub vcf_eg_release: VcfRelease,
 
-    pub vca_eg_attack: VcaEgAttack,
-    pub vca_eg_decay: VcaEgDecay,
-    pub vca_eg_breakpoint: VcaEgBreakpoint,
-    pub vca_eg_slope: VcaEgSlope,
-    pub bend_vcf_vca_eg_sustain: BendVcfVcaEgSustain,
-    pub osc1_oct_vca_eg_release: Osc1OctVcaEgRelease,
+    pub vca_eg_attack: VcaAttack,
+    pub vca_eg_decay: VcaDecay,
+    pub vca_eg_breakpoint: VcaBreak,
+    pub vca_eg_slope: VcaSlope,
+    pub bend_vcf_vca_eg_sustain: BendVcfVcaSustain,
+    pub osc1_oct_vca_eg_release: Osc1OctVcaRelease,
 
     pub osc2_oct_mg_freq: Osc2OctMgFreq,
     pub kbd_track_mg_delay: KbdTrackMgDelay,
@@ -124,7 +124,7 @@ pub struct Dump {
     pub chorus_mg_vcf: ChrorusMgVcf,
 
     pub osc1_wave_osc2_wave: Osc1WaveOsc2Wave,
-    pub osc2_interval_osc2_detune: Osc2IntervalOsc2Detune,
+    pub osc2_interval_osc2_detune: IntervalOsc2Detune,
 }
 
 pub fn as_dump_ref_mut(buf: &mut [u8]) -> &mut Dump {
@@ -147,27 +147,27 @@ pub fn get_param_value(param: Param, dump_buf: &[u8]) -> u8 {
         Param::Osc2Level => dump.osc2_level.osc2_level(),
         Param::Osc2Octave => dump.osc2_oct_mg_freq.osc2_octave(),
         Param::Osc2Detune => dump.osc2_interval_osc2_detune.osc2_detune(),
-        Param::Osc2Interval => dump.osc2_interval_osc2_detune.osc2_interval(),
-        Param::NoiseLevel => dump.noise_level.noise_level(),
+        Param::Interval => dump.osc2_interval_osc2_detune.osc2_interval(),
+        Param::Noise => dump.noise_level.noise_level(),
         Param::Cutoff => dump.cutoff.cutoff(),
         Param::Resonance => dump.resonance.resonance(),
-        Param::VcfEgInt => dump.vcf_eg_int.vcf_eg_int(),
-        Param::VcfEgAttack => dump.vcf_eg_attack.vcf_eg_attack(),
-        Param::VcfEgDecay => dump.vcf_eg_decay.vcf_eg_decay(),
-        Param::VcfEgBreakpoint => dump.vcf_eg_breakpoint.vcf_eg_breakpoint(),
-        Param::VcfEgSlope => dump.vcf_eg_slope.vcf_eg_slope(),
-        Param::VcfEgSustain => dump.vcf_eg_sustain.vcf_eg_sustain(),
-        Param::VcfEgRelease => dump.vcf_eg_release.vcf_eg_release(),
-        Param::VcaEgAttack => dump.vca_eg_attack.vca_eg_attack(),
-        Param::VcaEgDecay => dump.vca_eg_decay.vca_eg_decay(),
-        Param::VcaEgBreakpoint => dump.vca_eg_breakpoint.vca_eg_breakpoint(),
-        Param::VcaEgSlope => dump.vca_eg_slope.vca_eg_slope(),
-        Param::VcaEgSustain => dump.bend_vcf_vca_eg_sustain.vca_eg_sustain(),
-        Param::VcaEgRelease => dump.osc1_oct_vca_eg_release.vca_eg_release(),
+        Param::VcfInt => dump.vcf_eg_int.vcf_eg_int(),
+        Param::VcfAttack => dump.vcf_eg_attack.vcf_eg_attack(),
+        Param::VcfDecay => dump.vcf_eg_decay.vcf_eg_decay(),
+        Param::VcfBreak => dump.vcf_eg_breakpoint.vcf_eg_breakpoint(),
+        Param::VcfSlope => dump.vcf_eg_slope.vcf_eg_slope(),
+        Param::VcfSustain => dump.vcf_eg_sustain.vcf_eg_sustain(),
+        Param::VcfRelease => dump.vcf_eg_release.vcf_eg_release(),
+        Param::VcaAttack => dump.vca_eg_attack.vca_eg_attack(),
+        Param::VcaDecay => dump.vca_eg_decay.vca_eg_decay(),
+        Param::VcaBreak => dump.vca_eg_breakpoint.vca_eg_breakpoint(),
+        Param::VcaSlope => dump.vca_eg_slope.vca_eg_slope(),
+        Param::VcaSustain => dump.bend_vcf_vca_eg_sustain.vca_eg_sustain(),
+        Param::VcaRelease => dump.osc1_oct_vca_eg_release.vca_eg_release(),
         Param::BendVcf => dump.bend_vcf_vca_eg_sustain.bend_vcf(),
         Param::BendOsc => dump.assign_mode_bend_osc.bend_osc(),
         Param::AssignMode => dump.assign_mode_bend_osc.assign_mode(),
-        Param::PortamentoTime => dump.portamento_time.portamento_time(),
+        Param::Portamento => dump.portamento_time.portamento_time(),
         Param::MgFreq => dump.osc2_oct_mg_freq.mg_freq(),
         Param::MgDelay => dump.kbd_track_mg_delay.mg_delay(),
         Param::MgOsc => dump.polarity_mg_osc.mg_osc(),
@@ -188,27 +188,27 @@ pub fn set_param_value(param: Param, value: u8, dump_buf: &mut [u8]) {
         Param::Osc2Level => dump.osc2_level.set_osc2_level(value),
         Param::Osc2Octave => dump.osc2_oct_mg_freq.set_osc2_octave(value),
         Param::Osc2Detune => dump.osc2_interval_osc2_detune.set_osc2_detune(value),
-        Param::Osc2Interval => dump.osc2_interval_osc2_detune.set_osc2_interval(value),
-        Param::NoiseLevel => dump.noise_level.set_noise_level(value),
+        Param::Interval => dump.osc2_interval_osc2_detune.set_osc2_interval(value),
+        Param::Noise => dump.noise_level.set_noise_level(value),
         Param::Cutoff => dump.cutoff.set_cutoff(value),
         Param::Resonance => dump.resonance.set_resonance(value),
-        Param::VcfEgInt => dump.vcf_eg_int.set_vcf_eg_int(value),
-        Param::VcfEgAttack => dump.vcf_eg_attack.set_vcf_eg_attack(value),
-        Param::VcfEgDecay => dump.vcf_eg_decay.set_vcf_eg_decay(value),
-        Param::VcfEgBreakpoint => dump.vcf_eg_breakpoint.set_vcf_eg_breakpoint(value),
-        Param::VcfEgSlope => dump.vcf_eg_slope.set_vcf_eg_slope(value),
-        Param::VcfEgSustain => dump.vcf_eg_sustain.set_vcf_eg_sustain(value),
-        Param::VcfEgRelease => dump.vcf_eg_release.set_vcf_eg_release(value),
-        Param::VcaEgAttack => dump.vca_eg_attack.set_vca_eg_attack(value),
-        Param::VcaEgDecay => dump.vca_eg_decay.set_vca_eg_decay(value),
-        Param::VcaEgBreakpoint => dump.vca_eg_breakpoint.set_vca_eg_breakpoint(value),
-        Param::VcaEgSlope => dump.vca_eg_slope.set_vca_eg_slope(value),
-        Param::VcaEgSustain => dump.bend_vcf_vca_eg_sustain.set_vca_eg_sustain(value),
-        Param::VcaEgRelease => dump.osc1_oct_vca_eg_release.set_vca_eg_release(value),
+        Param::VcfInt => dump.vcf_eg_int.set_vcf_eg_int(value),
+        Param::VcfAttack => dump.vcf_eg_attack.set_vcf_eg_attack(value),
+        Param::VcfDecay => dump.vcf_eg_decay.set_vcf_eg_decay(value),
+        Param::VcfBreak => dump.vcf_eg_breakpoint.set_vcf_eg_breakpoint(value),
+        Param::VcfSlope => dump.vcf_eg_slope.set_vcf_eg_slope(value),
+        Param::VcfSustain => dump.vcf_eg_sustain.set_vcf_eg_sustain(value),
+        Param::VcfRelease => dump.vcf_eg_release.set_vcf_eg_release(value),
+        Param::VcaAttack => dump.vca_eg_attack.set_vca_eg_attack(value),
+        Param::VcaDecay => dump.vca_eg_decay.set_vca_eg_decay(value),
+        Param::VcaBreak => dump.vca_eg_breakpoint.set_vca_eg_breakpoint(value),
+        Param::VcaSlope => dump.vca_eg_slope.set_vca_eg_slope(value),
+        Param::VcaSustain => dump.bend_vcf_vca_eg_sustain.set_vca_eg_sustain(value),
+        Param::VcaRelease => dump.osc1_oct_vca_eg_release.set_vca_eg_release(value),
         Param::BendVcf => dump.bend_vcf_vca_eg_sustain.set_bend_vcf(value),
         Param::BendOsc => dump.assign_mode_bend_osc.set_bend_osc(value),
         Param::AssignMode => dump.assign_mode_bend_osc.set_assign_mode(value),
-        Param::PortamentoTime => dump.portamento_time.set_portamento_time(value),
+        Param::Portamento => dump.portamento_time.set_portamento_time(value),
         Param::MgFreq => dump.osc2_oct_mg_freq.set_mg_freq(value),
         Param::MgDelay => dump.kbd_track_mg_delay.set_mg_delay(value),
         Param::MgOsc => dump.polarity_mg_osc.set_mg_osc(value),
@@ -223,31 +223,31 @@ impl Param {
     pub fn dump_index(&self) -> usize {
         match self {
             Param::AssignMode | Param::BendOsc => 0,
-            Param::PortamentoTime => 1,
+            Param::Portamento => 1,
             Param::Osc1Level => 2,
             Param::Osc2Level => 3,
-            Param::NoiseLevel => 4,
+            Param::Noise => 4,
             Param::Cutoff => 5,
             Param::Resonance => 6,
-            Param::VcfEgInt => 7,
-            Param::VcfEgAttack => 8,
-            Param::VcfEgDecay => 9,
-            Param::VcfEgBreakpoint => 10,
-            Param::VcfEgSlope => 11,
-            Param::VcfEgSustain => 12,
-            Param::VcfEgRelease => 13,
-            Param::VcaEgAttack => 14,
-            Param::VcaEgDecay => 15,
-            Param::VcaEgBreakpoint => 16,
-            Param::VcaEgSlope => 17,
-            Param::BendVcf | Param::VcaEgSustain => 18,
-            Param::Osc1Octave | Param::VcaEgRelease => 19,
+            Param::VcfInt => 7,
+            Param::VcfAttack => 8,
+            Param::VcfDecay => 9,
+            Param::VcfBreak => 10,
+            Param::VcfSlope => 11,
+            Param::VcfSustain => 12,
+            Param::VcfRelease => 13,
+            Param::VcaAttack => 14,
+            Param::VcaDecay => 15,
+            Param::VcaBreak => 16,
+            Param::VcaSlope => 17,
+            Param::BendVcf | Param::VcaSustain => 18,
+            Param::Osc1Octave | Param::VcaRelease => 19,
             Param::Osc2Octave | Param::MgFreq => 20,
             Param::KbdTrack | Param::MgDelay => 21,
             Param::Polarity | Param::MgOsc => 22,
             Param::Chorus | Param::MgVcf => 23,
             Param::Osc1Wave | Param::Osc2Wave  => 24,
-            Param::Osc2Detune | Param::Osc2Interval => 25,
+            Param::Osc2Detune | Param::Interval => 25,
         }
     }
 
@@ -255,31 +255,31 @@ impl Param {
         let dump = as_dump_ref(dump_buf);
         match self {
             Param::AssignMode | Param::BendOsc => dump.assign_mode_bend_osc.0,
-            Param::PortamentoTime => dump.portamento_time.0,
+            Param::Portamento => dump.portamento_time.0,
             Param::Osc1Level => dump.osc1_level.0,
             Param::Osc2Level => dump.osc2_level.0,
-            Param::NoiseLevel => dump.noise_level.0,
+            Param::Noise => dump.noise_level.0,
             Param::Cutoff => dump.cutoff.0,
             Param::Resonance => dump.resonance.0,
-            Param::VcfEgInt => dump.vcf_eg_int.0,
-            Param::VcfEgAttack => dump.vcf_eg_attack.0,
-            Param::VcfEgDecay => dump.vcf_eg_decay.0,
-            Param::VcfEgBreakpoint => dump.vcf_eg_breakpoint.0,
-            Param::VcfEgSlope => dump.vcf_eg_slope.0,
-            Param::VcfEgSustain => dump.vcf_eg_sustain.0,
-            Param::VcfEgRelease => dump.vcf_eg_release.0,
-            Param::VcaEgAttack => dump.vca_eg_attack.0,
-            Param::VcaEgDecay => dump.vca_eg_decay.0,
-            Param::VcaEgBreakpoint => dump.vca_eg_breakpoint.0,
-            Param::VcaEgSlope => dump.vca_eg_slope.0,
-            Param::BendVcf | Param::VcaEgSustain => dump.bend_vcf_vca_eg_sustain.0,
-            Param::Osc1Octave | Param::VcaEgRelease => dump.osc1_oct_vca_eg_release.0,
+            Param::VcfInt => dump.vcf_eg_int.0,
+            Param::VcfAttack => dump.vcf_eg_attack.0,
+            Param::VcfDecay => dump.vcf_eg_decay.0,
+            Param::VcfBreak => dump.vcf_eg_breakpoint.0,
+            Param::VcfSlope => dump.vcf_eg_slope.0,
+            Param::VcfSustain => dump.vcf_eg_sustain.0,
+            Param::VcfRelease => dump.vcf_eg_release.0,
+            Param::VcaAttack => dump.vca_eg_attack.0,
+            Param::VcaDecay => dump.vca_eg_decay.0,
+            Param::VcaBreak => dump.vca_eg_breakpoint.0,
+            Param::VcaSlope => dump.vca_eg_slope.0,
+            Param::BendVcf | Param::VcaSustain => dump.bend_vcf_vca_eg_sustain.0,
+            Param::Osc1Octave | Param::VcaRelease => dump.osc1_oct_vca_eg_release.0,
             Param::Osc2Octave | Param::MgFreq => dump.osc2_oct_mg_freq.0,
             Param::KbdTrack | Param::MgDelay => dump.kbd_track_mg_delay.0,
             Param::Polarity | Param::MgOsc => dump.polarity_mg_osc.0,
             Param::Chorus | Param::MgVcf => dump.chorus_mg_vcf.0,
             Param::Osc1Wave | Param::Osc2Wave  => dump.osc1_wave_osc2_wave.0,
-            Param::Osc2Detune | Param::Osc2Interval => dump.osc2_interval_osc2_detune.0,
+            Param::Osc2Detune | Param::Interval => dump.osc2_interval_osc2_detune.0,
         }
     }
 }
@@ -293,7 +293,7 @@ bitfield! {
 }
 
 bitfield! {
-    pub struct PortamentoTime(u8); impl Debug;
+    pub struct Portamento(u8); impl Debug;
     pub portamento_time, set_portamento_time: 4, 0;
 }
 
@@ -308,7 +308,7 @@ bitfield! {
 }
 
 bitfield! {
-    pub struct NoiseLevel(u8); impl Debug;
+    pub struct Noise(u8); impl Debug;
     pub noise_level, set_noise_level: 4, 0;
 }
 
@@ -323,68 +323,68 @@ bitfield! {
 }
 
 bitfield! {
-    pub struct VcfEgInt(u8); impl Debug;
+    pub struct VcfInt(u8); impl Debug;
     pub vcf_eg_int, set_vcf_eg_int: 4,0;
 }
 
 bitfield! {
-    pub struct VcfEgAttack(u8); impl Debug;
+    pub struct VcfAttack(u8); impl Debug;
     pub vcf_eg_attack, set_vcf_eg_attack: 4,0;
 }
 
 bitfield! {
-    pub struct VcfEgDecay(u8); impl Debug;
+    pub struct VcfDecay(u8); impl Debug;
     pub vcf_eg_decay, set_vcf_eg_decay: 4,0;
 }
 
 bitfield! {
-    pub struct VcfEgBreakpoint(u8); impl Debug;
+    pub struct VcfBreak(u8); impl Debug;
     pub vcf_eg_breakpoint, set_vcf_eg_breakpoint: 4,0;
 }
 
 bitfield! {
-    pub struct VcfEgSlope(u8); impl Debug;
+    pub struct VcfSlope(u8); impl Debug;
     pub vcf_eg_slope, set_vcf_eg_slope: 4,0;
 }
 
 bitfield! {
-    pub struct VcfEgSustain(u8); impl Debug;
+    pub struct VcfSustain(u8); impl Debug;
     pub vcf_eg_sustain, set_vcf_eg_sustain: 4,0;
 }
 
 bitfield! {
-    pub struct VcfEgRelease(u8); impl Debug;
+    pub struct VcfRelease(u8); impl Debug;
     pub vcf_eg_release, set_vcf_eg_release: 4,0;
 }
 
 bitfield! {
-    pub struct VcaEgAttack(u8); impl Debug;
+    pub struct VcaAttack(u8); impl Debug;
     pub vca_eg_attack, set_vca_eg_attack: 4,0;
 }
 
 bitfield! {
-    pub struct VcaEgDecay(u8); impl Debug;
+    pub struct VcaDecay(u8); impl Debug;
     pub vca_eg_decay, set_vca_eg_decay: 4,0;
 }
 
 bitfield! {
-    pub struct VcaEgBreakpoint(u8); impl Debug;
+    pub struct VcaBreak(u8); impl Debug;
     pub vca_eg_breakpoint, set_vca_eg_breakpoint: 4,0;
 }
 
 bitfield! {
-    pub struct VcaEgSlope(u8); impl Debug;
+    pub struct VcaSlope(u8); impl Debug;
     pub vca_eg_slope, set_vca_eg_slope: 4,0;
 }
 
 bitfield! {
-    pub struct BendVcfVcaEgSustain(u8); impl Debug;
+    pub struct BendVcfVcaSustain(u8); impl Debug;
     pub bend_vcf, set_bend_vcf: 5,5;
     pub vca_eg_sustain, set_vca_eg_sustain: 4,0;
 }
 
 bitfield! {
-    pub struct Osc1OctVcaEgRelease(u8); impl Debug;
+    pub struct Osc1OctVcaRelease(u8); impl Debug;
     pub osc1_octave, set_osc1_octave: 6,5;
     pub vca_eg_release, set_vca_eg_release: 4,0;
 }
@@ -420,7 +420,7 @@ bitfield! {
 }
 
 bitfield! {
-    pub struct Osc2IntervalOsc2Detune(u8); impl Debug;
+    pub struct IntervalOsc2Detune(u8); impl Debug;
     pub osc2_interval, set_osc2_interval: 5,3;
     pub osc2_detune, set_osc2_detune: 2,0;
 }

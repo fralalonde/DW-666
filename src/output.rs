@@ -1,6 +1,4 @@
-use heapless::{String};
-use ufmt::uwrite;
-use embedded_graphics::fonts::{Font12x16};
+use embedded_graphics::fonts::{Font24x32, Font12x16};
 use embedded_graphics::prelude::Point;
 use embedded_graphics::{
     fonts::Text, pixelcolor::BinaryColor, prelude::*, style::TextStyleBuilder,
@@ -13,10 +11,21 @@ use stm32f4xx_hal::gpio::gpiob::{PB8, PB9};
 use stm32f4xx_hal::gpio::{AlternateOD, AF4};
 use stm32f4xx_hal::i2c::{I2c};
 
+use embedded_graphics::image::{Image, ImageRaw};
+use stm32f4xx_hal::stm32::I2C1;
+use alloc::string::String;
+
 pub struct Display {
     pub oled: GraphicsMode<
         I2CInterface<I2c<I2C1, (PB8<AlternateOD<AF4>>, PB9<AlternateOD<AF4>>)>>,
     >,
+}
+
+pub enum Region {
+    Patch1,
+    Patch2,
+    Config1,
+    Config2,
 }
 
 const PATCH_1: Point = Point::zero();
@@ -26,22 +35,14 @@ const CONFIG_1: Point = Point::new(0, 32);
 const CONFIG_2: Point = Point::new(128, 48);
 
 impl Display {
-    pub fn update(&mut self) {
-        // match event {
-        //     ParamChange(Param::FilterCutoff(cutoff)) => {
-        //         let mut text: String<32> = String::new();
-        //         uwrite!(text, "cutoff {}", cutoff).unwrap();
-        //         self.redraw(text, PATCH_1, PATCH_2)
-        //     }
-        //     ConfigChange(Config::MidiEcho(echo)) => {
-        //         let mut text: String<32> = String::new();
-        //         uwrite!(text, "echo {}", echo).unwrap();
-        //         self.redraw(text, CONFIG_1, CONFIG_2)
-        //     }
-        // }
+    pub fn print(&mut self, text: String) {
+        self.redraw(text, PATCH_1, CONFIG_2);
     }
 
-    fn redraw(&mut self, text: String<32>, top_right: Point, btm_left: Point) {
+    fn redraw(&mut self, text: String, top_right: Point, btm_left: Point) {
+        self.oled.clear();
+        self.oled.flush().unwrap();
+
         let blank_style = PrimitiveStyleBuilder::new()
             .stroke_color(BinaryColor::Off)
             .fill_color(BinaryColor::Off)
@@ -63,10 +64,6 @@ impl Display {
         self.oled.flush().unwrap();
     }
 }
-
-
-use embedded_graphics::image::{Image, ImageRaw};
-use stm32f4xx_hal::stm32::I2C1;
 
 pub fn draw_logo(
     oled: &mut GraphicsMode<
