@@ -37,27 +37,30 @@ impl Lfo {
         match self.wave {
             Waveform::Sine => {
                 if let Some(mut ftime) = f32::from_u64(time.0 >> 20) {
-                    let x = ftime % self.rate_hz;
-                    let modulation = (x.sin()) * self.amount;
+                    let timex = ftime * self.rate_hz;
+                    let modulation = timex.sin() * self.amount * 32.0;
                     let froot: f32 = f32::from(root_value);
-                    let modulated = froot + (froot * modulation);
+                    let modulated = froot + modulation;
+                    // rprintln!("mod ftimex {:.3} timex {:.3} xsin {:.3} amt {:.3} mod {:.3} root {:.3} mdd {:.3}", ftime, timex, timex.sin(),  self.amount, modulation, froot, modulated);
 
-                    unsafe {modulated.to_int_unchecked() }
+                    unsafe { modulated.to_int_unchecked() }
                 } else {
                     root_value
                 }
-            },
+            }
             Waveform::Square => {
-                if let Some(mut ftime) = f32::from_u64(time.0 >> 20) {
-                    let x = ftime % self.rate_hz;
-                    let modulation = (x.sin()) * self.amount;
-                    let froot: f32 = f32::from(root_value);
-                    let modulated = froot + (froot * 0.5);
-
-                    unsafe {modulated.to_int_unchecked() }
-                } else {
-                    root_value
-                }
+                // if let Some(mut ftime) = f32::from_u64(time.0 >> 20) {
+                //     let x = ftime * self.rate_hz;
+                //     let modulation = x.sin() * self.amount;
+                //     let froot: f32 = f32::from(root_value);
+                //     let modulated = froot + (froot * modulation);
+                //     rprintln!("mod amt {} mod {} root {} mdd {}", self.amount, modulation, froot, modulated);
+                //
+                //     unsafe { modulated.to_int_unchecked() }
+                // } else {
+                //     root_value
+                // }
+                0u8
             }
             Waveform::Saw => {
                 0u8
@@ -66,15 +69,16 @@ impl Lfo {
         }
     }
 
-    pub fn next_iter(&self) -> Duration {
-        (250 * CYCLES_PER_MILLISEC).cycles()
-    }
+    // pub fn next_iter(&self) -> Duration {
+    //     (250 * CYCLES_PER_MILLISEC).cycles()
+    // }
+
     pub fn get_amount(&self) -> f32 {
         self.amount
     }
 
     pub fn set_amount(&mut self, mut amount: f32) {
-        amount = amount.max(1.0).min(0.0);
+        amount = amount.max(0.0).min(1.0);
         self.amount = amount
     }
 
@@ -83,7 +87,7 @@ impl Lfo {
     }
 
     pub fn set_rate_hz(&mut self, mut rate: f32) {
-        rate = rate.min(0.03).max(40.0);
+        rate = rate.min(40.0).max(0.03);
         self.rate_hz = rate
     }
 

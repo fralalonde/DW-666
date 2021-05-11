@@ -63,6 +63,8 @@ pub fn long_now() -> BigInstant {
 
 pub type TimerTask = Box<dyn FnMut(&mut crate::timer_task::Resources, &mut crate::timer_task::Spawn) -> Option<rtic::cyccnt::Duration> + Send>;
 
+pub type DumpTask = Box<dyn FnMut(&mut crate::dump_task::Spawn) -> Option<rtic::cyccnt::Duration> + Send>;
+
 pub trait TimeUnits {
     fn millis(&self) -> Duration;
     fn micros(&self) -> Duration;

@@ -114,7 +114,7 @@ const APP: () = {
         serial_midi: SerialMidi,
     }
 
-    #[init(schedule = [timer_task])]
+    #[init(schedule = [timer_task, dump_task])]
     fn init(mut cx: init::Context) -> init::LateResources {
         // RTIC needs statics to go first
         static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
@@ -259,14 +259,20 @@ const APP: () = {
         }
     }
 
-
-    /// Serial receive interrupt
     #[task(resources = [chaos], spawn = [send_midi], schedule = [timer_task], priority = 3)]
     fn timer_task(mut cx: timer_task::Context, mut task: clock::TimerTask) {
         let resources = &mut cx.resources;
         let spawn = &mut cx.spawn;
         if let Some(next_iter_delay) = (task)(resources, spawn) {
             cx.schedule.timer_task(cx.scheduled + next_iter_delay, task);
+        }
+    }
+
+    #[task(spawn = [send_midi], schedule = [dump_task], priority = 3)]
+    fn dump_task(mut cx: dump_task::Context, mut task: clock::DumpTask) {
+        let spawn = &mut cx.spawn;
+        if let Some(next_iter_delay) = (task)(spawn) {
+            cx.schedule.dump_task(cx.scheduled + next_iter_delay, task);
         }
     }
 

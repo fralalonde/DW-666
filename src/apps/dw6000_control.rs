@@ -16,6 +16,7 @@ use crate::apps::lfo::{Lfo, Waveform};
 use rtic::cyccnt::U32Ext;
 use hashbrown::HashMap;
 use crate::devices::korg::dw6000;
+use micromath::F32Ext;
 
 const SHORT_PRESS: u32 = 250;
 
@@ -232,20 +233,11 @@ impl InnerState {
 impl Service for Dw6000Control {
     fn start(&mut self, now: rtic::cyccnt::Instant, router: &mut Router, schedule: crate::init::Schedule) {
 
-        // periodic DW-6000 dump request
-        let state = self.state.clone();
-        schedule.timer_task(now + 0.cycles(), Box::new(move |_resources, spawn| {
-            let state = state.lock();
-            for packet in dump_request() {
-                spawn.send_midi(state.dw6000.interface, packet).unwrap();
-            }
-            Some(100.millis())
-        }));
-
-        // periodic LFO2 modulation
         let state = self.state.clone();
         schedule.timer_task(now + 0.cycles(), Box::new(move |resources, spawn| {
             let mut state = state.lock();
+
+            // LFO2 modulation
             if let Some(lfo2_param) = state.lfo2_param.map(|p| Param::from(p)) {
                 if let Some(root) = state.mod_dump.get(&lfo2_param).cloned() {
                     let mod_value = state.lfo2.mod_value(root, long_now(), resources.chaos);
@@ -257,7 +249,17 @@ impl Service for Dw6000Control {
                     }
                 }
             }
-            Some(state.lfo2.next_iter())
+            Some(20.millis())
+        }));
+
+        let state = self.state.clone();
+        schedule.dump_task(now + 0.cycles(), Box::new(move |spawn| {
+            let mut state = state.lock();
+            // periodic DW-6000 dump sync
+            for packet in dump_request() {
+                spawn.send_midi(state.dw6000.interface, packet).unwrap();
+            }
+            Some(250.millis())
         }));
 
         // handle messages from controller
@@ -308,11 +310,15 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Sp
     match msg {
         Message::NoteOn(_, note, _) => {
             if let Some(bank) = note_bank(note) {
+                rprintln!("bank {}", bank);
                 state.bank = Some(bank)
             } else if let Some(prog) = note_prog(note) {
                 if let Some(bank) = state.bank {
+                    rprintln!("PC {} {}", bank, prog);
                     spawn.send_midi(dw6000.interface, program_change(dw6000.channel, (bank * 8) + prog)?.into());
                     return Ok(());
+                } else {
+                    rprintln!("no bank");
                 }
             }
             if let Some(page) = note_page(note) {
@@ -348,7 +354,9 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Sp
         Message::ControlChange(_ch, cc, value) =>
 
             if let Some(param) = cc_to_dw_param(cc, state.active_page()) {
-                if let Some(dump) = &mut state.current_dump {
+                if let Some(root) = state.mod_dump.get_mut(&param) {
+                    *root = value.0
+                } else if let Some(dump) = &mut state.current_dump {
                     set_param_value(param, value.into(), dump.as_mut_slice());
                     for packet in param_to_sysex(param, &dump) {
                         spawn.send_midi(dw6000.interface, packet).unwrap();
@@ -358,14 +366,14 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Sp
             } else if let Some(param) = cc_to_ctl_param(cc, state.active_page()) {
                 match param {
                     CtlParam::Lfo2Rate => {
-                        let base_rate = f32::from(value.0) + 1.01;
-                        state.lfo2.set_rate_hz(base_rate/*.exp()*/);
-                        spawn.redraw(format!("{:?}\n{:?}", param, state.lfo2.get_rate_hz()));
+                        let base_rate = ((f32::from(value.0) * 0.003) + 1.001).exp()  - 1.0;
+                        state.lfo2.set_rate_hz(base_rate);
+                        spawn.redraw(format!("{:?}\n{:.2}", param, state.lfo2.get_rate_hz()));
                     }
                     CtlParam::Lfo2Amt => {
                         rprintln!("amt {:?} -> {:?}", value.0, f32::from(value.0) / f32::from(U7::MAX.0));
                         state.lfo2.set_amount(f32::from(value.0) / f32::from(U7::MAX.0));
-                        spawn.redraw(format!("{:?}\n{:?}", param, state.lfo2.get_amount()));
+                        spawn.redraw(format!("{:?}\n{:.2}", param, state.lfo2.get_amount()));
                     }
                     CtlParam::Lfo2Wave => {
                         state.lfo2.set_waveform(Waveform::from(value.0.max(3)));
@@ -380,9 +388,9 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Sp
                             if let Some(mod_p) = new_dest.map(|p| Param::from(p)) {
                                 let saved_val = get_param_value(mod_p, &dump);
                                 state.set_modulated(mod_p, saved_val);
+                                state.lfo2_param = new_dest;
+                                spawn.redraw(format!("{:?}\n{:?}", param, mod_p));
                             }
-                            state.lfo2_param = new_dest;
-                            spawn.redraw(format!("{:?}\n{:?}", param, state.lfo2_param));
                         }
                     }
                 }
