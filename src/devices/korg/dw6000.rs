@@ -220,6 +220,30 @@ pub fn set_param_value(param: Param, value: u8, dump_buf: &mut [u8]) {
 }
 
 impl Param {
+    pub fn max_value(&self) -> u8 {
+        match self {
+            Param::Osc2Detune | Param::Interval |
+            Param::Osc1Wave | Param::Osc2Wave => 7,
+
+            Param::AssignMode | Param::KbdTrack |
+            Param::Osc1Octave | Param::Osc2Octave => 3,
+
+            Param::Cutoff => 63,
+
+            Param::Resonance |
+            Param::Portamento |
+            Param::Osc2Level | Param::Osc1Level | Param::Noise |
+            Param::MgFreq | Param::MgDelay | Param::MgOsc | Param::MgVcf |
+            Param::VcfInt | Param::VcfAttack | Param::VcfDecay | Param::VcfBreak | Param::VcfSlope | Param::VcfSustain | Param::VcfRelease |
+            Param::VcaAttack | Param::VcaDecay | Param::VcaBreak | Param::VcaSlope | Param::VcaSustain | Param::VcaRelease => 31,
+
+            Param::Polarity | Param::Chorus | Param::BendVcf => 1,
+
+            Param::BendOsc => 15,
+        }
+    }
+
+
     pub fn dump_index(&self) -> usize {
         match self {
             Param::AssignMode | Param::BendOsc => 0,
@@ -246,7 +270,7 @@ impl Param {
             Param::KbdTrack | Param::MgDelay => 21,
             Param::Polarity | Param::MgOsc => 22,
             Param::Chorus | Param::MgVcf => 23,
-            Param::Osc1Wave | Param::Osc2Wave  => 24,
+            Param::Osc1Wave | Param::Osc2Wave => 24,
             Param::Osc2Detune | Param::Interval => 25,
         }
     }
@@ -278,7 +302,7 @@ impl Param {
             Param::KbdTrack | Param::MgDelay => dump.kbd_track_mg_delay.0,
             Param::Polarity | Param::MgOsc => dump.polarity_mg_osc.0,
             Param::Chorus | Param::MgVcf => dump.chorus_mg_vcf.0,
-            Param::Osc1Wave | Param::Osc2Wave  => dump.osc1_wave_osc2_wave.0,
+            Param::Osc1Wave | Param::Osc2Wave => dump.osc1_wave_osc2_wave.0,
             Param::Osc2Detune | Param::Interval => dump.osc2_interval_osc2_detune.0,
         }
     }

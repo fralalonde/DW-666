@@ -10,7 +10,7 @@ use clock::long_now;
 use devices::korg::dw6000::*;
 use spin::MutexGuard;
 use num_enum::TryFromPrimitive;
-use num::Integer;
+use num::{Integer, FromPrimitive};
 use alloc::boxed::Box;
 use crate::apps::lfo::{Lfo, Waveform};
 use rtic::cyccnt::U32Ext;
@@ -240,7 +240,13 @@ impl Service for Dw6000Control {
             // LFO2 modulation
             if let Some(lfo2_param) = state.lfo2_param.map(|p| Param::from(p)) {
                 if let Some(root) = state.mod_dump.get(&lfo2_param).cloned() {
-                    let mod_value = state.lfo2.mod_value(root, long_now(), resources.chaos);
+                    let max = lfo2_param.max_value();
+                    let fmax = max as f32;
+                    let froot : f32 = root as f32 / fmax;
+
+                    let fmod = (state.lfo2.mod_value(froot, long_now(), resources.chaos) * fmax);
+                    let mod_value = fmod.max(0.0).min(fmax) as u8;
+
                     if let Some(ref mut dump) = &mut state.current_dump {
                         set_param_value(lfo2_param, mod_value, dump.as_mut_slice());
                         for packet in param_to_sysex(lfo2_param, &dump) {
@@ -366,12 +372,12 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Sp
             } else if let Some(param) = cc_to_ctl_param(cc, state.active_page()) {
                 match param {
                     CtlParam::Lfo2Rate => {
-                        let base_rate = ((f32::from(value.0) * 0.003) + 1.001).exp()  - 1.0;
-                        state.lfo2.set_rate_hz(base_rate);
+                        let base_rate = (((value.0 as f32 + 0.01) * 0.0003).exp() - 1.0) * 100.0;
+                        rprintln!("ratev {} ratex {}", value.0, base_rate);
+                        state.lfo2.set_rate_hz(base_rate.min(40.0).max(0.03));
                         spawn.redraw(format!("{:?}\n{:.2}", param, state.lfo2.get_rate_hz()));
                     }
                     CtlParam::Lfo2Amt => {
-                        rprintln!("amt {:?} -> {:?}", value.0, f32::from(value.0) / f32::from(U7::MAX.0));
                         state.lfo2.set_amount(f32::from(value.0) / f32::from(U7::MAX.0));
                         spawn.redraw(format!("{:?}\n{:.2}", param, state.lfo2.get_amount()));
                     }
@@ -394,6 +400,7 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Sp
                         }
                     }
                 }
+                rprintln!("lfo {:?}", &state.lfo2)
             }
         _ => {}
     }
