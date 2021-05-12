@@ -34,7 +34,7 @@ pub use filter::{capture_sysex, print_tag, event_print, Filter};
 
 #[derive(Clone, Copy, Debug)]
 /// MIDI channel, stored as 0-15
-pub struct Channel(u8);
+pub struct Channel(pub u8);
 
 /// "Natural" channel builder, takes integers 1-16 as input, wraparound
 /// FIXME rollover fails in checked builds!
