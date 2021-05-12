@@ -232,7 +232,6 @@ impl InnerState {
 
 impl Service for Dw6000Control {
     fn start(&mut self, now: rtic::cyccnt::Instant, router: &mut Router, schedule: crate::init::Schedule) {
-
         let state = self.state.clone();
         schedule.timer_task(now + 0.cycles(), Box::new(move |resources, spawn| {
             let mut state = state.lock();
@@ -242,7 +241,7 @@ impl Service for Dw6000Control {
                 if let Some(root) = state.mod_dump.get(&lfo2_param).cloned() {
                     let max = lfo2_param.max_value();
                     let fmax = max as f32;
-                    let froot : f32 = root as f32 / fmax;
+                    let froot: f32 = root as f32 / fmax;
 
                     let fmod = (state.lfo2.mod_value(froot, long_now(), resources.chaos) * fmax);
                     let mod_value = fmod.max(0.0).min(fmax) as u8;
@@ -316,15 +315,11 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Sp
     match msg {
         Message::NoteOn(_, note, _) => {
             if let Some(bank) = note_bank(note) {
-                rprintln!("bank {}", bank);
                 state.bank = Some(bank)
             } else if let Some(prog) = note_prog(note) {
                 if let Some(bank) = state.bank {
-                    rprintln!("PC {} {}", bank, prog);
                     spawn.send_midi(dw6000.interface, program_change(dw6000.channel, (bank * 8) + prog)?.into());
                     return Ok(());
-                } else {
-                    rprintln!("no bank");
                 }
             }
             if let Some(page) = note_page(note) {
@@ -333,8 +328,8 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Sp
             if let Some(tog) = toggle_page(note) {
                 if let Some(dump) = &mut state.current_dump {
                     match tog {
-                        TogglePage::Arp => { todo!("add inner switches state") }
-                        TogglePage::Latch => { todo!("add inner switches state") }
+                        TogglePage::Arp => {}
+                        TogglePage::Latch => {}
                         TogglePage::Polarity => toggle_param(Param::Polarity, dump, dw6000, spawn),
                         TogglePage::Chorus => toggle_param(Param::Chorus, dump, dw6000, spawn),
                     }
@@ -372,7 +367,7 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Sp
             } else if let Some(param) = cc_to_ctl_param(cc, state.active_page()) {
                 match param {
                     CtlParam::Lfo2Rate => {
-                        let base_rate = (((value.0 as f32 + 0.01) * 0.0003).exp() - 1.0) * 100.0;
+                        let base_rate = (value.0 as f32 + 1.0) * 0.1;
                         rprintln!("ratev {} ratex {}", value.0, base_rate);
                         state.lfo2.set_rate_hz(base_rate.min(40.0).max(0.03));
                         spawn.redraw(format!("{:?}\n{:.2}", param, state.lfo2.get_rate_hz()));
@@ -382,7 +377,7 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Sp
                         spawn.redraw(format!("{:?}\n{:.2}", param, state.lfo2.get_amount()));
                     }
                     CtlParam::Lfo2Wave => {
-                        state.lfo2.set_waveform(Waveform::from(value.0.max(3)));
+                        state.lfo2.set_waveform(Waveform::from(value.0.min(3)));
                         spawn.redraw(format!("{:?}\n{:?}", param, state.lfo2.get_waveform()));
                     }
                     CtlParam::Lfo2Dest => {

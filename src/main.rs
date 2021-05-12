@@ -276,7 +276,7 @@ const APP: () = {
         }
     }
 
-    #[task(spawn = [send_midi, redraw], schedule = [timer_task], resources = [midi_router], priority = 3)]
+    #[task(spawn = [send_midi, redraw], schedule = [timer_task], resources = [midi_router], priority = 3, capacity = 16)]
     fn dispatch_from(cx: dispatch_from::Context, from: Interface, packet: Packet) {
         let router: &mut midi::Router = cx.resources.midi_router;
         router.dispatch_from(cx.scheduled, packet, from, cx.spawn, cx.schedule)

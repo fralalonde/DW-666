@@ -39,8 +39,8 @@ pub struct Channel(u8);
 /// "Natural" channel builder, takes integers 1-16 as input, wraparound
 /// FIXME rollover fails in checked builds!
 pub fn channel(ch: impl Into<u8>) -> Channel {
-    let ch = ch.into() - 1 % 16;
-    Channel(ch - 1)
+    let ch = (ch.into() - 1).min(15);
+    Channel(ch)
 }
 
 pub type Velocity = U7;
