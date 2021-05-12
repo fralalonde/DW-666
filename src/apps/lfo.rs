@@ -12,8 +12,10 @@ use micromath::F32Ext;
 #[repr(u8)]
 pub enum Waveform {
     #[num_enum(default)]
+    Triangle,
     Sine,
     Saw,
+    RevSaw,
     Square,
     Random,
 }
@@ -34,45 +36,39 @@ pub struct Lfo {
 
 const F_CPU_FREQ: f32 = CPU_FREQ as f32;
 
+// I am quite aware that these computations are possible HORRIBLY INNEFICIENT and naive. IJDGAF.
 impl Lfo {
     pub fn mod_value(&mut self, froot: f32, time: BigInstant, chaos: &mut WyRand) -> f32 {
-        match self.wave {
+        (froot + match self.wave {
+            Waveform::Triangle => {
+                let timex = time.0 as f32 % self.period;
+                let half = self.period / 2.0;
+                let mut modulation = timex / half;
+                if timex > half {
+                    modulation = 1.0 - modulation;
+                }
+                (modulation - 0.5) * 2.0 * self.amount
+            }
             Waveform::Sine => {
                 let timex = time.0 as f32 / self.period;
-                let modulation = timex.sin() * self.amount;
-                let modulated = froot + modulation;
-                // rprintln!("mod ftimex {:.3} timex {:.3} xsin {:.3} amt {:.3} mod {:.3} root {:.3} mdd {:.3}", ftime, timex, timex.sin(),  self.amount, modulation, froot, modulated);
-
-                modulated.max(0.0).min(1.0)
+                timex.sin() * self.amount
             }
             Waveform::Square => {
-                // if let Some(mut ftime) = f32::from_u64(time.0 >> 20) {
-                //     let x = ftime * self.rate_hz;
-                //     let modulation = x.sin() * self.amount;
-                //     let modulated = froot + (froot * modulation);
-                //     rprintln!("mod amt {} mod {} root {} mdd {}", self.amount, modulation, froot, modulated);
-                //
-                //     unsafe { modulated.to_int_unchecked() }
-                // } else {
-                //     root_value
-                // }
-                0.0
+                let timex = time.0 as f32 % self.period;
+                let half = self.period / 2.0;
+                (if timex > half { 1.0 } else { -1.0 }) * self.amount
             }
             Waveform::Saw => {
                 let timex = time.0 as f32 / self.period;
-                let modulation = timex.fract() * self.amount;
-                let modulated = froot + modulation;
-                // rprintln!("mod ftimex {:.3} timex {:.3} xsin {:.3} amt {:.3} mod {:.3} root {:.3} mdd {:.3}", ftime, timex, timex.sin(),  self.amount, modulation, froot, modulated);
-
-                modulated.max(0.0).min(1.0)
+                ((1.0 - timex.fract()) - 0.5) * 2.0 * self.amount
             }
-            Waveform::Random => chaos.generate_range::<u32>(0, u32::MAX) as f32,
-        }
+            Waveform::RevSaw => {
+                let timex = time.0 as f32 / self.period;
+                (timex.fract() - 0.5) * 2.0 * self.amount
+            }
+            Waveform::Random => ((chaos.generate_range::<u32>(0, u32::MAX) as f32 / u32::MAX as f32) - 0.5) * 2.0 * self.amount
+        }).max(0.0).min(1.0)
     }
-
-    // pub fn next_iter(&self) -> Duration {
-    //     (250 * CYCLES_PER_MILLISEC).cycles()
-    // }
 
     pub fn get_amount(&self) -> f32 {
         self.amount
@@ -84,7 +80,7 @@ impl Lfo {
     }
 
     pub fn get_rate_hz(&self) -> f32 {
-        1.0 / (self.period / F_CPU_FREQ)
+        F_CPU_FREQ / self.period
     }
 
     pub fn set_rate_hz(&mut self, mut rate: f32) {

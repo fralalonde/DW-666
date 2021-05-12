@@ -309,6 +309,7 @@ fn toggle_param(param: Param, dump: &mut Vec<u8>, dw6000: Endpoint, spawn: crate
     for packet in param_to_sysex(param, dump.as_slice()) {
         spawn.send_midi(dw6000.interface, packet).unwrap();
     }
+    spawn.redraw(format!("{:?}\n{:.2}", param, value));
 }
 
 fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Spawn, mut state: MutexGuard<InnerState>) -> Result<(), MidiError> {
