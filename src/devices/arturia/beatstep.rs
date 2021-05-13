@@ -33,11 +33,16 @@ const BEATSTEP: &'static [u8] = &[0x6B, 0x7F];
 //     Sysex::new(vec![Seq(DATA_HEADER), Buf(dump)])
 // }
 
-pub fn parameter_set(param: u8, control: u8, value: u8) -> Sysex {
+fn parameter_set(param: u8, control: u8, value: u8) -> Sysex {
     Sysex::new(vec![Seq(ARTURIA), Seq(BEATSTEP), Seq(&[0x42, 0x02, 0x00]), Val(param), Val(control), Val(value)])
 }
 
 const MODE: u8 = 0x01;
+const MIDI_CHANNEL: u8 = 0x50;
+const CURVE: u8 = 0x41;
+const STEP_NOTE: u8 = 0x52;
+const STEP_ENABLED: u8 = 0x53;
+const SEQ: u8 = 0x50;
 
 pub fn beatstep_set(param: Param) -> Vec<Sysex> {
     match param {
@@ -56,8 +61,8 @@ pub fn beatstep_set(param: Param) -> Vec<Sysex> {
                 parameter_set(MODE, ccode, PadMode::PadCC as u8),
                 parameter_set(0x02, ccode, channel.0),
                 parameter_set(0x03, ccode, cc.0),
-                parameter_set(0x04, ccode, on as u8),
-                parameter_set(0x05, ccode, off as u8),
+                parameter_set(0x04, ccode, on.0),
+                parameter_set(0x05, ccode, off.0),
                 parameter_set(0x06, ccode, switch as u8),
             ]
         }
@@ -67,8 +72,8 @@ pub fn beatstep_set(param: Param) -> Vec<Sysex> {
                 parameter_set(MODE, ccode, PadMode::PadCCSilent as u8),
                 parameter_set(0x02, ccode, channel.0),
                 parameter_set(0x03, ccode, cc.0),
-                parameter_set(0x04, ccode, on as u8),
-                parameter_set(0x05, ccode, off as u8),
+                parameter_set(0x04, ccode, on.0),
+                parameter_set(0x05, ccode, off.0),
                 parameter_set(0x06, ccode, switch as u8),
             ]
         }
@@ -77,7 +82,7 @@ pub fn beatstep_set(param: Param) -> Vec<Sysex> {
             vec![
                 parameter_set(MODE, ccode, PadMode::PadNote as u8),
                 parameter_set(0x02, ccode, channel.0),
-                parameter_set(0x03, ccode, note.0),
+                parameter_set(0x03, ccode, note as u8),
                 parameter_set(0x06, ccode, switch as u8),
             ]
         }
@@ -91,47 +96,76 @@ pub fn beatstep_set(param: Param) -> Vec<Sysex> {
                 parameter_set(0x05, ccode, msb.0),
             ]
         }
-        Param::KnobOff(_) => {}
-        Param::KnobCC(_, _, _, _, _, _) => {}
-        Param::KnobNRPN(_, _, _, _, _, _) => {}
-        Param::GlobalMidiChannel(_) => {}
-        Param::CVGateChannel(_) => {}
-        Param::KnobAcceleration(_) => {}
-        Param::PadVelocityCurve(_) => {}
-        Param::StepNote(_, _, _) => {}
-        Param::StepEnabled(_, _, _) => {}
+        Param::KnobOff(knob) => {
+            let ccode = knob.control_code();
+            vec![
+                parameter_set(MODE, ccode, KnobMode::KnobOff as u8),
+            ]
+        }
+        Param::KnobCC(encoder, channel, control, minimum, maximum, behavior) => {
+            let ccode = encoder.control_code();
+            vec![
+                parameter_set(MODE, ccode, KnobMode::KnobCC as u8),
+                parameter_set(0x02, ccode, channel.0),
+                parameter_set(0x03, ccode, control.0),
+                parameter_set(0x04, ccode, minimum.0),
+                parameter_set(0x05, ccode, maximum.0),
+                parameter_set(0x06, ccode, behavior as u8),
+            ]
+        }
+        Param::KnobNRPN(knob, channel, granularity, banklsb, bankmsb, nrpntype) => {
+            let ccode = knob.control_code();
+            vec![
+                parameter_set(MODE, ccode, KnobMode::KnobN_RPN as u8),
+                parameter_set(0x02, ccode, channel.0),
+                parameter_set(0x03, ccode, granularity as u8),
+                parameter_set(0x04, ccode, banklsb.0),
+                parameter_set(0x05, ccode, bankmsb.0),
+                parameter_set(0x06, ccode, nrpntype as u8),
+            ]
+        }
+
+        Param::GlobalMidiChannel(channel) =>
+            vec![parameter_set(MIDI_CHANNEL, 0x0B, channel.0)],
+        Param::CVGateChannel(channel) =>
+            vec![parameter_set(MIDI_CHANNEL, 0x0C, channel.0)],
+        Param::KnobAcceleration(acceleration) =>
+            vec![parameter_set(CURVE, 0x04, acceleration as u8)],
+        Param::PadVelocityCurve(vel_curve) =>
+            vec![parameter_set(CURVE, 0x03, vel_curve as u8)],
+
+        Param::StepNote(stepnum, note) =>
+            vec![parameter_set(STEP_NOTE, stepnum.0, note as u8)],
+        Param::StepEnabled(stepnum, bool) =>
+            vec![parameter_set(STEP_ENABLED, stepnum.0, if bool { 1 } else { 0 })],
+        Param::SeqChannel(channel) =>
+            vec![parameter_set(SEQ, SeqGlobal::Channel as u8, channel.0)],
+        Param::SeqTranspose(root_note) =>
+            vec![parameter_set(SEQ, SeqGlobal::Transpose as u8, root_note.0 as u8)],
+        Param::SeqScale(scale) =>
+            vec![parameter_set(SEQ, SeqGlobal::Scale as u8, scale as u8)],
+        Param::SeqMode(mode) =>
+            vec![parameter_set(SEQ, SeqGlobal::Mode as u8, mode as u8)],
+        Param::SeqStepSize(size) =>
+            vec![parameter_set(SEQ, SeqGlobal::StepSize as u8, size as u8)],
+        Param::SeqPatternLength(plen) =>
+            vec![parameter_set(SEQ, SeqGlobal::PatternLength as u8, plen.0)],
+        Param::SeqSwing(value) =>
+            vec![parameter_set(SEQ, SeqGlobal::Swing as u8, value.0)],
+        Param::SeqGate(value) =>
+            vec![parameter_set(SEQ, SeqGlobal::Gate as u8, value.0)],
+        Param::SeqLegato(value) =>
+            vec![parameter_set(SEQ, SeqGlobal::Legato as u8, value as u8)],
     }
 }
 
-pub fn parameter_get(param: u8, control: u8) -> Sysex {
+pub fn beatstep_control_get(param: u8, control: u8) -> Sysex {
     Sysex::new(vec![Seq(ARTURIA), Seq(BEATSTEP), Seq(&[0x42, 0x01, 0x00]), Val(param), Val(control)])
 }
 
 pub fn parameter_match() -> Matcher {
     Matcher::new(vec![Seq(ARTURIA), Seq(BEATSTEP), Cap(ValueU7), Cap(ValueU7), Cap(ValueU7)])
 }
-
-pub fn write_matcher() -> Matcher {
-    Matcher::new(vec![Seq(DATA_HEADER), Cap(ValueU7)])
-}
-
-pub fn dump_request() -> Sysex {
-    Sysex::new(vec![Seq(DATA_HEADER), Val(0x10)])
-}
-
-pub fn dump_matcher() -> Matcher {
-    Matcher::new(vec![Seq(DATA_HEADER), Val(0x40), Cap(Dump(26))])
-}
-
-
-// const GET_CTL_HEADER: &'static [u8] = &[00, 0x20, 0x6B, 0x7F, 0x42, 0x01, 0x00, /* param, control */];
-//
-// const SET_CTL_HEADER: &'static [u8] = &[00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, /* param, control, value */];
-//
-// const GET_SEQ_HEADER: &'static [u8] = &[00, 0x20, 0x6B, 0x7F, 0x42, 0x01, 0x00, /* param, step */];
-//
-// const SET_SEQ_HEADER: &'static [u8] = &[00, 0x20, 0x6B, 0x7F, 0x42, 0x02, 0x00, /* param, step, value */];
-
 
 #[derive(Debug)]
 #[repr(u8)]
@@ -172,7 +206,7 @@ trait ControlCode {
 impl ControlCode for Pad {
     fn control_code(&self) -> u8 {
         match self {
-            Pad::Pad(num) => 0x70 + *num,
+            Pad::Pad(num) => 0x70 + num.0,
             Pad::Start => 0x70,
             Pad::Stop => 0x58,
             Pad::CtrlSeq => 0x5A,
@@ -188,7 +222,7 @@ impl ControlCode for Pad {
 impl ControlCode for Encoder {
     fn control_code(&self) -> u8 {
         match self {
-            Encoder::Knob(num) => 0x20 + *num,
+            Encoder::Knob(num) => 0x20 + num.0,
             Encoder::JogWheel => 0x30,
         }
     }
@@ -217,6 +251,65 @@ enum PadMode {
     PadProgramChange = 0x0B,
 }
 
+enum KnobMode {
+    KnobOff = 0,
+    KnobCC = 1,
+    KnobN_RPN = 4,
+}
+
+
+/// base note is C5= 0x3C, to transpose down 12 semitones to C4, nn=0x30 and so on
+#[derive(Debug)]
+pub struct SeqTranspose(Note);
+
+#[derive(Debug)]
+#[repr(u8)]
+pub enum SeqScale {
+    Chromatic,
+    Major,
+    Minor,
+    Dorian,
+    Mixolydian,
+    HarmonicMinor,
+    Blues,
+    User,
+}
+
+#[derive(Debug)]
+#[repr(u8)]
+pub enum SeqMode {
+    Forward,
+    Reverse,
+    Alternating,
+    Random,
+}
+
+#[derive(Debug)]
+#[repr(u8)]
+pub enum SeqStepSize {
+    Quarter,
+    Eight,
+    Sixteenth,
+    ThirtyTwat,
+}
+
+#[derive(Debug)]
+pub struct SeqPatternLength(u8);
+
+#[derive(Debug)]
+pub struct SeqSwing(u8);
+
+#[derive(Debug)]
+pub struct SeqGateTime(u8);
+
+#[derive(Debug)]
+#[repr(u8)]
+pub enum SeqLegato {
+    Off,
+    On,
+    Reset,
+}
+
 /// Pressure-sensitive pad config
 #[derive(Debug)]
 pub enum Param {
@@ -236,10 +329,19 @@ pub enum Param {
     KnobAcceleration(Acceleration),
     PadVelocityCurve(VelocityCurve),
 
-    StepNote(Channel, StepNum, Note),
-    StepEnabled(Channel, StepNum, bool),
-
+    StepNote(StepNum, Note),
+    StepEnabled(StepNum, bool),
+    SeqChannel(Channel),
+    SeqTranspose(SeqTranspose),
+    SeqScale(SeqScale),
+    SeqMode(SeqMode),
+    SeqStepSize(SeqStepSize),
+    SeqPatternLength(SeqPatternLength),
+    SeqSwing(SeqSwing),
+    SeqGate(SeqGateTime),
+    SeqLegato(SeqLegato),
 }
+
 
 #[derive(Debug)]
 #[repr(u8)]
@@ -287,7 +389,6 @@ impl Param {
 }
 
 /// Rotary Encoder config
-
 pub type KnobNum = U4;
 
 #[derive(Debug)]
@@ -365,5 +466,18 @@ pub enum VelocityCurve {
     Full = 3,
 }
 
+#[derive(Debug)]
+#[repr(u8)]
+pub enum SeqGlobal {
+    Channel = 1,
+    Transpose = 2,
+    Scale = 3,
+    Mode = 4,
+    StepSize = 5,
+    PatternLength = 6,
+    Swing = 7,
+    Gate = 8,
+    Legato = 9,
+}
 
 

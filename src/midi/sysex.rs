@@ -72,17 +72,17 @@ pub enum Tag {
     Channel,
     Velocity,
     DeviceId,
-    // Indexed parameters (Steps in sequence, generic knob / pad ID)
-    Index,
-    // Parameter code
+    /// Parameter code (cutoff, delay, etc.)
     ParamId,
-    // Value of parameter
+    /// Control code (knob, pad, etc.)
+    ControlId,
+    /// Value of parameter
     ValueU7,
-    // Value of parameter
+    /// Value of parameter
     MsbValueU4,
-    // Value of parameter
+    /// Value of parameter
     LsbValueU4,
-    // Raw data
+    /// Raw data
     Dump(usize),
 }
 

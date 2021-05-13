@@ -45,14 +45,12 @@ use ssd1306::{prelude::*, Builder, I2CDIBuilder};
 use hal::prelude::_embedded_hal_digital_v2_OutputPin;
 use panic_rtt_target as _;
 use rtic::app;
-use rtic::cyccnt::U32Ext as _;
 use usb_device::bus;
 
-use midi::{CableNumber, MidiClass, Route, SerialMidi, usb_device};
+use midi::{CableNumber, MidiClass, SerialMidi, usb_device};
 use midi::{Interface, Packet, Receive, Transmit};
 
-use crate::clock::long_now;
-use crate::devices::sequential::    evolver;
+use crate::devices::sequential::evolver;
 use crate::apps::dw6000_control::Dw6000Control;
 use crate::midi::{channel, event_print, Service};
 use alloc::string::String;
@@ -69,7 +67,6 @@ pub const CYCLES_PER_MICROSEC: u32 = CPU_FREQ / 1_000_000;
 pub const CYCLES_PER_MILLISEC: u32 = CPU_FREQ / 1_000;
 
 const LED_BLINK: u32 = CPU_FREQ / 4;
-const CLOCK_TICK: u32 = CPU_FREQ / 1024;
 
 static mut USB_EP_MEMORY: [u32; 1024] = [0; 1024];
 
