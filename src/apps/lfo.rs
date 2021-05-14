@@ -1,10 +1,7 @@
-use core::sync::atomic::{AtomicI32, AtomicU32};
 use nanorand::{WyRand, RNG};
-use rtic::cyccnt::{Duration, U32Ext};
-use crate::{CYCLES_PER_MILLISEC, CPU_FREQ};
-use crate::clock::BigInstant;
+use crate::CPU_FREQ;
+use crate::time::BigInstant;
 use num_enum::{FromPrimitive};
-use num::FromPrimitive as _;
 use core::f32;
 use micromath::F32Ext;
 
@@ -83,7 +80,7 @@ impl Lfo {
         F_CPU_FREQ / self.period
     }
 
-    pub fn set_rate_hz(&mut self, mut rate: f32) {
+    pub fn set_rate_hz(&mut self, rate: f32) {
         self.period = F_CPU_FREQ / rate;
     }
 

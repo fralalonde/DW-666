@@ -2,10 +2,12 @@
 //! Thanks to Richard Wanderlöf and Untergeek
 //! Switching the LEDs on and off:
 
-use crate::midi::{U7, U4, Note, Program, Control, Channel, Cull, MidiError, Sysex, Matcher, Token, Tag};
+#![allow(unused)]
+
+use crate::midi::{U7, U4, Note, Program, Control, Channel, MidiError, Sysex, Matcher, Token, Tag};
 use alloc::vec::Vec;
 
-use Token::{Seq, Cap, Val, Buf};
+use Token::{Seq, Cap, Val};
 use Tag::*;
 
 const ID_FORMAT: u8 = 0x40;
@@ -116,7 +118,7 @@ pub fn beatstep_set(param: Param) -> Vec<Sysex> {
         Param::KnobNRPN(knob, channel, granularity, banklsb, bankmsb, nrpntype) => {
             let ccode = knob.control_code();
             vec![
-                parameter_set(MODE, ccode, KnobMode::KnobN_RPN as u8),
+                parameter_set(MODE, ccode, KnobMode::KnobNRPN as u8),
                 parameter_set(0x02, ccode, channel.0),
                 parameter_set(0x03, ccode, granularity as u8),
                 parameter_set(0x04, ccode, banklsb.0),
@@ -184,7 +186,7 @@ pub enum MMC {
     InListReset = 12,
 }
 
-pub type PadNum = U4;
+pub type PadNum = u8;
 
 #[derive(Debug)]
 pub enum Pad {
@@ -206,7 +208,7 @@ trait ControlCode {
 impl ControlCode for Pad {
     fn control_code(&self) -> u8 {
         match self {
-            Pad::Pad(num) => 0x70 + num.0,
+            Pad::Pad(num) => 0x70 + num,
             Pad::Start => 0x70,
             Pad::Stop => 0x58,
             Pad::CtrlSeq => 0x5A,
@@ -254,9 +256,8 @@ enum PadMode {
 enum KnobMode {
     KnobOff = 0,
     KnobCC = 1,
-    KnobN_RPN = 4,
+    KnobNRPN = 4,
 }
-
 
 /// base note is C5= 0x3C, to transpose down 12 semitones to C4, nn=0x30 and so on
 #[derive(Debug)]

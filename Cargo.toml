@@ -25,8 +25,10 @@ rtt-target = { version = "0.3", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
 
 ssd1306 = "0.4"
-heapless = {git = "https://github.com/japaric/heapless.git", branch = "const_generics", features = ["ufmt-impl", "cas"]}
-ufmt = "0.1"
+display-interface = "0.4"
+
+#heapless = {git = "https://github.com/japaric/heapless.git", branch = "const_generics", features = ["ufmt-impl", "cas"]}
+#ufmt = "0.1"
 
 buddy-alloc = "0.4"
 hashbrown = "0.11"

@@ -30,7 +30,8 @@ pub use serial::{SerialMidi};
 pub use usb::{MidiClass, usb_device, UsbMidi};
 pub use sysex::{Matcher, Token, Tag, Sysex};
 pub use route::{Router, RouteBinding, RouteContext, Route, Service, RouterEvent, Handler};
-pub use filter::{capture_sysex, print_tag, event_print, Filter};
+pub use filter::{capture_sysex, event_print};
+use alloc::string::String;
 
 #[derive(Clone, Copy, Debug)]
 /// MIDI channel, stored as 0-15
@@ -51,10 +52,22 @@ pub type Bend = U14;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Interface {
-    USB,
+    USB(u8),
     Serial(u8),
     Virtual(u16),
     // TODO virtual interfaces ?
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Endpoint {
+    pub interface: Interface,
+    pub channel: Channel,
+}
+
+impl From<(Interface, Channel)> for Endpoint {
+    fn from(pa: (Interface, Channel)) -> Self {
+        Endpoint { interface: pa.0, channel: pa.1 }
+    }
 }
 
 pub trait Receive {
@@ -91,6 +104,9 @@ pub enum MidiError {
     UsbError,
     BufferFull,
     SysexBufferFull,
+    /// RTIC queue full?
+    UnsentPacket,
+    UnsentString,
 }
 
 impl From<UsbError> for MidiError {
@@ -105,9 +121,23 @@ impl<E> From<nb::Error<E>> for MidiError {
     }
 }
 
+/// RTIC spawn error
 impl From<TryFromSliceError> for MidiError {
     fn from(_: TryFromSliceError) -> Self {
         MidiError::TryFromSliceError
+    }
+}
+
+/// RTIC spawn error
+impl From<(Interface, Packet)> for MidiError {
+    fn from(_: (Interface, Packet)) -> Self {
+        MidiError::UnsentPacket
+    }
+}
+
+impl From<String> for MidiError {
+    fn from(_: String) -> Self {
+        MidiError::UnsentString
     }
 }
 

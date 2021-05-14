@@ -1,4 +1,4 @@
-use crate::midi::{Packet, Filter, Tag, Interface};
+use crate::midi::{Packet, Tag, Interface};
 use self::RouteBinding::*;
 
 use alloc::vec::Vec;
@@ -7,16 +7,15 @@ use hashbrown::{HashMap, HashSet};
 use core::sync::atomic::Ordering::Relaxed;
 
 pub trait Service {
-    fn start(&mut self, now: rtic::cyccnt::Instant, router: &mut Router, schedule: crate::init::Schedule);
+    fn start(&mut self, now: rtic::cyccnt::Instant, router: &mut Router, tasks: &mut Tasks);
     fn stop(&mut self, _router: &mut Router) {}
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Route {
-    priority: u8,
     source: Option<Interface>,
     destination: Option<Interface>,
-    filters: Vec<Box<dyn Filter>>,
+    filters: Vec<Box<dyn FnMut(RouterEvent, &mut RouteContext) -> bool + Send + 'static>>,
 }
 
 impl Route {
@@ -51,8 +50,10 @@ impl Route {
         (Self::link(interface1, interface2), Route::link(interface2, interface1))
     }
 
-    pub fn filter(mut self, filter: Box<dyn Filter>) -> Self {
-        self.filters.push(filter);
+    pub fn filter<F>(mut self, filter: F) -> Self
+        where F: FnMut(RouterEvent, &mut RouteContext) -> bool + Send + 'static
+    {
+        self.filters.push(Box::new(filter));
         self
     }
 
@@ -62,7 +63,7 @@ impl Route {
     fn apply(&mut self, event: RouterEvent) -> Option<RouteContext> {
         let mut context = RouteContext::default();
         for filter in &mut self.filters {
-            if !filter.apply(event, &mut context) {
+            if !(filter)(event, &mut context) {
                 return None;
             }
         }
@@ -96,7 +97,7 @@ pub struct RouteContext {
 }
 
 pub struct Handler {
-    inner: Box<dyn FnMut(Instant, RouterEvent, RouteContext, dispatch_from::Spawn, dispatch_from::Schedule) + 'static + Send>
+    inner: Box<dyn FnMut(Instant, RouterEvent, RouteContext, dispatch_from::Spawn) + 'static + Send>,
 }
 
 impl Debug for Handler {
@@ -107,29 +108,26 @@ impl Debug for Handler {
 
 impl Handler {
     pub fn new<F>(fun: F) -> Self
-        where F: FnMut(Instant, RouterEvent, RouteContext,  dispatch_from::Spawn, dispatch_from::Schedule) + 'static + Send
+        where F: FnMut(Instant, RouterEvent, RouteContext, dispatch_from::Spawn) + 'static + Send
     {
         Handler {
             inner: Box::new(fun)
         }
     }
 
-    pub fn handle(&mut self, now: Instant, event: RouterEvent, ctx: RouteContext, spawn: dispatch_from::Spawn, sched: dispatch_from::Schedule) {
-        (self.inner)(now, event, ctx,  spawn, sched);
+    pub fn handle(&mut self, now: Instant, event: RouterEvent, ctx: RouteContext, spawn: dispatch_from::Spawn) {
+        (self.inner)(now, event, ctx, spawn);
     }
 }
 
 type RouteVec = Vec<Handle>;
 
-// pub type Virtual = FnMut(Instant, RouterEvent, RouteContext, &mut Router, dispatch_from::Spawn, dispatch_from::Schedule) + 'static + Send;
+// pub trait Virtual2: Debug + Send {
+//     fn apply(&mut self, now: Instant, event: RouterEvent, ctx: RouteContext, router: &mut Router, spawn: dispatch_from::Spawn);
+// }
 
-pub trait Virtual2: Debug + Send {
-    fn apply(&mut self, now: Instant, event: RouterEvent, ctx: RouteContext, router: &mut Router, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule);
-}
-
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Router {
-    enabled: bool,
     bindings: HashMap<RouteBinding, RouteVec>,
     virtuals: HashMap<u16, Handler>,
     routes: HashMap<Handle, Route>,
@@ -140,53 +138,46 @@ use crate::{dispatch_from, Handle, NEXT_HANDLE};
 use rtic::cyccnt::{Instant};
 use alloc::boxed::Box;
 use core::fmt::{Debug, Formatter};
+use crate::time::Tasks;
 
 impl Router {
-    pub fn dispatch_from(&mut self, now: Instant, packet: Packet, source: Interface, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
+    pub fn dispatch_from(&mut self, now: Instant, packet: Packet, source: Interface, spawn: dispatch_from::Spawn) {
         if let Some(route_ids) = self.bindings.get(&Src(source)).cloned() {
-            self.dispatch(now, RouterEvent::Packet(packet), &route_ids, spawn, schedule)
+            self.dispatch(now, RouterEvent::Packet(packet), &route_ids, spawn)
         }
     }
 
-    pub fn dispatch_to(&mut self, now: Instant, packet: Packet, destination: Interface, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
+    pub fn dispatch_to(&mut self, now: Instant, packet: Packet, destination: Interface, spawn: dispatch_from::Spawn) {
         if let Some(route_ids) = self.bindings.get(&Dst(destination)).cloned() {
-            self.dispatch(now, RouterEvent::Packet(packet), &route_ids, spawn, schedule)
+            self.dispatch(now, RouterEvent::Packet(packet), &route_ids, spawn)
         }
     }
 
-    pub fn dispatch_clock(&mut self, now: Instant, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
+    pub fn dispatch_clock(&mut self, now: Instant, spawn: dispatch_from::Spawn) {
         if let Some(route_ids) = self.bindings.get(&Clock).cloned() {
-            self.dispatch(now, RouterEvent::Clock, &route_ids, spawn, schedule)
+            self.dispatch(now, RouterEvent::Clock, &route_ids, spawn)
         }
     }
 
-    fn dispatch(&mut self, now: Instant, event: RouterEvent, route_ids: &RouteVec, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
+    fn dispatch(&mut self, now: Instant, event: RouterEvent, route_ids: &RouteVec, spawn: dispatch_from::Spawn) {
         // routes are independent from each other, could be processed concurrently
         for route_id in route_ids {
-            self.dispatch_route_id(*route_id, now, event, spawn, schedule)
+            self.dispatch_route_id(*route_id, now, event, spawn)
         }
     }
 
-    pub fn dispatch_route_id(&mut self, route_id: Handle, now: Instant, event: RouterEvent, spawn: dispatch_from::Spawn, schedule: dispatch_from::Schedule) {
+    pub fn dispatch_route_id(&mut self, route_id: Handle, now: Instant, event: RouterEvent, spawn: dispatch_from::Spawn) {
         if let Some(route) = self.routes.get_mut(&route_id) {
             if let Some(context) = route.apply(event) {
                 match route.destination {
-                    Some(Interface::Virtual(virt_id)) => {
+                    Some(Interface::Virtual(virt_id)) =>
                         if let Some(virt) = self.virtuals.get_mut(&virt_id) {
-                            virt.handle(now, event, context, spawn, schedule)
+                            virt.handle(now, event, context, spawn)
                         }
-                    }
-                    Some(destination) => {
+                    Some(destination) =>
                         if let RouterEvent::Packet(packet) = event {
-                            // if delay == 0 {
                             spawn.send_midi(destination, packet).unwrap()
-/*                            } else {
-                                // quantized or delayed => send later
-                                // FIXME duration should NOT be in cycles
-                                schedule.send_midi(now + delay.cycles(), destination, packet).unwrap()
-                            }*/
                         }
-                    }
                     None => {}
                 }
             }
@@ -209,6 +200,7 @@ impl Router {
         self.routes.insert(route_id, route);
         route_id
     }
+
 
     pub fn add_interface(&mut self, handler: Handler) -> Interface {
         let virt_id = NEXT_HANDLE.fetch_add(1, Relaxed);
