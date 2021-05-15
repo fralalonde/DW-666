@@ -29,7 +29,7 @@ pub use u7::{U7};
 pub use serial::{SerialMidi};
 pub use usb::{MidiClass, usb_device, UsbMidi};
 pub use sysex::{Matcher, Token, Tag, Sysex};
-pub use route::{Router, RouteBinding, RouteContext, Route, Service, RouterEvent, Handler};
+pub use route::{Router, RouteBinding, RouteContext, Route, Service};
 pub use filter::{capture_sysex, event_print};
 use alloc::string::String;
 

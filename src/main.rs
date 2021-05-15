@@ -45,7 +45,7 @@ use midi::{CableNumber, MidiClass, SerialMidi, usb_device};
 use midi::{Interface, Packet, Receive, Transmit};
 
 use crate::apps::dw6000_control::Dw6000Control;
-use crate::midi::{channel, event_print, Service, Note, Route};
+use crate::midi::{channel, event_print, Service, Note, Route, RouteBinding};
 use alloc::string::String;
 use crate::time::Tasks;
 use rtic::cyccnt::U32Ext as _;
@@ -246,25 +246,25 @@ const APP: () = {
     }
 
     /// USB receive interrupt
-    #[task(binds = OTG_FS, spawn = [dispatch_from], resources = [usb_midi], priority = 3)]
+    #[task(binds = OTG_FS, spawn = [dispatch_midi], resources = [usb_midi], priority = 3)]
     fn usb_interrupt(cx: usb_interrupt::Context) {
         // poll() is also required here else receive may block forever
         if cx.resources.usb_midi.poll() {
             while let Some(packet) = cx.resources.usb_midi.receive().unwrap() {
-                cx.spawn.dispatch_from(Interface::USB(0), packet).unwrap();
+                cx.spawn.dispatch_midi(RouteBinding::Src(Interface::USB(0)), packet).unwrap();
             }
         }
     }
 
     /// Serial receive interrupt
-    #[task(binds = USART2, spawn = [dispatch_from], resources = [serial_midi], priority = 3)]
+    #[task(binds = USART2, spawn = [dispatch_midi], resources = [serial_midi], priority = 3)]
     fn serial_irq0(cx: serial_irq0::Context) {
         if let Err(err) = cx.resources.serial_midi.flush() {
             rprintln!("Serial flush failed {:?}", err);
         }
 
         while let Ok(Some(packet)) = cx.resources.serial_midi.receive() {
-            cx.spawn.dispatch_from(Interface::Serial(0), packet).unwrap();
+            cx.spawn.dispatch_midi(RouteBinding::Src(Interface::Serial(0)), packet).unwrap();
         }
     }
 
@@ -280,9 +280,9 @@ const APP: () = {
     }
 
     #[task(spawn = [send_midi, redraw], resources = [midi_router, tasks], priority = 3, capacity = 16)]
-    fn dispatch_from(cx: dispatch_from::Context, from: Interface, packet: Packet) {
+    fn dispatch_midi(cx: dispatch_midi::Context, from: RouteBinding, packet: Packet) {
         let router: &mut midi::Router = cx.resources.midi_router;
-        router.dispatch_from(cx.scheduled, packet, from, cx.spawn)
+        router.dispatch_midi(cx.scheduled, packet, from, cx.spawn)
     }
 
     #[task(resources = [usb_midi, serial_midi], capacity = 64, priority = 2)]

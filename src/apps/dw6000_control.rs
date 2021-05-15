@@ -1,6 +1,6 @@
 //! Sends MIDI to Korg DW-6000 acccording to messages
 //!
-use crate::midi::{Router, Route, capture_sysex, Service, Message, Note, RouterEvent, Tag, Handler, RouteContext, program_change, MidiError, Sysex, U7, Endpoint};
+use crate::midi::{Router, Route, capture_sysex, Service, Message, Note, Tag, RouteContext, program_change, MidiError, Sysex, U7, Endpoint};
 use crate::{devices, time, midi};
 use alloc::vec::Vec;
 use alloc::sync::Arc;
@@ -14,6 +14,7 @@ use num::{Integer};
 use crate::apps::lfo::{Lfo, Waveform};
 use hashbrown::HashMap;
 use crate::devices::korg::dw6000;
+use midi::Interface::Virtual;
 
 const SHORT_PRESS: u32 = 250;
 
@@ -188,7 +189,7 @@ impl InnerState {
         self.mod_dump.insert(p, root_value);
     }
 
-    fn unset_modulated(&mut self, p: Param, spawn: crate::dispatch_from::Spawn) -> Result<(), MidiError> {
+    fn unset_modulated(&mut self, p: Param, spawn: crate::dispatch_midi::Spawn) -> Result<(), MidiError> {
         if let Some(root) = self.mod_dump.remove(&p) {
             if let Some(dump) = &mut self.current_dump {
                 set_param_value(p, root, dump.as_mut_slice());
@@ -198,7 +199,7 @@ impl InnerState {
         Ok(())
     }
 
-    fn send_param_value(&mut self, param: Param, spawn: crate::dispatch_from::Spawn) -> Result<(), MidiError> {
+    fn send_param_value(&mut self, param: Param, spawn: crate::dispatch_midi::Spawn) -> Result<(), MidiError> {
         if let Some(dump) = &mut self.current_dump {
             for packet in param_to_sysex(param, &dump) {
                 spawn.send_midi(self.dw6000.interface, packet)?;
@@ -211,7 +212,7 @@ impl InnerState {
 impl Service for Dw6000Control {
     fn start(&mut self, now: rtic::cyccnt::Instant, router: &mut Router, tasks: &mut Tasks) {
         let state = self.state.clone();
-        tasks.enqueue(now, move |_now, chaos, spawn| {
+        tasks.repeat(now, move |_now, chaos, spawn| {
             let mut state = state.lock();
 
             // LFO2 modulation
@@ -236,7 +237,7 @@ impl Service for Dw6000Control {
         });
 
         let state = self.state.clone();
-        tasks.enqueue(now, move |_now, _chaos, spawn| {
+        tasks.repeat(now, move |_now, _chaos, spawn| {
             let state = state.lock();
             // periodic DW-6000 dump sync
             for packet in dump_request() {
@@ -247,31 +248,29 @@ impl Service for Dw6000Control {
 
         // handle messages from controller
         let state = self.state.clone();
-        let page_if = router.add_interface(Handler::new(move |_now, event, _ctx, spawn| {
-            if let RouterEvent::Packet(packet) = event {
-                if let Ok(msg) = Message::try_from(packet) {
-                    let state = state.lock();
-                    if let Err(e) = from_beatstep(state.dw6000, msg, spawn, state) {
-                        rprintln!("Error from Beatstep {:?}", e);
-                    }
+        let page_if = router.add_interface(move |_now, packet, _ctx, spawn| {
+            if let Ok(msg) = Message::try_from(packet) {
+                let state = state.lock();
+                if let Err(e) = from_beatstep(state.dw6000, msg, spawn, state) {
+                    rprintln!("Error from Beatstep {:?}", e);
                 }
             }
-        }));
+        });
 
         // handle messages from dw6000
         let state = self.state.clone();
-        let dump_if = router.add_interface(Handler::new(move |_now, _event, ctx, _spawn| {
+        let dump_if = router.add_interface(move |_now, _event, ctx, _spawn| {
             let state = state.lock();
             from_dw6000_dump(ctx, state)
-        }));
+        });
 
         let state = self.state.lock();
 
         router.bind(
-            Route::link(state.beatstep.interface, page_if));
+            Route::link(state.beatstep.interface, Virtual(page_if)));
 
         router.bind(
-            Route::link(state.dw6000.interface, dump_if)
+            Route::link(state.dw6000.interface, Virtual(dump_if))
                 .filter({
                     let mut matcher = dump_matcher();
                     move |ev, cx| capture_sysex(&mut matcher, ev, cx)
@@ -281,7 +280,7 @@ impl Service for Dw6000Control {
     }
 }
 
-fn toggle_param(param: Param, dump: &mut Vec<u8>, dw6000: Endpoint, spawn: crate::dispatch_from::Spawn) -> Result<(), MidiError> {
+fn toggle_param(param: Param, dump: &mut Vec<u8>, dw6000: Endpoint, spawn: crate::dispatch_midi::Spawn) -> Result<(), MidiError> {
     let mut value = get_param_value(param, dump.as_slice());
     value = value ^ 1;
     set_param_value(param, value, dump.as_mut_slice());
@@ -292,7 +291,7 @@ fn toggle_param(param: Param, dump: &mut Vec<u8>, dw6000: Endpoint, spawn: crate
     Ok(())
 }
 
-fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_from::Spawn, mut state: MutexGuard<InnerState>) -> Result<(), MidiError> {
+fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_midi::Spawn, mut state: MutexGuard<InnerState>) -> Result<(), MidiError> {
     match msg {
         Message::NoteOn(_, note, _) => {
             if let Some(bank) = note_bank(note) {

@@ -86,7 +86,7 @@ pub struct Tasks {
 }
 
 impl Tasks {
-    pub fn enqueue<T>(&mut self, now: Instant, task: T)
+    pub fn repeat<T>(&mut self, now: Instant, task: T)
         where T: FnMut(Instant, &mut WyRand, &mut crate::tasks::Spawn) -> Result<Option<rtic::cyccnt::Duration>, MidiError> + Send + 'static
     {
         // let handle = NEXT_HANDLE.fetch_add(1, Relaxed);

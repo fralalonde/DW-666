@@ -36,7 +36,7 @@ use crate::devices::arturia::beatstep::{SwitchMode};
 impl Service for BlinkyBeat {
     fn start(&mut self, now: rtic::cyccnt::Instant, _router: &mut Router, tasks: &mut Tasks) {
         let state = self.state.clone();
-        tasks.enqueue(now, move |_now, _chaos, spawn| {
+        tasks.repeat(now, move |_now, _chaos, spawn| {
             let mut state = state.lock();
             let bs = state.beatstep;
             for sysex in devices::arturia::beatstep::beatstep_set(PadNote(Pad(15), channel(1), Note::C1m, SwitchMode::Gate)) {
