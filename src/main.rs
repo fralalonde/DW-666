@@ -177,15 +177,15 @@ const APP: () = {
 
         let mut midi_router: midi::Router = midi::Router::default();
 
-        let _usb_echo = midi_router.bind(
+        let _usb_echo = midi_router.add_route(
             Route::echo(Interface::USB(0))
-                .filter(|ev, cx| event_print(ev, cx)));
+                .filter(|_now, cx| event_print(cx)));
 
         // let _serial_print = midi_router.bind(Route::from(Interface::Serial(0)).filter(event_print()));
 
-        let _usb_print = midi_router.bind(
+        let _usb_print = midi_router.add_route(
             Route::to(Interface::USB(0))
-                .filter(|ev, cx| event_print(ev, cx)));
+                .filter(|_now, cx| event_print(cx)));
 
         // let _evo_match = midi_router.bind(
         //     Route::from(Interface::Serial(0))
@@ -200,10 +200,10 @@ const APP: () = {
         // let _bstep_2_dw = midi_router.bind(Route::link(Interface::USB, Interface::Serial(0)));
 
         let mut dwctrl = Dw6000Control::new((Interface::Serial(0), channel(1)), (Interface::USB(0), channel(1)));
-        dwctrl.start(cx.start, &mut midi_router, &mut tasks);
+        dwctrl.start(cx.start, &mut midi_router, &mut tasks).unwrap();
 
         let mut bbeat = BlinkyBeat::new((Interface::USB(0), channel(1)), vec![Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
-        bbeat.start(cx.start, &mut midi_router, &mut tasks);
+        bbeat.start(cx.start, &mut midi_router, &mut tasks).unwrap();
 
         rprintln!("Routes OK");
 
@@ -302,11 +302,10 @@ const APP: () = {
                         rprintln!("Failed to send Serial MIDI: {:?}", e)
                     });
             }
-            _ => {}
         }
     }
 
-    #[task(resources = [display])]
+    #[task(resources = [display], capacity = 4)]
     fn redraw(ctx: redraw::Context, text: String) {
         ctx.resources.display.print(text).unwrap()
     }

@@ -1,4 +1,4 @@
-use crate::midi::{Router, Service, Note, Endpoint, note_off, note_on, Velocity, channel};
+use crate::midi::{Router, Service, Note, Endpoint, note_off, note_on, Velocity, channel, MidiError};
 use crate::{devices};
 use alloc::vec::Vec;
 use alloc::sync::Arc;
@@ -34,7 +34,7 @@ use beatstep::Pad::*;
 use crate::devices::arturia::beatstep::{SwitchMode};
 
 impl Service for BlinkyBeat {
-    fn start(&mut self, now: rtic::cyccnt::Instant, _router: &mut Router, tasks: &mut Tasks) {
+    fn start(&mut self, now: rtic::cyccnt::Instant, _router: &mut Router, tasks: &mut Tasks)  -> Result<(), MidiError> {
         let state = self.state.clone();
         tasks.repeat(now, move |_now, _chaos, spawn| {
             let mut state = state.lock();
@@ -46,15 +46,16 @@ impl Service for BlinkyBeat {
             }
             for (note, ref mut on) in &mut state.notes {
                 if *on {
-                    spawn.send_midi(bs.interface, note_off(bs.channel, *note, Velocity::MAX).unwrap().into())?;
+                    spawn.send_midi(bs.interface, note_off(bs.channel, *note, Velocity::MAX)?.into())?;
                 } else {
-                    spawn.send_midi(bs.interface, note_on(bs.channel, *note, Velocity::MIN).unwrap().into())?;
+                    spawn.send_midi(bs.interface, note_on(bs.channel, *note, Velocity::MIN)?.into())?;
                 }
                 *on = !*on
             }
             Ok(Some(200.millis()))
         });
 
-        rprintln!("BlinkyBeat Active")
+        rprintln!("BlinkyBeat Active");
+        Ok(())
     }
 }

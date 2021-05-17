@@ -14,7 +14,6 @@ use num::{Integer};
 use crate::apps::lfo::{Lfo, Waveform};
 use hashbrown::HashMap;
 use crate::devices::korg::dw6000;
-use midi::Interface::Virtual;
 
 const SHORT_PRESS: u32 = 250;
 
@@ -189,28 +188,27 @@ impl InnerState {
         self.mod_dump.insert(p, root_value);
     }
 
-    fn unset_modulated(&mut self, p: Param, spawn: crate::dispatch_midi::Spawn) -> Result<(), MidiError> {
+    fn unset_modulated(&mut self, p: Param, context: &mut RouteContext) -> Result<(), MidiError> {
         if let Some(root) = self.mod_dump.remove(&p) {
             if let Some(dump) = &mut self.current_dump {
                 set_param_value(p, root, dump.as_mut_slice());
-                self.send_param_value(p, spawn)?;
+                self.send_param_value(p, context)?;
             }
         }
         Ok(())
     }
 
-    fn send_param_value(&mut self, param: Param, spawn: crate::dispatch_midi::Spawn) -> Result<(), MidiError> {
+    fn send_param_value(&mut self, param: Param, context: &mut RouteContext) -> Result<(), MidiError> {
         if let Some(dump) = &mut self.current_dump {
-            for packet in param_to_sysex(param, &dump) {
-                spawn.send_midi(self.dw6000.interface, packet)?;
-            }
+            context.packets.clear();
+            context.packets.extend(param_to_sysex(param, &dump))
         }
         Ok(())
     }
 }
 
 impl Service for Dw6000Control {
-    fn start(&mut self, now: rtic::cyccnt::Instant, router: &mut Router, tasks: &mut Tasks) {
+    fn start(&mut self, now: rtic::cyccnt::Instant, router: &mut Router, tasks: &mut Tasks) -> Result<(), MidiError> {
         let state = self.state.clone();
         tasks.repeat(now, move |_now, chaos, spawn| {
             let mut state = state.lock();
@@ -246,60 +244,65 @@ impl Service for Dw6000Control {
             Ok(Some(250.millis()))
         });
 
+        let beatstep = self.state.lock().beatstep;
+        let dw6000 = self.state.lock().dw6000;
+
         // handle messages from controller
         let state = self.state.clone();
-        let page_if = router.add_interface(move |_now, packet, _ctx, spawn| {
-            if let Ok(msg) = Message::try_from(packet) {
-                let state = state.lock();
-                if let Err(e) = from_beatstep(state.dw6000, msg, spawn, state) {
-                    rprintln!("Error from Beatstep {:?}", e);
-                }
-            }
-        });
+        router.add_route(
+            Route::link(beatstep.interface, dw6000.interface)
+                .filter(move |_now, context| {
+                    let mut state = state.lock();
+                    for p in context.packets.clone() {
+                        if let Ok(msg) = Message::try_from(p) {
+                            from_beatstep(dw6000, msg, &mut state, context)?;
+                        }
+                    }
+                    Ok(true)
+                }))?;
 
         // handle messages from dw6000
         let state = self.state.clone();
-        let dump_if = router.add_interface(move |_now, _event, ctx, _spawn| {
-            let state = state.lock();
-            from_dw6000_dump(ctx, state)
-        });
-
-        let state = self.state.lock();
-
-        router.bind(
-            Route::link(state.beatstep.interface, Virtual(page_if)));
-
-        router.bind(
-            Route::link(state.dw6000.interface, Virtual(dump_if))
+        router.add_route(
+            Route::from(dw6000.interface)
                 .filter({
                     let mut matcher = dump_matcher();
-                    move |ev, cx| capture_sysex(&mut matcher, ev, cx)
-                }));
+                    move |_now, context| capture_sysex(&mut matcher, context)
+                })
+                .filter(
+                    move |_now, context| {
+                        let state = state.lock();
+                        from_dw6000_dump(context, state)
+                    }
+                ))?;
 
-        rprintln!("DW6000 Controller Active")
+        rprintln!("DW6000 Controller Active");
+        Ok(())
     }
 }
 
-fn toggle_param(param: Param, dump: &mut Vec<u8>, dw6000: Endpoint, spawn: crate::dispatch_midi::Spawn) -> Result<(), MidiError> {
+fn toggle_param(param: Param, dump: &mut Vec<u8>, context: &mut RouteContext) -> Result<(), MidiError> {
     let mut value = get_param_value(param, dump.as_slice());
     value = value ^ 1;
     set_param_value(param, value, dump.as_mut_slice());
+    context.packets.clear();
     for packet in param_to_sysex(param, dump.as_slice()) {
-        spawn.send_midi(dw6000.interface, packet)?;
+        context.packets.push(packet)
     }
-    spawn.redraw(format!("{:?}\n{:.2}", param, value))?;
+    context.strings.push(format!("{:?}\n{:.2}", param, value));
     Ok(())
 }
 
-fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_midi::Spawn, mut state: MutexGuard<InnerState>) -> Result<(), MidiError> {
+fn from_beatstep(dw6000: Endpoint, msg: Message, state: &mut MutexGuard<InnerState>, context: &mut RouteContext) -> Result<bool, MidiError> {
     match msg {
         Message::NoteOn(_, note, _) => {
             if let Some(bank) = note_bank(note) {
                 state.bank = Some(bank)
             } else if let Some(prog) = note_prog(note) {
                 if let Some(bank) = state.bank {
-                    spawn.send_midi(dw6000.interface, program_change(dw6000.channel, (bank * 8) + prog)?.into())?;
-                    return Ok(());
+                    // spawn.send_midi(dw6000.interface, .into())?;
+                    context.packets.clear();
+                    context.packets.push(program_change(dw6000.channel, (bank * 8) + prog)?.into())
                 }
             }
             if let Some(page) = note_page(note) {
@@ -310,8 +313,8 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_midi::Sp
                     match tog {
                         TogglePage::Arp => {}
                         TogglePage::Latch => {}
-                        TogglePage::Polarity => toggle_param(Param::Polarity, dump, dw6000, spawn)?,
-                        TogglePage::Chorus => toggle_param(Param::Chorus, dump, dw6000, spawn)?,
+                        TogglePage::Polarity => toggle_param(Param::Polarity, dump, context)?,
+                        TogglePage::Chorus => toggle_param(Param::Chorus, dump, context)?,
                     }
                 }
             }
@@ -339,10 +342,8 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_midi::Sp
                     *root = value.0
                 } else if let Some(dump) = &mut state.current_dump {
                     set_param_value(param, value.into(), dump.as_mut_slice());
-                    for packet in param_to_sysex(param, &dump) {
-                        spawn.send_midi(dw6000.interface, packet)?;
-                    }
-                    spawn.redraw(format!("{:?}\n{:?}", param, get_param_value(param, &dump)))?;
+                    context.packets.extend(param_to_sysex(param, &dump));
+                    context.strings.push(format!("{:?}\n{:?}", param, get_param_value(param, &dump)));
                 }
             } else if let Some(param) = cc_to_ctl_param(cc, state.active_page()) {
                 match param {
@@ -350,19 +351,19 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_midi::Sp
                         let base_rate = (value.0 as f32 + 1.0) * 0.1;
                         rprintln!("ratev {} ratex {}", value.0, base_rate);
                         state.lfo2.set_rate_hz(base_rate.min(40.0).max(0.03));
-                        spawn.redraw(format!("{:?}\n{:.2}", param, state.lfo2.get_rate_hz()))?;
+                        context.strings.push(format!("{:?}\n{:.2}", param, state.lfo2.get_rate_hz()));
                     }
                     CtlParam::Lfo2Amt => {
                         state.lfo2.set_amount(f32::from(value.0) / f32::from(U7::MAX.0));
-                        spawn.redraw(format!("{:?}\n{:.2}", param, state.lfo2.get_amount()))?;
+                        context.strings.push(format!("{:?}\n{:.2}", param, state.lfo2.get_amount()));
                     }
                     CtlParam::Lfo2Wave => {
                         state.lfo2.set_waveform(Waveform::from(value.0.min(3)));
-                        spawn.redraw(format!("{:?}\n{:?}", param, state.lfo2.get_waveform()))?;
+                        context.strings.push(format!("{:?}\n{:?}", param, state.lfo2.get_waveform()));
                     }
                     CtlParam::Lfo2Dest => {
                         if let Some(mod_p) = state.lfo2_param.map(|p| Param::from(p)) {
-                            state.unset_modulated(mod_p, spawn)?;
+                            state.unset_modulated(mod_p, context)?;
                         }
                         if let Some(ref mut dump) = &mut state.current_dump {
                             let new_dest = Lfo2Dest::try_from(value.0).ok();
@@ -370,7 +371,7 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_midi::Sp
                                 let saved_val = get_param_value(mod_p, &dump);
                                 state.set_modulated(mod_p, saved_val);
                                 state.lfo2_param = new_dest;
-                                spawn.redraw(format!("{:?}\n{:?}", param, mod_p))?;
+                                context.strings.push(format!("{:?}\n{:?}", param, mod_p));
                             }
                         }
                     }
@@ -379,7 +380,7 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, spawn: crate::dispatch_midi::Sp
             }
         _ => {}
     }
-    Ok(())
+    Ok(true)
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -406,7 +407,7 @@ fn cc_to_ctl_param(cc: midi::Control, page: KnobPage) -> Option<CtlParam> {
     }
 }
 
-fn from_dw6000_dump(mut ctx: RouteContext, mut state: MutexGuard<InnerState>) {
+fn from_dw6000_dump(ctx: &mut RouteContext, mut state: MutexGuard<InnerState>) -> Result<bool, MidiError> {
     if let Some(mut dump) = ctx.tags.remove(&Tag::Dump(26)) {
         // rewrite original values before they were modulated
         for s in &state.mod_dump {
@@ -414,6 +415,7 @@ fn from_dw6000_dump(mut ctx: RouteContext, mut state: MutexGuard<InnerState>) {
         }
         state.current_dump = Some(dump);
     }
+    Ok(false)
 }
 
 fn param_to_sysex(param: Param, dump_buf: &[u8]) -> Sysex {

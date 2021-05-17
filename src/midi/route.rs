@@ -2,12 +2,19 @@ use crate::midi::{Packet, Tag, Interface, MidiError};
 use self::RouteBinding::*;
 
 use alloc::vec::Vec;
-use hashbrown::{HashMap, HashSet};
+use hashbrown::{HashMap};
 
 use core::sync::atomic::Ordering::Relaxed;
 
+use crate::{dispatch_midi, Handle, NEXT_HANDLE};
+use rtic::cyccnt::{Instant};
+use alloc::boxed::Box;
+use core::fmt::{Debug};
+use crate::time::Tasks;
+use alloc::string::String;
+
 pub trait Service {
-    fn start(&mut self, now: rtic::cyccnt::Instant, router: &mut Router, tasks: &mut Tasks);
+    fn start(&mut self, now: rtic::cyccnt::Instant, router: &mut Router, tasks: &mut Tasks) -> Result<(), MidiError>;
     fn stop(&mut self, _router: &mut Router) {}
 }
 
@@ -15,7 +22,8 @@ pub trait Service {
 pub struct Route {
     source: Option<Interface>,
     destination: Option<Interface>,
-    filters: Vec<Box<dyn FnMut(Packet, &mut RouteContext) -> bool + Send + 'static>>,
+    exclusive: bool,
+    filters: Vec<Box<dyn FnMut(Instant, &mut RouteContext) -> Result<bool, MidiError> + Send + 'static>>,
 }
 
 impl Route {
@@ -50,8 +58,14 @@ impl Route {
         (Self::link(interface1, interface2), Route::link(interface2, interface1))
     }
 
+    /// Route A -> B
+    pub fn exclusive(mut self) -> Self {
+        self.exclusive = true;
+        self
+    }
+
     pub fn filter<F>(mut self, filter: F) -> Self
-        where F: FnMut(Packet, &mut RouteContext) -> bool + Send + 'static
+        where F: FnMut(Instant, &mut RouteContext) -> Result<bool, MidiError> + Send + 'static
     {
         self.filters.push(Box::new(filter));
         self
@@ -60,11 +74,15 @@ impl Route {
     /// Return true if router should forward event to destinations
     /// Return false to discard the event
     /// Does not affect other routes
-    fn apply_filters(&mut self, packet: Packet) -> Option<RouteContext> {
+    fn apply_filters(&mut self, now: Instant, packet: Packet) -> Option<RouteContext> {
+        // TODO reuse context & preallocated packet vec
         let mut context = RouteContext::default();
+        context.packets.push(packet);
         for filter in &mut self.filters {
-            if !(filter)(packet, &mut context) {
-                return None;
+            match (filter)(now, &mut context) {
+                Err(e) => rprintln!("Filter error: {:?}", e),
+                Ok(false) => return None,
+                _ => {}
             }
         }
         Some(context)
@@ -82,33 +100,35 @@ pub enum RouteBinding {
 
 #[derive(Default)]
 pub struct RouteContext {
-    pub destinations: HashSet<Interface>,
+    pub destination: Option<Interface>,
     pub tags: HashMap<Tag, Vec<u8>>,
+    pub packets: Vec<Packet>,
+    pub strings: Vec<String>,
 }
+
+impl RouteContext {}
 
 type RouteVec = Vec<Handle>;
 
 #[derive(Default)]
 pub struct Router {
+    exclusive: HashMap<RouteBinding, Handle>,
     bindings: HashMap<RouteBinding, RouteVec>,
-    virtuals: HashMap<u16, Box<dyn FnMut(Instant, Packet, RouteContext, dispatch_midi::Spawn) + 'static + Send>>,
     routes: HashMap<Handle, Route>,
     // TODO route ID pooling instead
 }
 
-use crate::{dispatch_midi, Handle, NEXT_HANDLE};
-use rtic::cyccnt::{Instant};
-use alloc::boxed::Box;
-use core::fmt::{Debug};
-use crate::time::Tasks;
-
 impl Router {
-    pub fn dispatch_midi(&mut self, now: Instant, packet: Packet, source: RouteBinding, spawn: dispatch_midi::Spawn) {
-        if let Some(route_ids) = self.bindings.get(&source).cloned() {
+    pub fn dispatch_midi(&mut self, now: Instant, packet: Packet, binding: RouteBinding, spawn: dispatch_midi::Spawn) {
+        if let Some(route_id) = self.exclusive.get(&binding).cloned() {
+            if let Err(err) = self.dispatch_route_id(route_id, now, packet, spawn) {
+                rprintln!("Exclusive Route {} for {:?} dispatch failed: {:?}", route_id, binding, err)
+            }
+        } else if let Some(route_ids) = self.bindings.get(&binding).cloned() {
             // routes are independent from each other, could be processed concurrently
             for route_id in route_ids {
                 if let Err(err) = self.dispatch_route_id(route_id, now, packet, spawn) {
-                    rprintln!("Route {} dispatch failed: {:?}", route_id, err)
+                    rprintln!("Shared Route {} for {:?} dispatch failed: {:?}", route_id, binding, err)
                 }
             }
         }
@@ -116,14 +136,17 @@ impl Router {
 
     pub fn dispatch_route_id(&mut self, route_id: Handle, now: Instant, packet: Packet, spawn: dispatch_midi::Spawn) -> Result<(), MidiError> {
         if let Some(route) = self.routes.get_mut(&route_id) {
-            if let Some(context) = route.apply_filters(packet) {
-                match route.destination {
-                    Some(Interface::Virtual(virt_id)) =>
-                        if let Some(virt) = self.virtuals.get_mut(&virt_id) {
-                            (virt)(now, packet, context, spawn)
-                        }
-                    Some(destination) => spawn.send_midi(destination, packet)?,
-                    None => {}
+            if let Some(context) = route.apply_filters(now, packet) {
+                // dynamic destination may override route destination
+                if let Some(destination) = context.destination.or(route.destination) {
+                    for p in context.packets {
+                        spawn.send_midi(destination, p)?
+                    }
+                } else {
+                    rprintln!("No destination for route")
+                }
+                for s in context.strings {
+                    spawn.redraw(s)?
                 }
             }
         } else {
@@ -132,32 +155,37 @@ impl Router {
         Ok(())
     }
 
-    pub fn bind(&mut self, route: Route) -> Handle {
+    pub fn add_route(&mut self, route: Route) -> Result<Handle, MidiError> {
         let route_id = NEXT_HANDLE.fetch_add(1, Relaxed);
 
-        if let Some(src) = route.source {
-            self.bind_route(&Src(src), route_id);
-        }
-
-        if let Some(dst) = route.destination {
-            self.bind_route(&Dst(dst), route_id);
+        if route.exclusive {
+            if let Some(src) = route.source {
+                self.bind_exclusive(&Src(src), route_id)?;
+            } else if let Some(dst) = route.destination {
+                self.bind_exclusive(&Dst(dst), route_id)?;
+            }
+        } else {
+            if let Some(src) = route.source {
+                self.bind_shared(&Src(src), route_id);
+            } else if let Some(dst) = route.destination {
+                self.bind_shared(&Dst(dst), route_id);
+            }
         }
 
         self.routes.insert(route_id, route);
-        route_id
+        Ok(route_id)
     }
 
-
-    pub fn add_interface<F>(&mut self, fun: F) -> Handle
-        where F: FnMut(Instant, Packet, RouteContext, dispatch_midi::Spawn) + 'static + Send
-    {
-        let virt_id = NEXT_HANDLE.fetch_add(1, Relaxed);
-        self.virtuals.insert(virt_id, Box::new(fun));
-        Interface::Virtual(virt_id);
-        virt_id
+    fn bind_exclusive(&mut self, binding: &RouteBinding, route_id: Handle) -> Result<(), MidiError> {
+        if let Some(existing) = self.exclusive.get_mut(binding) {
+            Err(MidiError::ExclusiveRouteConflict(*existing))
+        } else {
+            self.exclusive.insert(*binding, route_id);
+            Ok(())
+        }
     }
 
-    fn bind_route(&mut self, binding: &RouteBinding, route_id: Handle) {
+    fn bind_shared(&mut self, binding: &RouteBinding, route_id: Handle) {
         if let Some(route_ids) = self.bindings.get_mut(binding) {
             route_ids.push(route_id);
         } else {

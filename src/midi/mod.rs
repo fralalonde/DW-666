@@ -32,6 +32,7 @@ pub use sysex::{Matcher, Token, Tag, Sysex};
 pub use route::{Router, RouteBinding, RouteContext, Route, Service};
 pub use filter::{capture_sysex, event_print};
 use alloc::string::String;
+use crate::Handle;
 
 #[derive(Clone, Copy, Debug)]
 /// MIDI channel, stored as 0-15
@@ -54,7 +55,7 @@ pub type Bend = U14;
 pub enum Interface {
     USB(u8),
     Serial(u8),
-    Virtual(u16),
+    // Virtual(u16),
     // TODO virtual interfaces ?
 }
 
@@ -107,6 +108,7 @@ pub enum MidiError {
     /// RTIC queue full?
     UnsentPacket,
     UnsentString,
+    ExclusiveRouteConflict(Handle),
 }
 
 impl From<UsbError> for MidiError {
