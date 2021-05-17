@@ -89,7 +89,6 @@ impl Tasks {
     pub fn repeat<T>(&mut self, now: Instant, task: T)
         where T: FnMut(Instant, &mut WyRand, &mut crate::tasks::Spawn) -> Result<Option<rtic::cyccnt::Duration>, MidiError> + Send + 'static
     {
-        // let handle = NEXT_HANDLE.fetch_add(1, Relaxed);
         self.new_tasks.push_back(TimerTask{
             next_run: now,
             op: Box::new(task)

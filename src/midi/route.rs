@@ -12,6 +12,7 @@ use alloc::boxed::Box;
 use core::fmt::{Debug};
 use crate::time::Tasks;
 use alloc::string::String;
+use alloc::collections::{BTreeMap};
 
 pub trait Service {
     fn start(&mut self, now: rtic::cyccnt::Instant, router: &mut Router, tasks: &mut Tasks) -> Result<(), MidiError>;
@@ -74,18 +75,15 @@ impl Route {
     /// Return true if router should forward event to destinations
     /// Return false to discard the event
     /// Does not affect other routes
-    fn apply_filters(&mut self, now: Instant, packet: Packet) -> Option<RouteContext> {
-        // TODO reuse context & preallocated packet vec
-        let mut context = RouteContext::default();
-        context.packets.push(packet);
+    fn apply_filters(&mut self, now: Instant, context: &mut RouteContext) -> bool {
         for filter in &mut self.filters {
-            match (filter)(now, &mut context) {
+            match (filter)(now, context) {
                 Err(e) => rprintln!("Filter error: {:?}", e),
-                Ok(false) => return None,
+                Ok(false) => return false,
                 _ => {}
             }
         }
-        Some(context)
+        true
     }
 }
 
@@ -95,10 +93,9 @@ impl Route {
 pub enum RouteBinding {
     Src(Interface),
     Dst(Interface),
-    Clock,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RouteContext {
     pub destination: Option<Interface>,
     pub tags: HashMap<Tag, Vec<u8>>,
@@ -106,51 +103,74 @@ pub struct RouteContext {
     pub strings: Vec<String>,
 }
 
-impl RouteContext {}
+impl RouteContext {
+    fn restart(&mut self, packet: Packet) {
+        self.destination = None;
+        self.tags.clear();
+        self.packets = vec![packet];
+        self.strings = vec![];
+    }
 
-type RouteVec = Vec<Handle>;
+    fn flush_strings(&mut self, spawn: dispatch_midi::Spawn) -> Result<(), MidiError> {
+        for s in self.strings.drain(..) {
+            if let Err(e) = spawn.redraw(s) {
+                rprintln!("Failed enqueue redraw: {}", e)
+            }
+        }
+        Ok(())
+    }
+
+    fn flush_packets(&mut self, destination: Interface, spawn: dispatch_midi::Spawn) -> Result<(), MidiError> {
+        for p in self.packets.drain(..) {
+            spawn.send_midi(destination, p)?
+        }
+        Ok(())
+    }
+}
+
+type RouteVec = BTreeMap<Handle, Route>;
 
 #[derive(Default)]
 pub struct Router {
-    exclusive: HashMap<RouteBinding, Handle>,
-    bindings: HashMap<RouteBinding, RouteVec>,
-    routes: HashMap<Handle, Route>,
+    // exclusive: HashMap<RouteBinding, Handle>,
+    ingress: HashMap<Interface, RouteVec>,
+    egress: HashMap<Interface, RouteVec>,
+    // routes: HashMap<Handle, Route>,
     // TODO route ID pooling instead
 }
 
 impl Router {
-    pub fn dispatch_midi(&mut self, now: Instant, packet: Packet, binding: RouteBinding, spawn: dispatch_midi::Spawn) {
-        if let Some(route_id) = self.exclusive.get(&binding).cloned() {
-            if let Err(err) = self.dispatch_route_id(route_id, now, packet, spawn) {
-                rprintln!("Exclusive Route {} for {:?} dispatch failed: {:?}", route_id, binding, err)
-            }
-        } else if let Some(route_ids) = self.bindings.get(&binding).cloned() {
-            // routes are independent from each other, could be processed concurrently
-            for route_id in route_ids {
-                if let Err(err) = self.dispatch_route_id(route_id, now, packet, spawn) {
-                    rprintln!("Shared Route {} for {:?} dispatch failed: {:?}", route_id, binding, err)
-                }
-            }
-        }
-    }
+    pub fn dispatch_midi(&mut self, now: Instant, packet: Packet, binding: RouteBinding, spawn: dispatch_midi::Spawn) -> Result<(), MidiError> {
+        // TODO preallocate static context
+        let mut context = RouteContext::default();
 
-    pub fn dispatch_route_id(&mut self, route_id: Handle, now: Instant, packet: Packet, spawn: dispatch_midi::Spawn) -> Result<(), MidiError> {
-        if let Some(route) = self.routes.get_mut(&route_id) {
-            if let Some(context) = route.apply_filters(now, packet) {
-                // dynamic destination may override route destination
-                if let Some(destination) = context.destination.or(route.destination) {
-                    for p in context.packets {
-                        spawn.send_midi(destination, p)?
+        // TODO handle immediate Dst routes
+        if let Src(source) = binding {
+            if let Some(routes) = self.ingress.get_mut(&source) {
+                for route_in in routes.values_mut() {
+                    context.restart(packet);
+                    if route_in.apply_filters(now, &mut context) {
+                        context.flush_strings(spawn)?;
+                        if let Some(destination) = context.destination.or(route_in.destination) {
+                            if let Some(routes) = self.egress.get_mut(&destination) {
+                                for route_out in routes.values_mut() {
+                                    // isolate out routes from each other
+                                    let mut context = context.clone();
+                                    if route_out.apply_filters(now, &mut context) {
+                                        context.flush_packets(destination, spawn)?;
+                                        context.flush_strings(spawn)?;
+                                    }
+                                }
+                            } else {
+                                // no destination route, just send
+                                context.flush_packets(destination, spawn)?;
+                            }
+                        } else {
+                            rprintln!("No destination route")
+                        }
                     }
-                } else {
-                    rprintln!("No destination for route")
-                }
-                for s in context.strings {
-                    spawn.redraw(s)?
                 }
             }
-        } else {
-            rprintln!("Route ID {} triggered but not found", route_id)
         }
         Ok(())
     }
@@ -158,65 +178,39 @@ impl Router {
     pub fn add_route(&mut self, route: Route) -> Result<Handle, MidiError> {
         let route_id = NEXT_HANDLE.fetch_add(1, Relaxed);
 
-        if route.exclusive {
-            if let Some(src) = route.source {
-                self.bind_exclusive(&Src(src), route_id)?;
-            } else if let Some(dst) = route.destination {
-                self.bind_exclusive(&Dst(dst), route_id)?;
-            }
-        } else {
-            if let Some(src) = route.source {
-                self.bind_shared(&Src(src), route_id);
-            } else if let Some(dst) = route.destination {
-                self.bind_shared(&Dst(dst), route_id);
-            }
+        if let Some(src) = route.source {
+            self.ingress.entry(src).or_default().insert(route_id, route);
+        } else if let Some(dst) = route.destination {
+            self.egress.entry(dst).or_default().insert(route_id, route);
         }
 
-        self.routes.insert(route_id, route);
         Ok(route_id)
     }
 
-    fn bind_exclusive(&mut self, binding: &RouteBinding, route_id: Handle) -> Result<(), MidiError> {
-        if let Some(existing) = self.exclusive.get_mut(binding) {
-            Err(MidiError::ExclusiveRouteConflict(*existing))
-        } else {
-            self.exclusive.insert(*binding, route_id);
-            Ok(())
-        }
-    }
+    // fn bind_shared(&mut self, routes: &mut HashMap<Interface, RouteVec>, interface: Interface, route_id: Handle, route: Route) {}
 
-    fn bind_shared(&mut self, binding: &RouteBinding, route_id: Handle) {
-        if let Some(route_ids) = self.bindings.get_mut(binding) {
-            route_ids.push(route_id);
-        } else {
-            let mut route_ids: RouteVec = Vec::new();
-            route_ids.push(route_id);
-            self.bindings.insert(*binding, route_ids);
-        }
-    }
+    // pub fn unbind(&mut self, route_id: Handle) {
+    //     let removed = self.routes.remove(&route_id);
+    //     if let Some(route) = removed {
+    //         if let Some(src) = route.source {
+    //             self.try_remove(route_id, &Src(src));
+    //         }
+    //         if let Some(dst) = route.destination {
+    //             self.try_remove(route_id, &Dst(dst));
+    //         }
+    //     }
+    // }
 
-    pub fn unbind(&mut self, route_id: Handle) {
-        let removed = self.routes.remove(&route_id);
-        if let Some(route) = removed {
-            if let Some(src) = route.source {
-                self.try_remove(route_id, &Src(src));
-            }
-            if let Some(dst) = route.destination {
-                self.try_remove(route_id, &Dst(dst));
-            }
-        }
-    }
-
-    fn try_remove(&mut self, route_id: Handle, bin: &RouteBinding) {
-        if let Some(bins) = self.bindings.get_mut(bin) {
-            if let Some((idx, _)) = bins.iter().enumerate().find(|(_i, v)| **v == route_id) {
-                bins.swap_remove(idx);
-            } else {
-                rprintln!("Route id {} not found in bindings {:?} index: {:?}", route_id, bin, bins)
-            }
-        } else {
-            rprintln!("Route has source {:?} but is bindings is empty", bin)
-        }
-    }
+    // fn try_remove(&mut self, route_id: Handle, bin: &RouteBinding) {
+    //     if let Some(bins) = self.bindings.get_mut(bin) {
+    //         if let Some((idx, _)) = bins.iter().enumerate().find(|(_i, v)| **v == route_id) {
+    //             bins.swap_remove(idx);
+    //         } else {
+    //             rprintln!("Route id {} not found in bindings {:?} index: {:?}", route_id, bin, bins)
+    //         }
+    //     } else {
+    //         rprintln!("Route has source {:?} but is bindings is empty", bin)
+    //     }
+    // }
 }
 

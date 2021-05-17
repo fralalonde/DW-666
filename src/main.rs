@@ -177,9 +177,9 @@ const APP: () = {
 
         let mut midi_router: midi::Router = midi::Router::default();
 
-        let _usb_echo = midi_router.add_route(
-            Route::echo(Interface::USB(0))
-                .filter(|_now, cx| event_print(cx)));
+        // let _usb_echo = midi_router.add_route(
+        //     Route::echo(Interface::USB(0))
+        //         .filter(|_now, cx| event_print(cx)));
 
         // let _serial_print = midi_router.bind(Route::from(Interface::Serial(0)).filter(event_print()));
 
@@ -282,7 +282,7 @@ const APP: () = {
     #[task(spawn = [send_midi, redraw], resources = [midi_router, tasks], priority = 3, capacity = 16)]
     fn dispatch_midi(cx: dispatch_midi::Context, from: RouteBinding, packet: Packet) {
         let router: &mut midi::Router = cx.resources.midi_router;
-        router.dispatch_midi(cx.scheduled, packet, from, cx.spawn)
+        router.dispatch_midi(cx.scheduled, packet, from, cx.spawn).unwrap();
     }
 
     #[task(resources = [usb_midi, serial_midi], capacity = 64, priority = 2)]
@@ -305,7 +305,7 @@ const APP: () = {
         }
     }
 
-    #[task(resources = [display], capacity = 4)]
+    #[task(resources = [display], capacity = 8)]
     fn redraw(ctx: redraw::Context, text: String) {
         ctx.resources.display.print(text).unwrap()
     }

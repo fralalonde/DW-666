@@ -52,7 +52,7 @@ impl Service for BlinkyBeat {
                 }
                 *on = !*on
             }
-            Ok(Some(200.millis()))
+            Ok(Some(2000.millis()))
         });
 
         rprintln!("BlinkyBeat Active");
