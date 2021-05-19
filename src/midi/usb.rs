@@ -71,8 +71,9 @@ impl UsbMidi {
 impl midi::Transmit for UsbMidi {
     fn transmit(&mut self, packets: Vec<Packet>) -> Result<(), MidiError> {
         for packet in packets {
-            self.midi_class.send(packet.bytes());
+            self.midi_class.tx_push(packet.bytes());
         }
+        self.midi_class.tx_flush();
         Ok(())
     }
 }
@@ -98,7 +99,6 @@ pub struct MidiClass<'a, B: UsbBus> {
 
     tx_fifo: [u8; TX_FIFO_SIZE],
     tx_len: usize,
-    tx_drop: usize,
 
     rx_fifo: [u8; RX_FIFO_SIZE],
     rx_end: usize,
@@ -117,7 +117,6 @@ impl<B: UsbBus> MidiClass<'_, B> {
 
             tx_fifo: [0; TX_FIFO_SIZE],
             tx_len: 0,
-            tx_drop: 0,
 
             rx_fifo: [0; RX_FIFO_SIZE],
             rx_start: 0,
@@ -125,26 +124,26 @@ impl<B: UsbBus> MidiClass<'_, B> {
         }
     }
 
-    /// Try enqueue packet, then flush.
-    /// If enqueue failed (because buffer full), retry after flush.
-    /// Drop packet if all else fails.
-    fn send(&mut self, payload: &[u8]) {
-        let retry_push = !self.tx_push(payload);
-        let flushed = self.tx_flush();
-
-        if retry_push {
-            if flushed {
-                // do retry enqueue packet
-                if !self.tx_push(payload) {
-                    // but queue was just flushed?! should never happen (famous last words)
-                    self.tx_drop += 1;
-                }
-            } else {
-                // queue is just as full as before, no sense in retrying
-                self.tx_drop += 1;
-            }
-        }
-    }
+    // /// Try enqueue packet, then flush.
+    // /// If enqueue failed (because buffer full), retry after flush.
+    // /// Drop packet if all else fails.
+    // fn send(&mut self, payload: &[u8]) {
+    //     let retry_push = !self.tx_push(payload);
+    //     let flushed = self.tx_flush();
+    //
+    //     if retry_push {
+    //         if flushed {
+    //             // do retry enqueue packet
+    //             if !self.tx_push(payload) {
+    //                 // but queue was just flushed?! should never happen (famous last words)
+    //                 self.tx_drop += 1;
+    //             }
+    //         } else {
+    //             // queue is just as full as before, no sense in retrying
+    //             self.tx_drop += 1;
+    //         }
+    //     }
+    // }
 
     /// Empty TX FIFO to USB devices.
     /// Return true if bytes were sent.

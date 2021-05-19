@@ -231,7 +231,7 @@ impl Service for Dw6000Control {
                     }
                 }
             }
-            Ok(Some(20.millis()))
+            Ok(Some(50.millis()))
         });
 
         let state = self.state.clone();
@@ -334,12 +334,12 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, state: &mut MutexGuard<InnerSta
             }
         }
         Message::ControlChange(_ch, cc, value) =>
-
             if let Some(param) = cc_to_dw_param(cc, state.active_page()) {
                 if let Some(root) = state.mod_dump.get_mut(&param) {
                     *root = value.0
                 } else if let Some(dump) = &mut state.current_dump {
                     set_param_value(param, value.into(), dump.as_mut_slice());
+                    context.packets.clear();
                     context.packets.extend(param_to_sysex(param, &dump));
                     context.strings.push(format!("{:?}\n{:?}", param, get_param_value(param, &dump)));
                 }
