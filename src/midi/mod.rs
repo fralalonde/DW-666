@@ -29,10 +29,11 @@ pub use u7::{U7};
 pub use serial::{SerialMidi};
 pub use usb::{MidiClass, usb_device, UsbMidi};
 pub use sysex::{Matcher, Token, Tag, Sysex};
-pub use route::{Router, RouteBinding, RouteContext, Route, Service};
+pub use route::{Router, RouteContext, Route, Service};
 pub use filter::{capture_sysex, event_print};
 use alloc::string::String;
 use crate::Handle;
+use alloc::vec::Vec;
 
 #[derive(Clone, Copy, Debug)]
 /// MIDI channel, stored as 0-15
@@ -55,8 +56,14 @@ pub type Bend = U14;
 pub enum Interface {
     USB(u8),
     Serial(u8),
-    // Virtual(u16),
+    Application(u16),
     // TODO virtual interfaces ?
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum Binding {
+    Src(Interface),
+    Dst(Interface),
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -77,7 +84,7 @@ pub trait Receive {
 
 pub trait Transmit {
     /// Send a single packet
-    fn transmit(&mut self, event: Packet) -> Result<(), MidiError>;
+    fn transmit(&mut self, event: Vec<Packet>) -> Result<(), MidiError>;
 }
 
 #[derive(Debug)]
@@ -131,8 +138,15 @@ impl From<TryFromSliceError> for MidiError {
 }
 
 /// RTIC spawn error
-impl From<(Interface, Packet)> for MidiError {
-    fn from(_: (Interface, Packet)) -> Self {
+impl From<(Binding, Vec<Packet>)> for MidiError {
+    fn from(_: (Binding, Vec<Packet>)) -> Self {
+        MidiError::UnsentPacket
+    }
+}
+
+/// RTIC spawn error
+impl From<(Interface, Vec<Packet>)> for MidiError {
+    fn from(_: (Interface, Vec<Packet>)) -> Self {
         MidiError::UnsentPacket
     }
 }

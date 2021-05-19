@@ -45,11 +45,13 @@ use midi::{CableNumber, MidiClass, SerialMidi, usb_device};
 use midi::{Interface, Packet, Receive, Transmit};
 
 use crate::apps::dw6000_control::Dw6000Control;
-use crate::midi::{channel, event_print, Service, Note, Route, RouteBinding};
+use crate::midi::{channel, event_print, Service, Note, Route, Binding};
 use alloc::string::String;
 use crate::time::Tasks;
 use rtic::cyccnt::U32Ext as _;
 use crate::apps::blinky_beat::BlinkyBeat;
+use crate::midi::Binding::Src;
+use alloc::vec::Vec;
 
 mod time;
 mod midi;
@@ -246,29 +248,31 @@ const APP: () = {
     }
 
     /// USB receive interrupt
-    #[task(binds = OTG_FS, spawn = [dispatch_midi], resources = [usb_midi], priority = 3)]
+    #[task(binds = OTG_FS, spawn = [midispatch], resources = [usb_midi], priority = 3)]
     fn usb_interrupt(cx: usb_interrupt::Context) {
         // poll() is also required here else receive may block forever
         if cx.resources.usb_midi.poll() {
             while let Some(packet) = cx.resources.usb_midi.receive().unwrap() {
-                cx.spawn.dispatch_midi(RouteBinding::Src(Interface::USB(0)), packet).unwrap();
+                if let Err(e) = cx.spawn.midispatch(Src(Interface::USB(0)),vec![packet]) {
+                    rprintln!("Dropped incoming MIDI: {:?}", e)
+                }
             }
         }
     }
 
     /// Serial receive interrupt
-    #[task(binds = USART2, spawn = [dispatch_midi], resources = [serial_midi], priority = 3)]
+    #[task(binds = USART2, spawn = [midispatch], resources = [serial_midi], priority = 3)]
     fn serial_irq0(cx: serial_irq0::Context) {
         if let Err(err) = cx.resources.serial_midi.flush() {
             rprintln!("Serial flush failed {:?}", err);
         }
 
         while let Ok(Some(packet)) = cx.resources.serial_midi.receive() {
-            cx.spawn.dispatch_midi(RouteBinding::Src(Interface::Serial(0)), packet).unwrap();
+            cx.spawn.midispatch(Src(Interface::Serial(0)), vec![packet]).unwrap();
         }
     }
 
-    #[task(resources = [chaos, tasks], spawn = [send_midi], schedule = [tasks], priority = 3)]
+    #[task(resources = [chaos, tasks], spawn = [midispatch], schedule = [tasks], priority = 3)]
     fn tasks(mut cx: tasks::Context) {
         let tasks = &mut cx.resources.tasks;
         let chaos = &mut cx.resources.chaos;
@@ -280,17 +284,17 @@ const APP: () = {
     }
 
     #[task(spawn = [send_midi, redraw], resources = [midi_router, tasks], priority = 3, capacity = 16)]
-    fn dispatch_midi(cx: dispatch_midi::Context, from: RouteBinding, packet: Packet) {
+    fn midispatch(cx: midispatch::Context, binding: Binding, packets: Vec<Packet>) {
         let router: &mut midi::Router = cx.resources.midi_router;
-        router.dispatch_midi(cx.scheduled, packet, from, cx.spawn).unwrap();
+        router.midispatch(cx.scheduled, packets, binding, cx.spawn).unwrap();
     }
 
-    #[task(resources = [usb_midi, serial_midi], capacity = 64, priority = 2)]
-    fn send_midi(mut cx: send_midi::Context, interface: Interface, packet: Packet) {
+    #[task(resources = [usb_midi, serial_midi], capacity = 128, priority = 2)]
+    fn send_midi(mut cx: send_midi::Context, interface: Interface, packets: Vec<Packet>) {
         match interface {
             Interface::USB(_) => {
                 cx.resources.usb_midi.lock(
-                    |usb_midi| if let Err(e) = usb_midi.transmit(packet) {
+                    |usb_midi| if let Err(e) = usb_midi.transmit(packets) {
                         rprintln!("Failed to send USB MIDI: {:?}", e)
                     }
                 );
@@ -298,10 +302,11 @@ const APP: () = {
             Interface::Serial(_) => {
                 // TODO use proper serial port #
                 cx.resources.serial_midi.lock(
-                    |serial_out| if let Err(e) = serial_out.transmit(packet) {
+                    |serial_out| if let Err(e) = serial_out.transmit(packets) {
                         rprintln!("Failed to send Serial MIDI: {:?}", e)
                     });
             }
+            Interface::Application(_) => {}
         }
     }
 

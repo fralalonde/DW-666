@@ -18,6 +18,7 @@ use crate::midi::Packet;
 use crate::midi::MidiError;
 use crate::midi;
 use usb_device::class_prelude::EndpointAddress;
+use alloc::vec::Vec;
 
 const USB_TX_BUFFER_SIZE: u16 = 64;
 
@@ -68,8 +69,10 @@ impl UsbMidi {
 }
 
 impl midi::Transmit for UsbMidi {
-    fn transmit(&mut self, packet: Packet) -> Result<(), MidiError> {
-        self.midi_class.send(packet.bytes());
+    fn transmit(&mut self, packets: Vec<Packet>) -> Result<(), MidiError> {
+        for packet in packets {
+            self.midi_class.send(packet.bytes());
+        }
         Ok(())
     }
 }

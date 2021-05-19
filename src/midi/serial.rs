@@ -13,6 +13,7 @@ use hal::gpio::AF7;
 use hal::gpio::gpioa::{PA2, PA3};
 use alloc::collections::VecDeque;
 use hal::serial::Event;
+use alloc::vec::Vec;
 
 #[derive(Copy, Clone, Default, Debug)]
 struct PacketBuffer {
@@ -182,26 +183,28 @@ impl Receive for SerialMidi {
 }
 
 impl Transmit for SerialMidi {
-    fn transmit(&mut self, event: Packet) -> Result<(), MidiError> {
-        let mut payload = event.payload();
-        // Apply MIDI "running status"
-        if is_channel_status(payload[0]) {
-            if let Some(last_status) = self.last_status {
-                if payload[0] == last_status {
-                    // same status as last time, chop out status byte
-                    payload = &payload[1..];
-                } else {
-                    // take note of new status
-                    self.last_status = Some(payload[0])
+    fn transmit(&mut self, packets: Vec<Packet>) -> Result<(), MidiError> {
+        for packet in packets {
+            let mut payload = packet.payload();
+            // Apply MIDI "running status"
+            if is_channel_status(payload[0]) {
+                if let Some(last_status) = self.last_status {
+                    if payload[0] == last_status {
+                        // same status as last time, chop out status byte
+                        payload = &payload[1..];
+                    } else {
+                        // take note of new status
+                        self.last_status = Some(payload[0])
+                    }
                 }
+            } else {
+                // non-repeatable status or no status (sysex)
+                self.last_status = None
             }
-        } else {
-            // non-repeatable status or no status (sysex)
-            self.last_status = None
-        }
 
-        // rprintln!("write {:x?}", payload);
-        self.write_all(payload)?;
+            // rprintln!("write {:x?}", payload);
+            self.write_all(payload)?;
+        }
         self.flush()?;
         Ok(())
     }

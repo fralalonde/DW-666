@@ -32,23 +32,22 @@ use devices::arturia::beatstep;
 use beatstep::Param::*;
 use beatstep::Pad::*;
 use crate::devices::arturia::beatstep::{SwitchMode};
+use crate::midi::Binding::Dst;
 
 impl Service for BlinkyBeat {
-    fn start(&mut self, now: rtic::cyccnt::Instant, _router: &mut Router, tasks: &mut Tasks)  -> Result<(), MidiError> {
+    fn start(&mut self, now: rtic::cyccnt::Instant, _router: &mut Router, tasks: &mut Tasks) -> Result<(), MidiError> {
         let state = self.state.clone();
         tasks.repeat(now, move |_now, _chaos, spawn| {
             let mut state = state.lock();
             let bs = state.beatstep;
             for sysex in devices::arturia::beatstep::beatstep_set(PadNote(Pad(15), channel(1), Note::C1m, SwitchMode::Gate)) {
-                for packet in sysex {
-                    spawn.send_midi(bs.interface, packet)?;
-                }
+                spawn.midispatch(Dst(bs.interface), sysex.collect()).unwrap();
             }
             for (note, ref mut on) in &mut state.notes {
                 if *on {
-                    spawn.send_midi(bs.interface, note_off(bs.channel, *note, Velocity::MAX)?.into())?;
+                    spawn.midispatch(Dst(bs.interface), vec![note_off(bs.channel, *note, Velocity::MAX)?.into()]).unwrap();
                 } else {
-                    spawn.send_midi(bs.interface, note_on(bs.channel, *note, Velocity::MIN)?.into())?;
+                    spawn.midispatch(Dst(bs.interface), vec![note_on(bs.channel, *note, Velocity::MIN)?.into()]).unwrap();
                 }
                 *on = !*on
             }

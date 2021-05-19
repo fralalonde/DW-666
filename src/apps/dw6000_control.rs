@@ -14,6 +14,7 @@ use num::{Integer};
 use crate::apps::lfo::{Lfo, Waveform};
 use hashbrown::HashMap;
 use crate::devices::korg::dw6000;
+use crate::midi::Binding::Dst;
 
 const SHORT_PRESS: u32 = 250;
 
@@ -225,9 +226,8 @@ impl Service for Dw6000Control {
 
                     if let Some(ref mut dump) = &mut state.current_dump {
                         set_param_value(lfo2_param, mod_value, dump.as_mut_slice());
-                        for packet in param_to_sysex(lfo2_param, &dump) {
-                            spawn.send_midi(state.dw6000.interface, packet)?;
-                        }
+                        let sysex = param_to_sysex(lfo2_param, &dump);
+                        spawn.midispatch(Dst(state.dw6000.interface), sysex.collect())?;
                     }
                 }
             }
@@ -238,9 +238,7 @@ impl Service for Dw6000Control {
         tasks.repeat(now, move |_now, _chaos, spawn| {
             let state = state.lock();
             // periodic DW-6000 dump sync
-            for packet in dump_request() {
-                spawn.send_midi(state.dw6000.interface, packet)?;
-            }
+            spawn.midispatch(Dst(state.dw6000.interface), dump_request().collect())?;
             Ok(Some(250.millis()))
         });
 
