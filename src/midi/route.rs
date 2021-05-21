@@ -104,7 +104,7 @@ impl RouteContext {
     }
 
     fn flush_packets(&mut self, destination: Interface, spawn: midispatch::Spawn) -> Result<(), MidiError> {
-        spawn.send_midi(destination, self.packets.drain(..).collect())?;
+        spawn.midisend(destination, self.packets.drain(..).collect())?;
         Ok(())
     }
 }
@@ -123,8 +123,10 @@ impl Router {
         let mut context = RouteContext::default();
 
         match binding {
-            Binding::Dst(destination) =>
-                Self::out(&mut self.egress, now, spawn, &mut context, destination)?,
+            Binding::Dst(destination) => {
+                context.restart(packets.clone());
+                Self::out(&mut self.egress, now, spawn, &mut context, destination)?
+            }
             Binding::Src(source) =>
                 if let Some(routes) = self.ingress.get_mut(&source) {
                     for route_in in routes.values_mut() {

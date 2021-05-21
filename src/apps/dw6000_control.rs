@@ -298,7 +298,7 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, state: &mut MutexGuard<InnerSta
                 state.bank = Some(bank)
             } else if let Some(prog) = note_prog(note) {
                 if let Some(bank) = state.bank {
-                    // spawn.send_midi(dw6000.interface, .into())?;
+                    // spawn.midisend(dw6000.interface, .into())?;
                     context.packets.clear();
                     context.packets.push(program_change(dw6000.channel, (bank * 8) + prog)?.into())
                 }
@@ -338,10 +338,13 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, state: &mut MutexGuard<InnerSta
                 if let Some(root) = state.mod_dump.get_mut(&param) {
                     *root = value.0
                 } else if let Some(dump) = &mut state.current_dump {
+                    rprintln!("bourk");
                     set_param_value(param, value.into(), dump.as_mut_slice());
                     context.packets.clear();
                     context.packets.extend(param_to_sysex(param, &dump));
                     context.strings.push(format!("{:?}\n{:?}", param, get_param_value(param, &dump)));
+                } else {
+                    rprintln!("no dump yet");
                 }
             } else if let Some(param) = cc_to_ctl_param(cc, state.active_page()) {
                 match param {

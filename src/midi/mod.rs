@@ -30,7 +30,7 @@ pub use serial::{SerialMidi};
 pub use usb::{MidiClass, usb_device, UsbMidi};
 pub use sysex::{Matcher, Token, Tag, Sysex};
 pub use route::{Router, RouteContext, Route, Service};
-pub use filter::{capture_sysex, event_print};
+pub use filter::{capture_sysex, print_message, print_packets};
 use alloc::string::String;
 use crate::Handle;
 use alloc::vec::Vec;

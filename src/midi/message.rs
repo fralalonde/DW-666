@@ -51,25 +51,25 @@ pub enum Message {
 
 }
 
-pub fn note_on(channel: impl TryInto<Channel>, note: impl TryInto<Note>, velocity: impl TryInto<Velocity>) -> Result<Message, MidiError> {
+pub fn note_on(channel: Channel, note: impl TryInto<Note>, velocity: impl TryInto<Velocity>) -> Result<Message, MidiError> {
     Ok(Message::NoteOn(
-        channel.try_into().map_err(|_| MidiError::InvalidChannel)?,
+        channel,
         note.try_into().map_err(|_| MidiError::InvalidNote)?,
         velocity.try_into().map_err(|_| MidiError::InvalidVelocity)?)
     )
 }
 
-pub fn note_off(channel: impl TryInto<Channel>, note: impl TryInto<Note>, velocity: impl TryInto<Velocity>) -> Result<Message, MidiError> {
+pub fn note_off(channel: Channel, note: impl TryInto<Note>, velocity: impl TryInto<Velocity>) -> Result<Message, MidiError> {
     Ok(Message::NoteOff(
-        channel.try_into().map_err(|_| MidiError::InvalidChannel)?,
+        channel,
         note.try_into().map_err(|_| MidiError::InvalidNote)?,
         velocity.try_into().map_err(|_| MidiError::InvalidVelocity)?)
     )
 }
 
-pub fn program_change(channel: impl TryInto<Channel>, program: impl TryInto<Program>) -> Result<Message, MidiError> {
+pub fn program_change(channel: Channel, program: impl TryInto<Program>) -> Result<Message, MidiError> {
     Ok(Message::ProgramChange(
-        channel.try_into().map_err(|_| MidiError::InvalidChannel)?,
+        channel,
         program.try_into().map_err(|_| MidiError::InvalidProgram)?,
     ))
 }

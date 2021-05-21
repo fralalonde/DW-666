@@ -11,7 +11,8 @@ pub fn capture_sysex(matcher: &mut Matcher, context: &mut RouteContext) -> Resul
     Ok(true)
 }
 
-pub fn event_print(context: &mut RouteContext) -> Result<bool, MidiError> {
+/// Print packets to the console and continue
+pub fn print_message(context: &mut RouteContext) -> Result<bool, MidiError> {
     for p in &context.packets {
         if let Ok(message) = Message::try_from(*p) {
             match message {
@@ -27,6 +28,14 @@ pub fn event_print(context: &mut RouteContext) -> Result<bool, MidiError> {
                 }
             }
         }
+    }
+    Ok(true)
+}
+
+/// Print packets to the console and continue
+pub fn print_packets(context: &mut RouteContext) -> Result<bool, MidiError> {
+    for p in &context.packets {
+        rprintln!("packet {:x?}", p);
     }
     Ok(true)
 }

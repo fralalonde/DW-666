@@ -45,7 +45,7 @@ use midi::{CableNumber, MidiClass, SerialMidi, usb_device};
 use midi::{Interface, Packet, Receive, Transmit};
 
 use crate::apps::dw6000_control::Dw6000Control;
-use crate::midi::{channel, event_print, Service, Note, Route, Binding};
+use crate::midi::{channel, print_message, Service, Note, Route, Binding, print_packets};
 use alloc::string::String;
 use crate::time::Tasks;
 use rtic::cyccnt::U32Ext as _;
@@ -181,13 +181,16 @@ const APP: () = {
 
         // let _usb_echo = midi_router.add_route(
         //     Route::echo(Interface::USB(0))
-        //         .filter(|_now, cx| event_print(cx)));
+        //         .filter(|_now, cx| print_message(cx)));
 
-        // let _serial_print = midi_router.bind(Route::from(Interface::Serial(0)).filter(event_print()));
+        // let _serial_print = midi_router.bind(Route::from(Interface::Serial(0)).filter(print_message()));
 
         let _usb_print = midi_router.add_route(
             Route::to(Interface::USB(0))
-                .filter(|_now, cx| event_print(cx)));
+                .filter(|_now, cx| print_packets(cx)));
+        let _usb_print_in = midi_router.add_route(
+            Route::from(Interface::USB(0))
+                .filter(|_now, cx| print_packets(cx)));
 
         // let _evo_match = midi_router.bind(
         //     Route::from(Interface::Serial(0))
@@ -283,14 +286,14 @@ const APP: () = {
         cx.schedule.tasks(cx.scheduled + TASKS_PERIOD.cycles()).unwrap();
     }
 
-    #[task(spawn = [send_midi, redraw], resources = [midi_router, tasks], priority = 3, capacity = 16)]
+    #[task(spawn = [midisend, redraw], resources = [midi_router, tasks], priority = 3, capacity = 16)]
     fn midispatch(cx: midispatch::Context, binding: Binding, packets: Vec<Packet>) {
         let router: &mut midi::Router = cx.resources.midi_router;
         router.midispatch(cx.scheduled, packets, binding, cx.spawn).unwrap();
     }
 
     #[task(resources = [usb_midi, serial_midi], capacity = 128, priority = 2)]
-    fn send_midi(mut cx: send_midi::Context, interface: Interface, packets: Vec<Packet>) {
+    fn midisend(mut cx: midisend::Context, interface: Interface, packets: Vec<Packet>) {
         match interface {
             Interface::USB(_) => {
                 cx.resources.usb_midi.lock(

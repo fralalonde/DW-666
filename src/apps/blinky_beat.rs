@@ -40,14 +40,15 @@ impl Service for BlinkyBeat {
         tasks.repeat(now, move |_now, _chaos, spawn| {
             let mut state = state.lock();
             let bs = state.beatstep;
-            for sysex in devices::arturia::beatstep::beatstep_set(PadNote(Pad(15), channel(1), Note::C1m, SwitchMode::Gate)) {
+            for sysex in devices::arturia::beatstep::beatstep_set(PadNote(Pad(0), channel(1), Note::C1m, SwitchMode::Gate)) {
                 spawn.midispatch(Dst(bs.interface), sysex.collect()).unwrap();
             }
             for (note, ref mut on) in &mut state.notes {
+                rprintln!("BlinkyBeat {:?}", bs.channel);
                 if *on {
-                    spawn.midispatch(Dst(bs.interface), vec![note_off(bs.channel, *note, Velocity::MAX)?.into()]).unwrap();
+                    spawn.midispatch(Dst(bs.interface), vec![note_on(bs.channel, *note, Velocity::MAX)?.into()]).unwrap();
                 } else {
-                    spawn.midispatch(Dst(bs.interface), vec![note_on(bs.channel, *note, Velocity::MIN)?.into()]).unwrap();
+                    spawn.midispatch(Dst(bs.interface), vec![note_off(bs.channel, *note, Velocity::MIN)?.into()]).unwrap();
                 }
                 *on = !*on
             }
