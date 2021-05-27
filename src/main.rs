@@ -31,8 +31,9 @@ use hal::{
     otg_fs::{USB, UsbBus, UsbBusType},
     rcc::RccExt,
     serial::{self, config::StopBits, Serial},
-    stm32 as device,
+    // stm32 as device,
     time::U32Ext,
+    stm32,
 };
 use ssd1306::{prelude::*, Builder, I2CDIBuilder};
 
@@ -53,15 +54,50 @@ use crate::apps::blinky_beat::BlinkyBeat;
 use crate::midi::Binding::Src;
 use alloc::vec::Vec;
 
+use embedded_graphics::image::Image;
+use ili9486::gpio::GPIO8ParallelInterface;
+// use tinytga::Tga;
+
+use embedded_graphics::{
+    fonts::{Font6x8, Text},
+    pixelcolor::{Rgb565, Rgb888},
+    prelude::*,
+    style::{PrimitiveStyle, TextStyle},
+};
+
+use ili9486::color::PixelFormat;
+use ili9486::io::stm32f4xx::gpioa::*;
+use ili9486::io::stm32f4xx::gpiob::*;
+use ili9486::io::stm32f4xx::*;
+
+use ili9486::{Command, Commands, ILI9486};
+
+use cortex_m_rt::entry;
+
+use stm32f4xx_hal::{
+    gpio::{PullDown},
+};
+
+
+use embedded_graphics::style::PrimitiveStyleBuilder;
+use embedded_graphics::primitives::{Rectangle, Circle};
+use hal::stm32::Peripherals;
+use hal::delay::Delay;
+use embedded_hal::blocking::delay::DelayUs;
+
+
 mod time;
 mod midi;
 mod devices;
 mod apps;
 mod display;
 
+
 pub const CPU_FREQ: u32 = 96_000_000;
 pub const CYCLES_PER_MICROSEC: u32 = CPU_FREQ / 1_000_000;
 pub const CYCLES_PER_MILLISEC: u32 = CPU_FREQ / 1_000;
+
+pub const AHB_FREQ: u32 = CPU_FREQ / 2;
 
 const LED_BLINK: u32 = CPU_FREQ / 4;
 const TASKS_PERIOD: u32 = CYCLES_PER_MILLISEC;
@@ -95,16 +131,28 @@ static ALLOC: NonThreadsafeAlloc = unsafe {
 };
 
 pub type Handle = u16;
-
 pub static NEXT_HANDLE: AtomicU16 = AtomicU16::new(0);
 
-#[app(device = crate::device, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
+
+struct CortexDelay;
+
+impl DelayUs<u32> for CortexDelay {
+    fn delay_us(&mut self, us: u32) {
+        cortex_m::asm::delay(us * CYCLES_PER_MICROSEC)
+    }
+}
+
+#[rtic::app(device = hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
         tasks: Tasks,
         chaos: nanorand::WyRand,
         on_board_led: PC13<Output<PushPull>>,
-        display: display::Display,
+        display: display::Display<GPIO8ParallelInterface<
+            PA5IOPin<PullDown, PushPull>, PA6IOPin<PullDown, PushPull>, PA7IOPin<PullDown, PushPull>, PA8IOPin<PullDown, PushPull>,
+            PA9IOPin<PullDown, PushPull>, PA10IOPin<PullDown, PushPull>, PB0IOPin<PullDown, PushPull>, PB1IOPin<PullDown, PushPull>,
+            PB6IOPin<PullDown, PushPull>, PB7IOPin<PullDown, PushPull>, PB8IOPin<PullDown, PushPull>, PB9IOPin<PullDown, PushPull>
+        >>,
         midi_router: midi::Router,
         usb_midi: midi::UsbMidi,
         serial_midi: SerialMidi,
@@ -118,16 +166,17 @@ const APP: () = {
         rtt_init_print!();
         rprintln!("Initializing");
 
-        let peripherals = cx.device;
-        let rcc = peripherals.RCC.constrain();
+        let mut core: rtic::Peripherals = cx.core;
+        core.DCB.enable_trace();
+        core.DWT.enable_cycle_counter();
+
+        let dev: stm32::Peripherals = cx.device;
+        let rcc = dev.RCC.constrain();
         let clocks = rcc.cfgr.sysclk(CPU_FREQ.hz()).freeze();
 
-        cx.core.DCB.enable_trace();
-        cx.core.DWT.enable_cycle_counter();
-
-        let gpioa = peripherals.GPIOA.split();
-        let gpiob = peripherals.GPIOB.split();
-        let gpioc = peripherals.GPIOC.split();
+        let gpioa = dev.GPIOA.split();
+        let gpiob = dev.GPIOB.split();
+        let gpioc = dev.GPIOC.split();
 
         let mut tasks = time::Tasks::default();
         cx.schedule.tasks(cx.start).unwrap();
@@ -135,22 +184,45 @@ const APP: () = {
         let on_board_led = gpioc.pc13.into_push_pull_output();
 
         // Setup Display
-        let scl = gpiob.pb8.into_alternate_af4().set_open_drain();
-        let sda = gpiob.pb9.into_alternate_af4().set_open_drain();
+        // let scl = gpiob.pb8.into_alternate_af4().set_open_drain();
+        // let sda = gpiob.pb9.into_alternate_af4().set_open_drain();
+        //
+        // let i2c = I2c::i2c1(dev.I2C1, (scl, sda), 400.khz(), clocks);
+        // let interface = I2CDIBuilder::new().init(i2c);
+        // let mut oled: GraphicsMode<_> = Builder::new().connect(interface).into();
+        // oled.init().unwrap();
+        //
+        // display::draw_logo(&mut oled).unwrap();
 
-        let i2c = I2c::i2c1(peripherals.I2C1, (scl, sda), 400.khz(), clocks);
-        let interface = I2CDIBuilder::new().init(i2c);
-        let mut oled: GraphicsMode<_> = Builder::new().connect(interface).into();
-        oled.init().unwrap();
+        let pa5 = GPIOA::PA5::<PullDown, PushPull>(gpioa.pa5.into_pull_down_input().);
+        let pa6 = GPIOA::PA6::<PullDown, PushPull>(gpioa.pa6.into_pull_down_input());
+        let pa7 = GPIOA::PA7::<PullDown, PushPull>(gpioa.pa7.into_pull_down_input());
+        let pa8 = GPIOA::PA8::<PullDown, PushPull>(gpioa.pa8.into_pull_down_input());
 
-        display::draw_logo(&mut oled).unwrap();
+        let pa9 = GPIOA::PA9::<PullDown, PushPull>(gpioa.pa9.into_pull_down_input());
+        let pa10 = GPIOA::PA10::<PullDown, PushPull>(gpioa.pa10.into_pull_down_input());
+        let pa11 = GPIOB::PB0::<PullDown, PushPull>(gpiob.pb0.into_pull_down_input());
+        let pa12 = GPIOB::PB1::<PullDown, PushPull>(gpiob.pb1.into_pull_down_input());
+
+        let pb6 = GPIOB::PB6::<PullDown, PushPull>(gpiob.pb6.into_pull_down_input());
+        let pb7 = GPIOB::PB7::<PullDown, PushPull>(gpiob.pb7.into_pull_down_input());
+        let pb8 = GPIOB::PB8::<PullDown, PushPull>(gpiob.pb8.into_pull_down_input());
+        let pb9 = GPIOB::PB9::<PullDown, PushPull>(gpiob.pb9.into_pull_down_input());
+
+        let parallel_gpio = GPIO8ParallelInterface::new(pa5, pa6, pa7, pa8, pa9, pa10, pa11, pa12, pb6, pb7, pb8, pb9)
+            .unwrap();
+
+        // cortex_m::asm::delay
+        // let mut delay = Delay::new(core.SYST, clocks);
+        let pb5 = GPIOB::PB5::<PullDown, PushPull>(gpiob.pb5.into_pull_down_input());
+        let mut lcd = ILI9486::new(&mut CortexDelay{}, PixelFormat::Rgb565, parallel_gpio, pb5).unwrap();
 
         rprintln!("Screen OK");
 
         let tx_pin = gpioa.pa2.into_alternate_af7();
         let rx_pin = gpioa.pa3.into_alternate_af7();
         let mut uart = Serial::usart2(
-            peripherals.USART2,
+            dev.USART2,
             (tx_pin, rx_pin),
             serial::config::Config::default()
                 .baudrate(31250.bps())
@@ -163,11 +235,12 @@ const APP: () = {
         rprintln!("Serial port OK");
 
         let usb = USB {
-            usb_global: peripherals.OTG_FS_GLOBAL,
-            usb_device: peripherals.OTG_FS_DEVICE,
-            usb_pwrclk: peripherals.OTG_FS_PWRCLK,
+            usb_global: dev.OTG_FS_GLOBAL,
+            usb_device: dev.OTG_FS_DEVICE,
+            usb_pwrclk: dev.OTG_FS_PWRCLK,
             pin_dm: gpioa.pa11.into_alternate_af10(),
             pin_dp: gpioa.pa12.into_alternate_af10(),
+            hclk: AHB_FREQ.hz(),
         };
         *USB_BUS = Some(UsbBus::new(usb, unsafe { &mut USB_EP_MEMORY }));
         let usb_bus = USB_BUS.as_ref().unwrap();
@@ -218,9 +291,7 @@ const APP: () = {
             tasks,
             chaos,
             on_board_led,
-            display: display::Display {
-                oled,
-            },
+            display: display::Display::new(lcd),
             midi_router,
             serial_midi,
             usb_midi: midi::UsbMidi {
@@ -256,7 +327,7 @@ const APP: () = {
         // poll() is also required here else receive may block forever
         if cx.resources.usb_midi.poll() {
             while let Some(packet) = cx.resources.usb_midi.receive().unwrap() {
-                if let Err(e) = cx.spawn.midispatch(Src(Interface::USB(0)),vec![packet]) {
+                if let Err(e) = cx.spawn.midispatch(Src(Interface::USB(0)), vec![packet]) {
                     rprintln!("Dropped incoming MIDI: {:?}", e)
                 }
             }

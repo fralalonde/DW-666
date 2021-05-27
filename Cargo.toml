@@ -25,7 +25,7 @@ rtt-target = { version = "0.3", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
 
 ssd1306 = "0.4"
-display-interface = "0.4"
+#display-interface = "0.4"
 
 #heapless = {git = "https://github.com/japaric/heapless.git", branch = "const_generics", features = ["ufmt-impl", "cas"]}
 #ufmt = "0.1"
@@ -34,8 +34,22 @@ buddy-alloc = "0.4"
 hashbrown = "0.11"
 nanorand = { version = "0.5", default-features = false, features = ["wyrand"] }
 
-stm32f4 = { version = "0.11", features = ["stm32f411", "rt"], optional = true }
-stm32f4xx-hal = { version = "0.8", features = ["stm32f411", "rt", "usb_fs"], optional = true }
+stm32f4 = { version = "0.13", features = ["stm32f411", "rt"], optional = true }
+#using git version see below
+stm32f4xx-hal = { version = "0.9", features = ["stm32f411", "rt", "usb_fs"], optional = true }
+
+#ili9486-driver = {git = "https://github.com/chrismoos/ili9486-driver", branch = "master", features = ["stm32f411", "stm32f4xx-hal", "stm32f4xx"], default-features = false}
+ili9486-driver = { path = "../ili9486-driver", branch = "master", features = ["stm32f411", "stm32f4xx-hal", "stm32f4xx"], default-features = false }
+tinytga = { version = "0.3", features = ["graphics"] }
+
+#need to use same version as ili9486 driver
+#[dependencies.stm32f4xx-hal]
+#git = "https://github.com/stm32-rs/stm32f4xx-hal"
+#features = ["stm32f411", "rt", "usb_fs"]
+#optional = true
+[dependencies.display-interface]
+git = "https://github.com/chrismoos/display-interface"
+branch = "rw-interface"
 
 [features]
 default = ["stm32f4xx"]
