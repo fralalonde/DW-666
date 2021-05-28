@@ -44,7 +44,6 @@ impl Service for BlinkyBeat {
                 spawn.midispatch(Dst(bs.interface), sysex.collect()).unwrap();
             }
             for (note, ref mut on) in &mut state.notes {
-                rprintln!("BlinkyBeat {:?}", bs.channel);
                 if *on {
                     spawn.midispatch(Dst(bs.interface), vec![note_on(bs.channel, *note, Velocity::MAX)?.into()]).unwrap();
                 } else {

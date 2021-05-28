@@ -338,7 +338,6 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, state: &mut MutexGuard<InnerSta
                 if let Some(root) = state.mod_dump.get_mut(&param) {
                     *root = value.0
                 } else if let Some(dump) = &mut state.current_dump {
-                    rprintln!("bourk");
                     set_param_value(param, value.into(), dump.as_mut_slice());
                     context.packets.clear();
                     context.packets.extend(param_to_sysex(param, &dump));

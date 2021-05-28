@@ -56,59 +56,29 @@ const CONFIG_2: Point = Point::new(128, 48);
 impl<T> Display<T>
     where T: ReadInterface<u8> + WriteInterface<u8>
 {
-    pub fn new(mut lcd_driver: ILI9486<T, u8>) -> Self {
+    pub fn new(mut lcd_driver: ILI9486<T, u8>) -> Result<Self, DisplayError> {
         let mut buffer: [u8; 0] = [0; 0];
 
         lcd_driver.write_command(Command::Nop, &buffer).unwrap();
         lcd_driver.write_command(Command::SleepOut, &buffer).unwrap();
+        lcd_driver.write_command(Command::DisplayInversionOff, &mut buffer)?;
+        lcd_driver.write_command(Command::MemoryAccessControl, &mut [0b10001000])?;
 
-        lcd_driver
-            .write_command(Command::DisplayInversionOff, &mut buffer)
-            .unwrap();
-
-        // MADCTL settings
-        lcd_driver
-            .write_command(Command::MemoryAccessControl, &mut [0b10001000])
-            .unwrap();
-
-        lcd_driver.clear_screen().unwrap();
-
-        // Streaming interface
-        lcd_driver
-            .write_command(Command::ReadDisplayId, &[])
-            .unwrap();
-        let mut num_read = 4;
-
-        rprintln!("start the read");
-        for b in (lcd_driver.reader() as &mut dyn ReadInterface<_>) {
-            if num_read == 0 {
-                break;
-            }
-            rprintln!("{:?}", b.unwrap());
-            num_read -= 1;
-        }
+        lcd_driver.clear_screen()?;
 
         // Fill interface
         let mut display_info: [u8; 4] = [0; 4];
-        lcd_driver
-            .write_command(Command::ReadDisplayId, &mut [])
-            .unwrap();
-        lcd_driver.writer().read(&mut display_info).unwrap();
-        rprintln!("{:?}", display_info);
+        lcd_driver.write_command(Command::ReadDisplayId, &mut [])?;
+        lcd_driver.writer().read(&mut display_info)?;
+        rprintln!("display info {:?}", display_info);
 
-        // turn on
-        lcd_driver
-            .write_command(Command::NormalDisplayMode, &buffer)
-            .unwrap();
-        lcd_driver
-            .write_command(Command::DisplayOn, &buffer)
-            .unwrap();
-        lcd_driver
-            .write_command(Command::IdleModeOff, &buffer)
-            .unwrap();
-        Display {
+        lcd_driver.write_command(Command::NormalDisplayMode, &buffer)?;
+        lcd_driver.write_command(Command::DisplayOn, &buffer)?;
+        lcd_driver.write_command(Command::IdleModeOff, &buffer)?;
+
+        Ok(Display {
             lcd_driver
-        }
+        })
     }
 
     pub fn print(&mut self, text: String) -> Result<(), DisplayError> {
@@ -136,7 +106,7 @@ impl<T> Display<T>
         c.draw(&mut self.lcd_driver).unwrap();
         t.draw(&mut self.lcd_driver).unwrap();
 
-        let tga = Tga::from_slice(include_bytes!("../test/rust-rle-bw-topleft.tga")).unwrap();
+        let tga = Tga::from_slice(include_bytes!("../../test/rust-rle-bw-topleft.tga")).unwrap();
 
         let image: Image<Tga, Rgb888> = Image::new(
             &tga,
@@ -151,9 +121,9 @@ impl<T> Display<T>
     }
 
     pub fn draw_logo(&mut self) -> Result<(), DisplayError> {
-        let raw: ImageRaw<Rgb565> = ImageRaw::new(include_bytes!("../rust.raw"), 64, 64);
+        let raw: ImageRaw<Rgb565> = ImageRaw::new(include_bytes!("../../rust.raw"), 64, 64);
         let im = Image::new(&raw, Point::new(32, 0));
-        im.draw(&mut self.lcd_driver);
+        im.draw(&mut self.lcd_driver).unwrap();
 
         Ok(())
     }

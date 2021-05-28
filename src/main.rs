@@ -35,7 +35,7 @@ use hal::{
     time::U32Ext,
     stm32,
 };
-use ssd1306::{prelude::*, Builder, I2CDIBuilder};
+use ssd1306::{Builder, I2CDIBuilder};
 
 use hal::prelude::_embedded_hal_digital_v2_OutputPin;
 use panic_rtt_target as _;
@@ -92,7 +92,6 @@ mod devices;
 mod apps;
 mod display;
 
-
 pub const CPU_FREQ: u32 = 96_000_000;
 pub const CYCLES_PER_MICROSEC: u32 = CPU_FREQ / 1_000_000;
 pub const CYCLES_PER_MILLISEC: u32 = CPU_FREQ / 1_000;
@@ -131,6 +130,7 @@ static ALLOC: NonThreadsafeAlloc = unsafe {
 };
 
 pub type Handle = u16;
+
 pub static NEXT_HANDLE: AtomicU16 = AtomicU16::new(0);
 
 
@@ -148,18 +148,18 @@ const APP: () = {
         tasks: Tasks,
         chaos: nanorand::WyRand,
         on_board_led: PC13<Output<PushPull>>,
-        display: display::Display<GPIO8ParallelInterface<
-            PA5IOPin<PullDown, PushPull>, PA6IOPin<PullDown, PushPull>, PA7IOPin<PullDown, PushPull>, PA8IOPin<PullDown, PushPull>,
-            PA9IOPin<PullDown, PushPull>, PA10IOPin<PullDown, PushPull>, PB0IOPin<PullDown, PushPull>, PB1IOPin<PullDown, PushPull>,
-            PB6IOPin<PullDown, PushPull>, PB7IOPin<PullDown, PushPull>, PB8IOPin<PullDown, PushPull>, PB9IOPin<PullDown, PushPull>
-        >>,
+
+        display: display::gui::Display<GPIO8ParallelInterface<
+            PB0IOPin<PullDown, PushPull>, PB1IOPin<PullDown, PushPull>, PB2IOPin<PullDown, PushPull>, PB3IOPin<PullDown, PushPull>,
+            PB4IOPin<PullDown, PushPull>, PB5IOPin<PullDown, PushPull>, PB6IOPin<PullDown, PushPull>, PB7IOPin<PullDown, PushPull>,
+            PA9IOPin<PullDown, PushPull>, PA10IOPin<PullDown, PushPull>, PA5IOPin<PullDown, PushPull>, PA6IOPin<PullDown, PushPull>>>,
         midi_router: midi::Router,
         usb_midi: midi::UsbMidi,
         serial_midi: SerialMidi,
     }
 
     #[init(schedule = [tasks])]
-    fn init(mut cx: init::Context) -> init::LateResources {
+    fn init(cx: init::Context) -> init::LateResources {
         // RTIC needs statics to go first
         static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
 
@@ -194,28 +194,25 @@ const APP: () = {
         //
         // display::draw_logo(&mut oled).unwrap();
 
-        let pa5 = GPIOA::PA5::<PullDown, PushPull>(gpioa.pa5.into_pull_down_input().);
-        let pa6 = GPIOA::PA6::<PullDown, PushPull>(gpioa.pa6.into_pull_down_input());
-        let pa7 = GPIOA::PA7::<PullDown, PushPull>(gpioa.pa7.into_pull_down_input());
-        let pa8 = GPIOA::PA8::<PullDown, PushPull>(gpioa.pa8.into_pull_down_input());
+        let d0 = GPIOB::PB0::<PullDown, PushPull>(gpiob.pb0.into_pull_down_input());
+        let d1 = GPIOB::PB1::<PullDown, PushPull>(gpiob.pb1.into_pull_down_input());
+        let d2 = GPIOB::PB2::<PullDown, PushPull>(gpiob.pb2.into_pull_down_input());
+        let d3 = GPIOB::PB3::<PullDown, PushPull>(gpiob.pb3.into_pull_down_input());
 
-        let pa9 = GPIOA::PA9::<PullDown, PushPull>(gpioa.pa9.into_pull_down_input());
-        let pa10 = GPIOA::PA10::<PullDown, PushPull>(gpioa.pa10.into_pull_down_input());
-        let pa11 = GPIOB::PB0::<PullDown, PushPull>(gpiob.pb0.into_pull_down_input());
-        let pa12 = GPIOB::PB1::<PullDown, PushPull>(gpiob.pb1.into_pull_down_input());
+        let d4 = GPIOB::PB4::<PullDown, PushPull>(gpiob.pb4.into_pull_down_input());
+        let d5 = GPIOB::PB5::<PullDown, PushPull>(gpiob.pb5.into_pull_down_input());
+        let d6 = GPIOB::PB6::<PullDown, PushPull>(gpiob.pb6.into_pull_down_input());
+        let d7 = GPIOB::PB7::<PullDown, PushPull>(gpiob.pb7.into_pull_down_input());
 
-        let pb6 = GPIOB::PB6::<PullDown, PushPull>(gpiob.pb6.into_pull_down_input());
-        let pb7 = GPIOB::PB7::<PullDown, PushPull>(gpiob.pb7.into_pull_down_input());
-        let pb8 = GPIOB::PB8::<PullDown, PushPull>(gpiob.pb8.into_pull_down_input());
-        let pb9 = GPIOB::PB9::<PullDown, PushPull>(gpiob.pb9.into_pull_down_input());
+        let cs = GPIOA::PA9::<PullDown, PushPull>(gpioa.pa9.into_pull_down_input());
+        let dc = GPIOA::PA10::<PullDown, PushPull>(gpioa.pa10.into_pull_down_input());
+        let wr = GPIOA::PA6::<PullDown, PushPull>(gpioa.pa6.into_pull_down_input());
+        let rd = GPIOA::PA5::<PullDown, PushPull>(gpioa.pa5.into_pull_down_input());
 
-        let parallel_gpio = GPIO8ParallelInterface::new(pa5, pa6, pa7, pa8, pa9, pa10, pa11, pa12, pb6, pb7, pb8, pb9)
-            .unwrap();
+        let parallel_gpio = GPIO8ParallelInterface::new(d0, d1, d2, d3, d4, d5, d6, d7, cs, dc, rd, wr).unwrap();
 
-        // cortex_m::asm::delay
-        // let mut delay = Delay::new(core.SYST, clocks);
-        let pb5 = GPIOB::PB5::<PullDown, PushPull>(gpiob.pb5.into_pull_down_input());
-        let mut lcd = ILI9486::new(&mut CortexDelay{}, PixelFormat::Rgb565, parallel_gpio, pb5).unwrap();
+        let rst = GPIOA::PA8::<PullDown, PushPull>(gpioa.pa8.into_pull_down_input());
+        let mut lcd = ILI9486::new(&mut CortexDelay {}, PixelFormat::Rgb565, parallel_gpio, rst).unwrap();
 
         rprintln!("Screen OK");
 
@@ -258,12 +255,12 @@ const APP: () = {
 
         // let _serial_print = midi_router.bind(Route::from(Interface::Serial(0)).filter(print_message()));
 
-        let _usb_print = midi_router.add_route(
-            Route::to(Interface::USB(0))
-                .filter(|_now, cx| print_packets(cx)));
-        let _usb_print_in = midi_router.add_route(
-            Route::from(Interface::USB(0))
-                .filter(|_now, cx| print_packets(cx)));
+        // let _usb_print = midi_router.add_route(
+        //     Route::to(Interface::USB(0))
+        //         .filter(|_now, cx| print_packets(cx)));
+        // let _usb_print_in = midi_router.add_route(
+        //     Route::from(Interface::USB(0))
+        //         .filter(|_now, cx| print_packets(cx)));
 
         // let _evo_match = midi_router.bind(
         //     Route::from(Interface::Serial(0))
@@ -291,7 +288,7 @@ const APP: () = {
             tasks,
             chaos,
             on_board_led,
-            display: display::Display::new(lcd),
+            display: display::gui::Display::new(lcd).unwrap(),
             midi_router,
             serial_midi,
             usb_midi: midi::UsbMidi {

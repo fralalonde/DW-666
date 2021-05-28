@@ -39,7 +39,7 @@ stm32f4 = { version = "0.13", features = ["stm32f411", "rt"], optional = true }
 stm32f4xx-hal = { version = "0.9", features = ["stm32f411", "rt", "usb_fs"], optional = true }
 
 #ili9486-driver = {git = "https://github.com/chrismoos/ili9486-driver", branch = "master", features = ["stm32f411", "stm32f4xx-hal", "stm32f4xx"], default-features = false}
-ili9486-driver = { path = "../ili9486-driver", branch = "master", features = ["stm32f411", "stm32f4xx-hal", "stm32f4xx"], default-features = false }
+ili9486-driver = { path = "../ili9486-driver", features = ["stm32f411", "stm32f4xx-hal", "stm32f4xx"], default-features = false }
 tinytga = { version = "0.3", features = ["graphics"] }
 
 #need to use same version as ili9486 driver
