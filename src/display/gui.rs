@@ -3,7 +3,7 @@ use embedded_graphics::prelude::Point;
 use embedded_graphics::{
     fonts::Text, pixelcolor::BinaryColor, prelude::*, style::TextStyleBuilder,
 };
-use ssd1306::prelude::{GraphicsMode, I2CInterface};
+// use ssd1306::prelude::{GraphicsMode, I2CInterface};
 use embedded_graphics::style::PrimitiveStyleBuilder;
 use embedded_graphics::primitives::Rectangle;
 
@@ -107,8 +107,8 @@ impl<T> Display<T>
         button.set_size(180, 80)?;
         let mut btn_lbl = Label::new(&mut button)?;
         btn_lbl.set_text(CString::new("Click me!").unwrap().as_c_str())?;
-
-
+        ui.task_handler();
+        // window.update(ui.get_display_ref().unwrap());
         Ok(Display {
             ui
         })

@@ -35,7 +35,7 @@ use hal::{
     time::U32Ext,
     stm32,
 };
-use ssd1306::{Builder, I2CDIBuilder};
+// use ssd1306::{Builder, I2CDIBuilder};
 
 use hal::prelude::_embedded_hal_digital_v2_OutputPin;
 use panic_rtt_target as _;

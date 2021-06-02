@@ -4,6 +4,8 @@ edition = "2018"
 name = "usbmidi-route"
 readme = "README.md"
 version = "0.1.0"
+# use newer Cargo feature resolver
+resolver = "2"
 
 [dependencies]
 cortex-m = "0.6"
@@ -12,7 +14,7 @@ cortex-m-rtic = "0.5"
 
 embedded-hal = "0.2"
 embedded-graphics = "0.6"
-embedded-text = "0.4.1"
+#embedded-text = "0.4.1"
 usb-device = "0.2"
 
 num_enum = { version = "0.5", default-features = false }
@@ -24,10 +26,11 @@ spin = "0.9"
 micromath = "1"
 rtt-target = { version = "0.3", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
-lvgl = "0.5.2"
+#lvgl = "0.5.2"
+lvgl = { path = "../lvgl-rs/lvgl",  default-features = false }
 cstr_core = "0.2.3"
 
-ssd1306 = "0.4"
+#ssd1306 = "0.4"
 #display-interface = "0.4"
 
 #heapless = {git = "https://github.com/japaric/heapless.git", branch = "const_generics", features = ["ufmt-impl", "cas"]}
@@ -77,7 +80,7 @@ panic = "abort"
 [profile.release]
 codegen-units = 1
 opt-level = "z"
-debug = true
+debug = false
 lto = true
-panic = "unwind"
-rpath = false
+panic = "abort"
+#rpath = false
