@@ -24,7 +24,8 @@ spin = "0.9"
 micromath = "1"
 rtt-target = { version = "0.3", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
-#lvgl = "0.5.2"
+lvgl = "0.5.2"
+cstr_core = "0.2.3"
 
 ssd1306 = "0.4"
 #display-interface = "0.4"

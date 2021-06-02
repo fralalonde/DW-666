@@ -24,7 +24,7 @@ pub trait RawGPIO {
     fn init(&mut self);
     fn write_mode(&mut self, enable: bool);
     fn read_byte(&mut self) -> u8;
-    fn write_byte(&mut self, byte: u32);
+    fn write_port(&mut self, byte: u16);
 }
 
 const MODE_INPUT: u32 = 0x00000000;
@@ -63,7 +63,7 @@ impl RawGPIO for stm32f4::stm32f411::GPIOA {
         self.idr.read().bits() as u8
     }
 
-    fn write_byte(&mut self, byte: u32) {
+    fn write_port(&mut self, byte: u16) {
         self.odr.write(|w| unsafe { w.bits(byte as u32) })
     }
 }
@@ -112,8 +112,8 @@ impl RawGPIO for stm32f4::stm32f411::GPIOB {
     fn read_byte(&mut self) -> u8 {
         self.idr.read().bits() as u8
     }
-    fn write_byte(&mut self, byte: u32) {
-        self.odr.write(|w| unsafe { w.bits(byte as u32) })
+    fn write_port(&mut self, value: u16) {
+        self.odr.write(|w| unsafe { w/*.odr3().set_bit()*/.bits(value as u32 & 0xFFFF) })
     }
 }
 
@@ -208,7 +208,7 @@ for GPIO8aParallelInterface<PORT, CS, DCX, RDX, WRX>
             match func() {
                 Some(byte) => {
                     wrap_output_err!(wrx.set_low())?;
-                    self.port.write_byte(*byte as u32);
+                    self.port.write_port(*byte as u16);
                     wrap_output_err!(wrx.set_high())?;
                 }
                 None => {

@@ -43,12 +43,18 @@ use display_interface::v2::{ReadInterface, WriteInterface};
 use embedded_graphics::primitives::{Circle};
 use tinytga::Tga;
 use crate::display::rotate::{Rotating, Rotation};
+use lvgl::{UI, State, Color, Widget, Part, Align};
+use lvgl::style::Style;
+use lvgl::widgets::{Btn, Label};
+use cstr_core::CString;
+use crate::display::GuiError;
 
 pub struct Display<T>
     where T: ReadInterface<u8> + WriteInterface<u8>
 {
     // lcd_driver: Rotating<ILI9486<T, u8>>,
-    lcd_driver: ILI9486<T, u8>,
+    // lcd_driver: ILI9486<T, u8>,
+    ui: UI<ILI9486<T, u8>, Rgb565>
 }
 
 const SCREEN_W: u16 = 320;
@@ -64,7 +70,7 @@ const CONFIG_2: Point = Point::new(128, 48);
 impl<T> Display<T>
     where T: ReadInterface<u8> + WriteInterface<u8>
 {
-    pub fn new(mut lcd_driver: ILI9486<T, u8>) -> Result<Self, DisplayError> {
+    pub fn new(mut lcd_driver: ILI9486<T, u8>) -> Result<Self, GuiError> {
         let mut buffer: [u8; 0] = [0; 0];
 
         lcd_driver.write_command(Command::Nop, &buffer).unwrap();
@@ -83,8 +89,28 @@ impl<T> Display<T>
         lcd_driver.write_command(Command::DisplayOn, &buffer)?;
         lcd_driver.write_command(Command::IdleModeOff, &buffer)?;
 
+        let mut ui = UI::init()?;
+
+        // Implement and register your display:
+        ui.disp_drv_register(lcd_driver)?;
+
+        // Create screen and widgets
+        let mut screen = ui.scr_act()?;
+
+        let mut screen_style = Style::default();
+        screen_style.set_bg_color(State::DEFAULT, Color::from_rgb((0, 0, 0)));
+        screen.add_style(Part::Main, screen_style)?;
+
+        // Create the button
+        let mut button = Btn::new(&mut screen)?;
+        button.set_align(&mut screen, Align::InLeftMid, 30, 0)?;
+        button.set_size(180, 80)?;
+        let mut btn_lbl = Label::new(&mut button)?;
+        btn_lbl.set_text(CString::new("Click me!").unwrap().as_c_str())?;
+
+
         Ok(Display {
-            lcd_driver
+            ui
         })
     }
 
@@ -93,16 +119,16 @@ impl<T> Display<T>
     }
 
     fn redraw(&mut self, text: String, top_left: Point, bottom_right: Point) -> Result<(), DisplayError> {
-        Rectangle::new(Point::new(16, 16), Point::new(128, 128))
-            .into_styled(
-                PrimitiveStyleBuilder::new()
-                    // .stroke_width(0)
-                    // .stroke_color(Rgb888::RED)
-                    .fill_color(Rgb888::CYAN)
-                    .build(),
-            )
-            .draw(&mut self.lcd_driver)
-            .unwrap();
+        // Rectangle::new(Point::new(16, 16), Point::new(240, 240))
+        //     .into_styled(
+        //         PrimitiveStyleBuilder::new()
+        //             .stroke_width(32)
+        //             .stroke_color(Rgb888::RED)
+        //             .fill_color(Rgb888::CYAN)
+        //             .build(),
+        //     )
+        //     .draw(&mut self.lcd_driver)
+        //     .unwrap();
 
         // let c = Circle::new(Point::new(300, 240), 8)
         //     .into_styled(PrimitiveStyle::with_fill(Rgb888::RED));
