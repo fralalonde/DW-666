@@ -96,7 +96,7 @@ impl RouteContext {
 
     fn flush_strings(&mut self, spawn: midispatch::Spawn) -> Result<(), MidiError> {
         for s in self.strings.drain(..) {
-            if let Err(e) = spawn.redraw(s) {
+            if let Err(e) = spawn.midisplay(s) {
                 rprintln!("Failed enqueue redraw {}", e)
             }
         }

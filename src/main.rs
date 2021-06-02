@@ -84,6 +84,11 @@ use embedded_graphics::primitives::{Rectangle, Circle};
 use hal::stm32::Peripherals;
 use hal::delay::Delay;
 use embedded_hal::blocking::delay::DelayUs;
+use crate::apps::bounce::Bounce;
+use crate::display::gpio8b::GPIO8BParallelInterface;
+use crate::display::gpio8a::GPIO8aParallelInterface;
+use crate::display::gpio8a::RawGPIO;
+use crate::display::nogpio::NoGPIO;
 
 
 mod time;
@@ -142,6 +147,13 @@ impl DelayUs<u32> for CortexDelay {
     }
 }
 
+const MODE_INPUT: u32 = 0x00000000;
+const MODE_OUTPUT: u32 = 0b_0101_0101_0101_0101_0101_0101_0101_0101;
+const TYPE_OUT: u32 = 0x0000FFFF;
+const PULL_DOWN_INPUT: u32 = 0b_1010_1010_1010_1010_1010_1010_1010_1010;
+const NO_PULL: u32 = 0b_0;
+const OUTPUT_SPEED: u32 = 0x0000FFFF;
+
 #[rtic::app(device = hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
@@ -149,10 +161,17 @@ const APP: () = {
         chaos: nanorand::WyRand,
         on_board_led: PC13<Output<PushPull>>,
 
-        display: display::gui::Display<GPIO8ParallelInterface<
-            PB0IOPin<PullDown, PushPull>, PB1IOPin<PullDown, PushPull>, PB2IOPin<PullDown, PushPull>, PB3IOPin<PullDown, PushPull>,
-            PB4IOPin<PullDown, PushPull>, PB5IOPin<PullDown, PushPull>, PB6IOPin<PullDown, PushPull>, PB7IOPin<PullDown, PushPull>,
-            PA9IOPin<PullDown, PushPull>, PA10IOPin<PullDown, PushPull>, PA5IOPin<PullDown, PushPull>, PA6IOPin<PullDown, PushPull>>>,
+        // display: display::gui::Display<GPIOBParallelInterface<
+        //     PB0IOPin<PullDown, PushPull>, PB1IOPin<PullDown, PushPull>, PB2IOPin<PullDown, PushPull>, PB3IOPin<PullDown, PushPull>,
+        //     PB4IOPin<PullDown, PushPull>, PB5IOPin<PullDown, PushPull>, PB6IOPin<PullDown, PushPull>, PB7IOPin<PullDown, PushPull>,
+        //     PA9IOPin<PullDown, PushPull>, PA10IOPin<PullDown, PushPull>, PA5IOPin<PullDown, PushPull>, PA6IOPin<PullDown, PushPull>>>,
+        // display: display::gui::Display<GPIO8aParallelInterface<
+        //     stm32f4::stm32f411::GPIOB,
+        //     PA9IOPin<PullDown, PushPull>, PA10IOPin<PullDown, PushPull>, PA5IOPin<PullDown, PushPull>, PA6IOPin<PullDown, PushPull>>>,
+
+        // gpiob: stm32f4::stm32f411::GPIOB,
+        gpiob: stm32f4::stm32f411::GPIOB,
+        display: display::gui::Display<NoGPIO>,
         midi_router: midi::Router,
         usb_midi: midi::UsbMidi,
         serial_midi: SerialMidi,
@@ -194,22 +213,24 @@ const APP: () = {
         //
         // display::draw_logo(&mut oled).unwrap();
 
-        let d0 = GPIOB::PB0::<PullDown, PushPull>(gpiob.pb0.into_pull_down_input());
-        let d1 = GPIOB::PB1::<PullDown, PushPull>(gpiob.pb1.into_pull_down_input());
-        let d2 = GPIOB::PB2::<PullDown, PushPull>(gpiob.pb2.into_pull_down_input());
-        let d3 = GPIOB::PB3::<PullDown, PushPull>(gpiob.pb3.into_pull_down_input());
-
-        let d4 = GPIOB::PB4::<PullDown, PushPull>(gpiob.pb4.into_pull_down_input());
-        let d5 = GPIOB::PB5::<PullDown, PushPull>(gpiob.pb5.into_pull_down_input());
-        let d6 = GPIOB::PB6::<PullDown, PushPull>(gpiob.pb6.into_pull_down_input());
-        let d7 = GPIOB::PB7::<PullDown, PushPull>(gpiob.pb7.into_pull_down_input());
+        // let d0 = GPIOB::PB0::<PullDown, PushPull>(gpiob.pb0.into_pull_down_input());
+        // let d1 = GPIOB::PB1::<PullDown, PushPull>(gpiob.pb1.into_pull_down_input());
+        // let d2 = GPIOB::PB2::<PullDown, PushPull>(gpiob.pb2.into_pull_down_input());
+        // let d3 = GPIOB::PB3::<PullDown, PushPull>(gpiob.pb3.into_pull_down_input());
+        //
+        // let d4 = GPIOB::PB4::<PullDown, PushPull>(gpiob.pb4.into_pull_down_input());
+        // let d5 = GPIOB::PB5::<PullDown, PushPull>(gpiob.pb5.into_pull_down_input());
+        // let d6 = GPIOB::PB6::<PullDown, PushPull>(gpiob.pb6.into_pull_down_input());
+        // let d7 = GPIOB::PB7::<PullDown, PushPull>(gpiob.pb7.into_pull_down_input());
 
         let cs = GPIOA::PA9::<PullDown, PushPull>(gpioa.pa9.into_pull_down_input());
         let dc = GPIOA::PA10::<PullDown, PushPull>(gpioa.pa10.into_pull_down_input());
         let wr = GPIOA::PA6::<PullDown, PushPull>(gpioa.pa6.into_pull_down_input());
         let rd = GPIOA::PA5::<PullDown, PushPull>(gpioa.pa5.into_pull_down_input());
 
-        let parallel_gpio = GPIO8ParallelInterface::new(d0, d1, d2, d3, d4, d5, d6, d7, cs, dc, rd, wr).unwrap();
+        // let parallel_gpio = GPIO8BParallelInterface::new(d0, d1, d2, d3, d4, d5, d6, d7, cs, dc, rd, wr).unwrap();
+        // let parallel_gpio = GPIO8aParallelInterface::new(dev.GPIOB, cs, dc, rd, wr).unwrap();
+        let parallel_gpio = NoGPIO {  };
 
         let rst = GPIOA::PA8::<PullDown, PushPull>(gpioa.pa8.into_pull_down_input());
         let mut lcd = ILI9486::new(&mut CortexDelay {}, PixelFormat::Rgb565, parallel_gpio, rst).unwrap();
@@ -280,6 +301,9 @@ const APP: () = {
         let mut bbeat = BlinkyBeat::new((Interface::USB(0), channel(1)), vec![Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
         bbeat.start(cx.start, &mut midi_router, &mut tasks).unwrap();
 
+        let mut bounce = Bounce::new();
+        bounce.start(cx.start, &mut midi_router, &mut tasks).unwrap();
+
         rprintln!("Routes OK");
 
         rprintln!("-> Initialized");
@@ -289,6 +313,7 @@ const APP: () = {
             chaos,
             on_board_led,
             display: display::gui::Display::new(lcd).unwrap(),
+            gpiob: dev.GPIOB,
             midi_router,
             serial_midi,
             usb_midi: midi::UsbMidi {
@@ -298,13 +323,29 @@ const APP: () = {
         }
     }
 
-    #[idle(resources = [on_board_led])]
+    #[idle(resources = [on_board_led, gpiob])]
     fn idle(cx: idle::Context) -> ! {
         let mut led_on = false;
+
+        let mut gpiob: &mut stm32f4::stm32f411::GPIOB = cx.resources.gpiob;
+        let pins = gpiob.split();
+        let mut pb3 = pins.pb3.into_open_drain_output();
+
+        // gpiob.pupdr.modify(|r, w| unsafe {
+        //     w.bits(r.bits() | NO_PULL)
+        // });
+        // gpiob.moder.modify(|r, w| unsafe {
+        //     w.bits(r.bits() | MODE_OUTPUT)
+        // });
+
         loop {
             if led_on {
+                // gpiob.write_byte(0xFFFFFFFF);
+                pb3.set_high();
                 cx.resources.on_board_led.set_high().unwrap();
             } else {
+                // gpiob.write_byte(0);
+                pb3.set_low();
                 cx.resources.on_board_led.set_low().unwrap();
             }
             led_on = !led_on;
@@ -343,7 +384,7 @@ const APP: () = {
         }
     }
 
-    #[task(resources = [chaos, tasks], spawn = [midispatch], schedule = [tasks], priority = 3)]
+    #[task(resources = [chaos, tasks], spawn = [midispatch, midisplay], schedule = [tasks], priority = 3)]
     fn tasks(mut cx: tasks::Context) {
         let tasks = &mut cx.resources.tasks;
         let chaos = &mut cx.resources.chaos;
@@ -354,7 +395,7 @@ const APP: () = {
         cx.schedule.tasks(cx.scheduled + TASKS_PERIOD.cycles()).unwrap();
     }
 
-    #[task(spawn = [midisend, redraw], resources = [midi_router, tasks], priority = 3, capacity = 16)]
+    #[task(spawn = [midisend, midisplay], resources = [midi_router, tasks], priority = 3, capacity = 16)]
     fn midispatch(cx: midispatch::Context, binding: Binding, packets: Vec<Packet>) {
         let router: &mut midi::Router = cx.resources.midi_router;
         router.midispatch(cx.scheduled, packets, binding, cx.spawn).unwrap();
@@ -382,7 +423,7 @@ const APP: () = {
     }
 
     #[task(resources = [display], capacity = 8)]
-    fn redraw(ctx: redraw::Context, text: String) {
+    fn midisplay(ctx: midisplay::Context, text: String) {
         ctx.resources.display.print(text).unwrap()
     }
 
