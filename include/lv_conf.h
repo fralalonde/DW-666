@@ -21,7 +21,7 @@
 
 /* Maximal horizontal and vertical resolution to support by the library.*/
 #define LV_HOR_RES_MAX          (320)
-#define LV_VER_RES_MAX          (320)
+#define LV_VER_RES_MAX          (480)
 
 /* Color depth:
  * - 1:  1 byte per pixel
@@ -44,7 +44,7 @@
 #define LV_COLOR_TRANSP    LV_COLOR_LIME         /*LV_COLOR_LIME: pure green*/
 
 /* Enable anti-aliasing (lines, and radiuses will be smoothed) */
-#define LV_ANTIALIAS        1
+#define LV_ANTIALIAS        0
 
 /* Default display refresh period.
  * Can be changed in the display driver (`lv_disp_drv_t`).*/
@@ -151,7 +151,7 @@ typedef void * lv_anim_user_data_t;
 #endif
 
 /* 1: Enable shadow drawing*/
-#define LV_USE_SHADOW           1
+#define LV_USE_SHADOW           0
 #if LV_USE_SHADOW
 /* Allow buffering some shadow calculation
  * LV_SHADOW_CACHE_SIZE is the max. shadow size to buffer,
@@ -161,13 +161,13 @@ typedef void * lv_anim_user_data_t;
 #endif
 
 /* 1: Use other blend modes than normal (`LV_BLEND_MODE_...`)*/
-#define LV_USE_BLEND_MODES      1
+#define LV_USE_BLEND_MODES      0
 
 /* 1: Use the `opa_scale` style property to set the opacity of an object and its children at once*/
 #define LV_USE_OPA_SCALE        1
 
 /* 1: Use image zoom and rotation*/
-#define LV_USE_IMG_TRANSFORM    1
+#define LV_USE_IMG_TRANSFORM    0
 
 /* 1: Enable object groups (for keyboard/encoder navigation) */
 #define LV_USE_GROUP            1
@@ -298,7 +298,7 @@ typedef void * lv_indev_drv_user_data_t;            /*Type of user data in the i
  * The behavior of asserts can be overwritten by redefining them here.
  * E.g. #define LV_ASSERT_MEM(p)  <my_assert_code>
  */
-#define LV_USE_DEBUG        1
+#define LV_USE_DEBUG        0
 #if LV_USE_DEBUG
 
 /*Check if the parameter is NULL. (Quite fast) */
@@ -392,7 +392,7 @@ typedef void * lv_font_user_data_t;
  *  THEME USAGE
  *================*/
 
-/*Always enable at least on theme*/
+/*Always enable at least one theme*/
 
 /* No theme, you can apply your styles as you need
  * No flags. Set LV_THEME_DEFAULT_FLAG 0 */

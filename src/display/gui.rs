@@ -15,11 +15,6 @@ use embedded_graphics::image::{Image, ImageRaw};
 use stm32f4xx_hal::stm32::I2C1;
 use alloc::string::String;
 use display_interface::DisplayError;
-use ili9486::ILI9486;
-use ili9486::gpio::GPIO8ParallelInterface;
-use ili9486::io::stm32f4xx::gpioa::*;
-use ili9486::io::stm32f4xx::gpiob::*;
-use ili9486::io::IoPin;
 
 use stm32f4xx_hal::{
     delay::Delay,
@@ -33,62 +28,31 @@ use embedded_graphics::{
     style::{PrimitiveStyle, TextStyle},
 };
 
-use ili9486::color::PixelFormat;
-use ili9486::io::stm32f4xx::gpioa::GPIOA;
-use ili9486::io::stm32f4xx::gpiob::GPIOB;
-use ili9486::{Command, Commands};
-
-use display_interface::v2::{ReadInterface, WriteInterface};
-
 use embedded_graphics::primitives::{Circle};
 use tinytga::Tga;
-use crate::display::rotate::{Rotating, Rotation};
+
 use lvgl::{UI, State, Color, Widget, Part, Align};
 use lvgl::style::Style;
 use lvgl::widgets::{Btn, Label};
 use cstr_core::CString;
 use crate::display::GuiError;
+use ili9486::ILI9486;
 
-pub struct Display<T>
-    where T: ReadInterface<u8> + WriteInterface<u8>
+pub struct Display<T, C>
+    where T: DrawTarget<C>,
+          C: RgbColor + From<Color>,
 {
-    // lcd_driver: Rotating<ILI9486<T, u8>>,
-    // lcd_driver: ILI9486<T, u8>,
-    ui: UI<ILI9486<T, u8>, Rgb565>
+    ui: UI<T, C>,
 }
-
-const SCREEN_W: u16 = 320;
-const SCREEN_H: u16 = 480;
-const SCREEN_BG: Rgb565 = RgbColor::BLACK;
-
-// const MARGIN_W
-
 
 const PATCH_1: Point = Point::zero();
 const CONFIG_2: Point = Point::new(128, 48);
 
-impl<T> Display<T>
-    where T: ReadInterface<u8> + WriteInterface<u8>
+impl<T, C> Display<T, C>
+    where T: DrawTarget<C>,
+          C: RgbColor + From<Color>,
 {
-    pub fn new(mut lcd_driver: ILI9486<T, u8>) -> Result<Self, GuiError> {
-        let mut buffer: [u8; 0] = [0; 0];
-
-        lcd_driver.write_command(Command::Nop, &buffer).unwrap();
-        lcd_driver.write_command(Command::SleepOut, &buffer).unwrap();
-        lcd_driver.write_command(Command::DisplayInversionOff, &mut buffer)?;
-        lcd_driver.write_command(Command::MemoryAccessControl, &mut [0b10001000])?;
-
-        lcd_driver.clear_screen()?;
-
-        // Fill interface
-        let mut display_info: [u8; 4] = [0; 4];
-        lcd_driver.write_command(Command::ReadDisplayId, &mut [])?;
-        lcd_driver.writer().read(&mut display_info)?;
-
-        lcd_driver.write_command(Command::NormalDisplayMode, &buffer)?;
-        lcd_driver.write_command(Command::DisplayOn, &buffer)?;
-        lcd_driver.write_command(Command::IdleModeOff, &buffer)?;
-
+    pub fn new(mut lcd_driver: T) -> Result<Self, GuiError> {
         let mut ui = UI::init()?;
 
         // Implement and register your display:
@@ -152,6 +116,5 @@ impl<T> Display<T>
 
         Ok(())
     }
-
 }
 

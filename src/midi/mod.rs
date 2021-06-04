@@ -56,8 +56,6 @@ pub type Bend = U14;
 pub enum Interface {
     USB(u8),
     Serial(u8),
-    Application(u16),
-    // TODO virtual interfaces ?
 }
 
 #[derive(Copy, Clone, Debug)]

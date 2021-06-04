@@ -12,8 +12,9 @@ use hal::stm32::USART2;
 use hal::gpio::AF7;
 use hal::gpio::gpioa::{PA2, PA3};
 use alloc::collections::VecDeque;
-use hal::serial::Event;
+use hal::serial::{Event, Pins, Instance};
 use alloc::vec::Vec;
+use hal::hal::serial;
 
 #[derive(Copy, Clone, Default, Debug)]
 struct PacketBuffer {
@@ -77,7 +78,7 @@ impl PacketParser {
 
                 if byte == SYSEX_END {
                     self.status = None;
-                    return Ok(Some(self.buffer.build(CodeIndexNumber::end_sysex(self.buffer.len)?)))
+                    return Ok(Some(self.buffer.build(CodeIndexNumber::end_sysex(self.buffer.len)?)));
                 }
                 if self.buffer.is_full() {
                     return Ok(Some(self.buffer.build(CodeIndexNumber::from(status))));
@@ -118,18 +119,21 @@ pub type UartPeripheral = hal::serial::Serial<
     ),
 >;
 
-pub struct SerialMidi {
-    pub uart: UartPeripheral,
+pub struct SerialMidi<UART, PINS> {
+    pub uart: hal::serial::Serial<UART, PINS>,
     pub tx_fifo: VecDeque<u8>,
     cable_number: CableNumber,
     parser: PacketParser,
     last_status: Option<u8>,
 }
 
-impl SerialMidi {
-    pub fn new(handle: UartPeripheral, cable_number: CableNumber) -> Self {
+impl<UART, PINS> SerialMidi<UART, PINS> where
+    PINS: Pins<UART>,
+    UART: Instance,
+{
+    pub fn new(uart: hal::serial::Serial<UART, PINS>, cable_number: CableNumber) -> Self {
         SerialMidi {
-            uart: handle,
+            uart,
             tx_fifo: VecDeque::new(),
             cable_number,
             parser: PacketParser::default(),
@@ -167,7 +171,10 @@ impl SerialMidi {
     }
 }
 
-impl Receive for SerialMidi {
+impl<UART, PINS> Receive for SerialMidi<UART, PINS> where
+    PINS: Pins<UART>,
+    UART: Instance,
+{
     fn receive(&mut self) -> Result<Option<Packet>, MidiError> {
         if self.uart.is_rxne() {
             let byte = self.uart.read()?;
@@ -182,7 +189,10 @@ impl Receive for SerialMidi {
     }
 }
 
-impl Transmit for SerialMidi {
+impl<UART, PINS> Transmit for SerialMidi<UART, PINS> where
+    PINS: Pins<UART>,
+    UART: Instance,
+{
     fn transmit(&mut self, packets: Vec<Packet>) -> Result<(), MidiError> {
         for packet in packets {
             let mut payload = packet.payload();

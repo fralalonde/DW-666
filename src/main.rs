@@ -11,13 +11,16 @@ extern crate bitfield;
 
 extern crate cortex_m;
 
+#[macro_use]
+extern crate display_interface_parallel_gpio;
+
 extern crate stm32f4xx_hal as hal;
 
 use core::alloc::Layout;
 use core::result::Result;
 use core::sync::atomic::AtomicU16;
 
-use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
+
 use cortex_m::asm;
 use cortex_m::asm::delay;
 // STM32 universal (?)
@@ -55,8 +58,7 @@ use crate::midi::Binding::Src;
 use alloc::vec::Vec;
 
 use embedded_graphics::image::Image;
-use ili9486::gpio::GPIO8ParallelInterface;
-// use tinytga::Tga;
+
 
 use embedded_graphics::{
     fonts::{Font6x8, Text},
@@ -65,13 +67,6 @@ use embedded_graphics::{
     style::{PrimitiveStyle, TextStyle},
 };
 
-use ili9486::color::PixelFormat;
-use ili9486::io::stm32f4xx::gpioa::*;
-use ili9486::io::stm32f4xx::gpiob::*;
-use ili9486::io::stm32f4xx::*;
-
-use ili9486::{Command, Commands, ILI9486};
-
 use cortex_m_rt::entry;
 
 use stm32f4xx_hal::{
@@ -79,18 +74,19 @@ use stm32f4xx_hal::{
 };
 
 
-use embedded_graphics::style::PrimitiveStyleBuilder;
-use embedded_graphics::primitives::{Rectangle, Circle};
 use hal::stm32::Peripherals;
 use hal::delay::Delay;
-use embedded_hal::blocking::delay::DelayUs;
+use embedded_hal::blocking::delay::{DelayUs, DelayMs};
 use crate::apps::bounce::Bounce;
-use crate::display::gpio8b::GPIO8BParallelInterface;
-use crate::display::gpio8a::GPIO8aParallelInterface;
-use crate::display::gpio8a::RawGPIO;
-use crate::display::nogpio::NoGPIO;
-use hal::gpio::gpiob::PB3;
-use hal::gpio::Input;
+
+use hal::gpio::gpiob::*;
+use hal::gpio::{Input, Alternate};
+
+use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
+use hal::gpio::gpioa::*;
+use display_interface_parallel_gpio::{PGPIO8BitInterface, Generic8BitBus};
+use ili9486::{ILI9486, DisplayError, Orientation, DisplaySize320x480, DisplayMode};
+use crate::display::gui;
 
 mod time;
 mod midi;
@@ -125,6 +121,7 @@ const HEAP_SIZE: usize = 48 * 1024;
 // 96KB
 const LEAF_SIZE: usize = 16;
 
+
 pub static mut FAST_HEAP: [u8; FAST_HEAP_SIZE] = [0u8; FAST_HEAP_SIZE];
 pub static mut HEAP: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
 
@@ -148,12 +145,8 @@ impl DelayUs<u32> for CortexDelay {
     }
 }
 
-// const MODE_INPUT: u32 = 0x00000000;
-// const MODE_OUTPUT: u32 = 0b_0101_0101_0101_0101_0101_0101_0101_0101;0b_0101_0101_0101_0101_0101_0101_0101_0101
-// const TYPE_OUT: u32 = 0x0000FFFF;
-// const PULL_DOWN_INPUT: u32 = 0b_1010_1010_1010_1010_1010_1010_1010_1010;
-// const PULL_DOWN: u32 = 0b_10_10_10_10_10_10_10_10_10_10_10_10_10_10_10_10;
-// const OUTPUT_SPEED: u32 = 0x0000FFFF;
+const DW6000: Interface = Interface::Serial(0);
+const BEATSTEP: Interface = Interface::Serial(1);
 
 #[rtic::app(device = hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -161,11 +154,11 @@ const APP: () = {
         tasks: Tasks,
         chaos: nanorand::WyRand,
         on_board_led: PC13<Output<PushPull>>,
-
-        display: display::gui::Display<GPIO8ParallelInterface<
-            PB0IOPin<PullDown, PushPull>, PB1IOPin<PullDown, PushPull>, PB2IOPin<PullDown, PushPull>, PB3IOPin<PullDown, PushPull>,
-            PB4IOPin<PullDown, PushPull>, PB5IOPin<PullDown, PushPull>, PB6IOPin<PullDown, PushPull>, PB7IOPin<PullDown, PushPull>,
-            PA9IOPin<PullDown, PushPull>, PA10IOPin<PullDown, PushPull>, PA5IOPin<PullDown, PushPull>, PA6IOPin<PullDown, PushPull>>>,
+        // PB0IOPin<PullDown, PushPull>, PB1IOPin<PullDown, PushPull>, PB2IOPin<PullDown, PushPull>, PB3IOPin<PullDown, PushPull>,
+        // PB4IOPin<PullDown, PushPull>, PB12IOPin<PullDown, PushPull>, PB13IOPin<PullDown, PushPull>, PB14IOPin<PullDown, PushPull>
+        display: gui::Display<ILI9486<PGPIO8BitInterface<Generic8BitBus<PB0<Output<PushPull>>, PB1<Output<PushPull>>, PB2<Output<PushPull>>,
+            PB3<Output<PushPull>>, PB4<Output<PushPull>>, PB12<Output<PushPull>>, PB13<Output<PushPull>>, PB14<Output<PushPull>>>,
+            PA10<Output<PushPull>>, PA6<Output<PushPull>>>, PA8<Output<PushPull>>>, Rgb565>,
         // display: display::gui::Display<GPIO8aParallelInterface<
         //     stm32f4::stm32f411::GPIOB,
         //     PA9IOPin<PullDown, PushPull>, PA10IOPin<PullDown, PushPull>, PA5IOPin<PullDown, PushPull>, PA6IOPin<PullDown, PushPull>>>,
@@ -176,7 +169,8 @@ const APP: () = {
         // display: display::gui::Display<NoGPIO>,
         midi_router: midi::Router,
         usb_midi: midi::UsbMidi,
-        serial_midi: SerialMidi,
+        beatstep: SerialMidi<hal::stm32::USART1, (PB6<Alternate<hal::gpio::AF7>>, PB7<Alternate<hal::gpio::AF7>>)>,
+        dw6000: SerialMidi<hal::stm32::USART2, (PA2<Alternate<hal::gpio::AF7>>, PA3<Alternate<hal::gpio::AF7>>)>,
     }
 
     #[init(schedule = [tasks])]
@@ -218,44 +212,54 @@ const APP: () = {
         //
         // display::draw_logo(&mut oled).unwrap();
 
-        let d0 = GPIOB::PB0::<PullDown, PushPull>(gpiob.pb0.into_pull_down_input());
-        let d1 = GPIOB::PB1::<PullDown, PushPull>(gpiob.pb1.into_pull_down_input());
-        let d2 = GPIOB::PB2::<PullDown, PushPull>(gpiob.pb2.into_pull_down_input());
-        let d3 = GPIOB::PB3::<PullDown, PushPull>(gpiob.pb3.into_pull_down_input());
+        let d0 = gpiob.pb0.into_push_pull_output();
+        let d1 = gpiob.pb1.into_push_pull_output();
+        let d2 = gpiob.pb2.into_push_pull_output();
+        let d3 = gpiob.pb3.into_push_pull_output();
 
-        let d4 = GPIOB::PB4::<PullDown, PushPull>(gpiob.pb4.into_pull_down_input());
-        let d5 = GPIOB::PB5::<PullDown, PushPull>(gpiob.pb5.into_pull_down_input());
-        let d6 = GPIOB::PB6::<PullDown, PushPull>(gpiob.pb6.into_pull_down_input());
-        let d7 = GPIOB::PB7::<PullDown, PushPull>(gpiob.pb7.into_pull_down_input());
+        let d4 = gpiob.pb4.into_push_pull_output();
+        let d5 = gpiob.pb12.into_push_pull_output();
+        let d6 = gpiob.pb13.into_push_pull_output();
+        let d7 = gpiob.pb14.into_push_pull_output();
 
-        let cs = GPIOA::PA9::<PullDown, PushPull>(gpioa.pa9.into_pull_down_input());
-        let dc = GPIOA::PA10::<PullDown, PushPull>(gpioa.pa10.into_pull_down_input());
-        let wr = GPIOA::PA6::<PullDown, PushPull>(gpioa.pa6.into_pull_down_input());
-        let rd = GPIOA::PA5::<PullDown, PushPull>(gpioa.pa5.into_pull_down_input());
+        // let cs = gpioa.pa9.into_pull_down_input());
+        let dc = gpioa.pa10.into_push_pull_output();
+        let wr = gpioa.pa6.into_push_pull_output();
+        // let rd = gpioa.pa5.into_pull_down_input());
+        let bus = Generic8BitBus::new((d0, d1, d2, d3, d4, d5, d6, d7)).unwrap();
 
-        let parallel_gpio = GPIO8ParallelInterface::new(d0, d1, d2, d3, d4, d5, d6, d7, cs, dc, rd, wr).unwrap();
-        // let parallel_gpio = GPIO8aParallelInterface::new(dev.GPIOB, cs, dc, rd, wr).unwrap();
-        // let parallel_gpio = NoGPIO {  };
+        let parallel_gpio = PGPIO8BitInterface::new(bus, dc, wr);
 
-        let rst = GPIOA::PA8::<PullDown, PushPull>(gpioa.pa8.into_pull_down_input());
-        let mut lcd = ILI9486::new(&mut CortexDelay {}, PixelFormat::Rgb565, parallel_gpio, rst).unwrap();
+        let rst = gpioa.pa8.into_push_pull_output();
+        let mut lcd = ILI9486::new(parallel_gpio, rst, &mut CortexDelay{}, DisplayMode::default(), DisplaySize320x480).unwrap();
 
         rprintln!("Screen OK");
 
-        let tx_pin = gpioa.pa2.into_alternate_af7();
-        let rx_pin = gpioa.pa3.into_alternate_af7();
-        let mut uart = Serial::usart2(
-            dev.USART2,
-            (tx_pin, rx_pin),
+        let bs_tx = gpiob.pb6.into_alternate_af7();
+        let bs_rx = gpiob.pb7.into_alternate_af7();
+        let mut uart1 = Serial::usart1(
+            dev.USART1,
+            (bs_tx, bs_rx),
             serial::config::Config::default()
-                .baudrate(31250.bps())
-                .stopbits(StopBits::STOP1)
-                .parity_none(),
+                .baudrate(921_600.bps()),
             clocks,
         ).unwrap();
-        uart.listen(serial::Event::Rxne);
-        let serial_midi = SerialMidi::new(uart, CableNumber::MIN);
-        rprintln!("Serial port OK");
+        uart1.listen(serial::Event::Rxne);
+        let beatstep = SerialMidi::new(uart1, CableNumber::MIN);
+        rprintln!("BeatStep MIDI ports OK");
+
+        let dw_tx = gpioa.pa2.into_alternate_af7();
+        let dw_rx = gpioa.pa3.into_alternate_af7();
+        let mut uart2 = Serial::usart2(
+            dev.USART2,
+            (dw_tx, dw_rx),
+            serial::config::Config::default()
+                .baudrate(31250.bps()),
+            clocks,
+        ).unwrap();
+        uart2.listen(serial::Event::Rxne);
+        let dw6000 = SerialMidi::new(uart2, CableNumber::MIN);
+        rprintln!("DW6000 MIDI ports OK");
 
         let usb = USB {
             usb_global: dev.OTG_FS_GLOBAL,
@@ -300,10 +304,10 @@ const APP: () = {
         // );
         // let _bstep_2_dw = midi_router.bind(Route::link(Interface::USB, Interface::Serial(0)));
 
-        let mut dwctrl = Dw6000Control::new((Interface::Serial(0), channel(1)), (Interface::USB(0), channel(1)));
+        let mut dwctrl = Dw6000Control::new((DW6000, channel(1)), (BEATSTEP, channel(1)));
         dwctrl.start(cx.start, &mut midi_router, &mut tasks).unwrap();
 
-        let mut bbeat = BlinkyBeat::new((Interface::USB(0), channel(1)), vec![Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
+        let mut bbeat = BlinkyBeat::new((BEATSTEP, channel(1)), vec![Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
         bbeat.start(cx.start, &mut midi_router, &mut tasks).unwrap();
 
         let mut bounce = Bounce::new();
@@ -318,10 +322,9 @@ const APP: () = {
             chaos,
             on_board_led,
             display: display::gui::Display::new(lcd).unwrap(),
-            // gpiob: dev.GPIOB,
-            // pb3: gpiob.pb3.into_push_pull_output(),
             midi_router,
-            serial_midi,
+            beatstep,
+            dw6000,
             usb_midi: midi::UsbMidi {
                 dev: usb_dev,
                 midi_class,
@@ -333,27 +336,10 @@ const APP: () = {
     fn idle(cx: idle::Context) -> ! {
         let mut led_on = false;
 
-        // let mut gpiob = cx.resources.gpiob;
-        //  // let mut pb3 =  cx.resources.pb3;
-        //
-        // gpiob.pupdr.modify(|r, w| unsafe {
-        //     w.bits(r.bits() | 0b_0101_0101_0101_0101_0101_0101_0101_0101/*0b_0101_0101_0101_0101_0101_0101_0101_0101*/)
-        // });
-        // gpiob.moder.modify(|r, w| unsafe {
-        //     w.bits(r.bits() | 0b_0101_0101_0101_0101_0101_0101_0101_0101)
-        // });
-        // gpiob.otyper.modify(|r, w| unsafe {
-        //     w.bits(r.bits() | 0x0000FFFF)
-        // });
-
         loop {
             if led_on {
-                // gpiob.write_port(0xFFFF);
-                // pb3.set_high();
                 cx.resources.on_board_led.set_high().unwrap();
             } else {
-                // gpiob.write_port(0);
-                // pb3.set_low();
                 cx.resources.on_board_led.set_low().unwrap();
             }
             led_on = !led_on;
@@ -368,6 +354,7 @@ const APP: () = {
     }
 
     /// USB receive interrupt
+    /// Using LOWER priority to backoff on USB reception if Serial queues not emptying fast enough
     #[task(binds = OTG_FS, spawn = [midispatch], resources = [usb_midi], priority = 3)]
     fn usb_interrupt(cx: usb_interrupt::Context) {
         // poll() is also required here else receive may block forever
@@ -381,14 +368,26 @@ const APP: () = {
     }
 
     /// Serial receive interrupt
-    #[task(binds = USART2, spawn = [midispatch], resources = [serial_midi], priority = 3)]
-    fn serial_irq0(cx: serial_irq0::Context) {
-        if let Err(err) = cx.resources.serial_midi.flush() {
+    #[task(binds = USART1, spawn = [midispatch], resources = [beatstep], priority = 3)]
+    fn usart1_irq(cx: usart1_irq::Context) {
+        if let Err(err) = cx.resources.beatstep.flush() {
             rprintln!("Serial flush failed {:?}", err);
         }
 
-        while let Ok(Some(packet)) = cx.resources.serial_midi.receive() {
-            cx.spawn.midispatch(Src(Interface::Serial(0)), vec![packet]).unwrap();
+        while let Ok(Some(packet)) = cx.resources.beatstep.receive() {
+            cx.spawn.midispatch(Src(BEATSTEP), vec![packet]).unwrap();
+        }
+    }
+
+    /// Serial receive interrupt
+    #[task(binds = USART2, spawn = [midispatch], resources = [dw6000], priority = 3)]
+    fn usart2_irq(cx: usart2_irq::Context) {
+        if let Err(err) = cx.resources.dw6000.flush() {
+            rprintln!("Serial flush failed {:?}", err);
+        }
+
+        while let Ok(Some(packet)) = cx.resources.dw6000.receive() {
+            cx.spawn.midispatch(Src(DW6000), vec![packet]).unwrap();
         }
     }
 
@@ -409,27 +408,29 @@ const APP: () = {
         router.midispatch(cx.scheduled, packets, binding, cx.spawn).unwrap();
     }
 
-    #[task(resources = [usb_midi, serial_midi], capacity = 128, priority = 2)]
+    // TODO split output queues (one task per interface)
+    #[task(resources = [usb_midi, dw6000, beatstep], capacity = 128, priority = 2)]
     fn midisend(mut cx: midisend::Context, interface: Interface, packets: Vec<Packet>) {
         match interface {
-            Interface::USB(_) => {
-                cx.resources.usb_midi.lock(
-                    |usb_midi| if let Err(e) = usb_midi.transmit(packets) {
-                        rprintln!("Failed to send USB MIDI: {:?}", e)
-                    }
-                );
-            }
-            Interface::Serial(_) => {
-                // TODO use proper serial port #
-                cx.resources.serial_midi.lock(
-                    |serial_out| if let Err(e) = serial_out.transmit(packets) {
-                        rprintln!("Failed to send Serial MIDI: {:?}", e)
-                    });
-            }
-            Interface::Application(_) => {}
+            Interface::USB(_) => cx.resources.usb_midi.lock(
+                |midi| if let Err(e) = midi.transmit(packets) {
+                    rprintln!("Failed to send USB MIDI: {:?}", e)
+                }),
+
+            DW6000 => cx.resources.dw6000.lock(
+                |midi| if let Err(e) = midi.transmit(packets) {
+                    rprintln!("Failed to send Serial MIDI: {:?}", e)
+                }),
+
+            BEATSTEP => cx.resources.beatstep.lock(
+                |midi| if let Err(e) = midi.transmit(packets) {
+                    rprintln!("Failed to send Serial MIDI: {:?}", e)
+                }),
+            _ => {}
         }
     }
 
+    // Update the UI - using
     #[task(resources = [display], capacity = 8)]
     fn midisplay(ctx: midisplay::Context, text: String) {
         ctx.resources.display.print(text).unwrap()
@@ -439,6 +440,8 @@ const APP: () = {
         // Reuse some interrupts for software task scheduling.
         fn EXTI0();
         fn EXTI1();
-        fn USART1();
+        fn USART6();
     }
 };
+
+

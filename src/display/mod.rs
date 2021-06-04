@@ -3,11 +3,8 @@ use lvgl::LvError;
 use core::convert::Infallible;
 use display_interface::DisplayError;
 
-pub mod gpio8a;
-pub mod gpio8b;
 pub mod gui;
-pub mod rotate;
-pub mod nogpio;
+
 
 #[derive(Debug)]
 pub enum GuiError {
