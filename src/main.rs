@@ -95,6 +95,9 @@ mod apps;
 mod display;
 
 pub const CPU_FREQ: u32 = 96_000_000;
+// pub const APB1_FREQ: u32 = CPU_FREQ / 2;
+// pub const APB2_FREQ: u32 = CPU_FREQ;
+
 pub const CYCLES_PER_MICROSEC: u32 = CPU_FREQ / 1_000_000;
 pub const CYCLES_PER_MILLISEC: u32 = CPU_FREQ / 1_000;
 
@@ -154,19 +157,11 @@ const APP: () = {
         tasks: Tasks,
         chaos: nanorand::WyRand,
         on_board_led: PC13<Output<PushPull>>,
-        // PB0IOPin<PullDown, PushPull>, PB1IOPin<PullDown, PushPull>, PB2IOPin<PullDown, PushPull>, PB3IOPin<PullDown, PushPull>,
-        // PB4IOPin<PullDown, PushPull>, PB12IOPin<PullDown, PushPull>, PB13IOPin<PullDown, PushPull>, PB14IOPin<PullDown, PushPull>
+
         display: gui::Display<ILI9486<PGPIO8BitInterface<Generic8BitBus<PB0<Output<PushPull>>, PB1<Output<PushPull>>, PB2<Output<PushPull>>,
             PB3<Output<PushPull>>, PB4<Output<PushPull>>, PB12<Output<PushPull>>, PB13<Output<PushPull>>, PB14<Output<PushPull>>>,
             PA10<Output<PushPull>>, PA6<Output<PushPull>>>, PA8<Output<PushPull>>>, Rgb565>,
-        // display: display::gui::Display<GPIO8aParallelInterface<
-        //     stm32f4::stm32f411::GPIOB,
-        //     PA9IOPin<PullDown, PushPull>, PA10IOPin<PullDown, PushPull>, PA5IOPin<PullDown, PushPull>, PA6IOPin<PullDown, PushPull>>>,
 
-        // gpiob: stm32f4::stm32f411::GPIOB,
-
-        // pb3: PB3<Output<PushPull>>,
-        // display: display::gui::Display<NoGPIO>,
         midi_router: midi::Router,
         usb_midi: midi::UsbMidi,
         beatstep: SerialMidi<hal::stm32::USART1, (PB6<Alternate<hal::gpio::AF7>>, PB7<Alternate<hal::gpio::AF7>>)>,
@@ -187,7 +182,11 @@ const APP: () = {
 
         let dev: stm32::Peripherals = cx.device;
         let rcc = dev.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(CPU_FREQ.hz()).freeze();
+        let clocks = rcc.cfgr
+            // .sysclk(CPU_FREQ.hz())
+            // .pclk1(APB1_FREQ.hz())
+            // .pclk2(APB2_FREQ.hz())
+            .freeze();
 
         unsafe { dev.GPIOB.ospeedr.modify(|_, w| w.bits(0xFFFFFFFF)); }
         unsafe { dev.GPIOA.ospeedr.modify(|_, w| w.bits(0xFFFFFFFF)); }
@@ -222,16 +221,16 @@ const APP: () = {
         let d6 = gpiob.pb13.into_push_pull_output();
         let d7 = gpiob.pb14.into_push_pull_output();
 
-        // let cs = gpioa.pa9.into_pull_down_input());
+        let _cs = gpioa.pa9.into_push_pull_output();
         let dc = gpioa.pa10.into_push_pull_output();
         let wr = gpioa.pa6.into_push_pull_output();
-        // let rd = gpioa.pa5.into_pull_down_input());
+        let _rd = gpioa.pa5.into_push_pull_output();
         let bus = Generic8BitBus::new((d0, d1, d2, d3, d4, d5, d6, d7)).unwrap();
 
         let parallel_gpio = PGPIO8BitInterface::new(bus, dc, wr);
 
         let rst = gpioa.pa8.into_push_pull_output();
-        let mut lcd = ILI9486::new(parallel_gpio, rst, &mut CortexDelay{}, DisplayMode::default(), DisplaySize320x480).unwrap();
+        let mut lcd = ILI9486::new(parallel_gpio, rst, &mut CortexDelay {}, DisplayMode::default(), DisplaySize320x480).unwrap();
 
         rprintln!("Screen OK");
 
@@ -269,15 +268,21 @@ const APP: () = {
             pin_dp: gpioa.pa12.into_alternate_af10(),
             hclk: AHB_FREQ.hz(),
         };
+        rprintln!("USB pins OK");
         *USB_BUS = Some(UsbBus::new(usb, unsafe { &mut USB_EP_MEMORY }));
         let usb_bus = USB_BUS.as_ref().unwrap();
+        rprintln!("USB bus OK");
         let midi_class = MidiClass::new(usb_bus);
+        rprintln!("USB class OK");
         // USB devices init _after_ classes
         let usb_dev = usb_device(usb_bus);
+        rprintln!("USB dev OK");
 
         let chaos = nanorand::WyRand::new_seed(0);
+        rprintln!("Chaos OK");
 
         let mut midi_router: midi::Router = midi::Router::default();
+        rprintln!("Router OK");
 
         // let _usb_echo = midi_router.add_route(
         //     Route::echo(Interface::USB(0))
@@ -312,8 +317,6 @@ const APP: () = {
 
         let mut bounce = Bounce::new();
         bounce.start(cx.start, &mut midi_router, &mut tasks).unwrap();
-
-        rprintln!("Routes OK");
 
         rprintln!("-> Initialized");
 

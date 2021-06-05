@@ -23,7 +23,7 @@ use stm32f4xx_hal::{
 
 use embedded_graphics::{
     fonts::{Font6x8},
-    pixelcolor::{Rgb565, Rgb888},
+    pixelcolor::{Rgb565},
     prelude::*,
     style::{PrimitiveStyle, TextStyle},
 };
@@ -87,25 +87,25 @@ impl<T, C> Display<T, C>
         //     .into_styled(
         //         PrimitiveStyleBuilder::new()
         //             .stroke_width(32)
-        //             .stroke_color(Rgb888::RED)
-        //             .fill_color(Rgb888::CYAN)
+        //             .stroke_color(C::RED)
+        //             .fill_color(C::CYAN)
         //             .build(),
         //     )
         //     .draw(&mut self.lcd_driver)
         //     .unwrap();
 
         // let c = Circle::new(Point::new(300, 240), 8)
-        //     .into_styled(PrimitiveStyle::with_fill(Rgb888::RED));
+        //     .into_styled(PrimitiveStyle::with_fill(C::RED));
         //
         // let t = Text::new("Hello Rust (and ILI9486 display)!", Point::new(48, 400))
-        //     .into_styled(TextStyle::new(Font6x8, Rgb888::GREEN));
+        //     .into_styled(TextStyle::new(Font6x8, C::GREEN));
         //
         // c.draw(&mut self.lcd_driver).unwrap();
         // t.draw(&mut self.lcd_driver).unwrap();
         //
         // let tga = Tga::from_slice(include_bytes!("../../test/rust-rle-bw-topleft.tga")).unwrap();
         //
-        // let image: Image<Tga, Rgb888> = Image::new(
+        // let image: Image<Tga, C> = Image::new(
         //     &tga,
         //     Point::new(
         //         (320 / 2 - (tga.width() / 2)) as i32,
