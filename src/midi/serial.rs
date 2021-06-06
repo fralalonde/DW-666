@@ -174,9 +174,8 @@ impl<UART, PINS> Receive for SerialMidi<UART, PINS> where
             if let Some(packet) = packet {
                 return Ok(Some(packet.with_cable_num(self.cable_number)));
             }
-            packet
         } else {
-            rprintln!("not rxne");
+            rprintln!("not rxne?");
         }
         Ok(None)
     }

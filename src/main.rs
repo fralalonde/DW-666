@@ -162,7 +162,7 @@ const APP: () = {
 
         midi_router: midi::Router,
         usb_midi: midi::UsbMidi,
-        beatstep: SerialMidi<hal::stm32::USART1, (PB6<Alternate<hal::gpio::AF7>>, PB7<Alternate<hal::gpio::AF7>>)>,
+        // beatstep: SerialMidi<hal::stm32::USART1, (PB6<Alternate<hal::gpio::AF7>>, PB7<Alternate<hal::gpio::AF7>>)>,
         dw6000: SerialMidi<hal::stm32::USART2, (PA2<Alternate<hal::gpio::AF7>>, PA3<Alternate<hal::gpio::AF7>>)>,
     }
 
@@ -232,18 +232,18 @@ const APP: () = {
 
         rprintln!("Screen OK");
 
-        let bs_tx = gpiob.pb6.into_alternate_af7();
-        let bs_rx = gpiob.pb7.into_alternate_af7();
-        let mut uart1 = Serial::usart1(
-            dev.USART1,
-            (bs_tx, bs_rx),
-            serial::config::Config::default()
-                .baudrate(921_600.bps()),
-            clocks,
-        ).unwrap();
-        uart1.listen(serial::Event::Rxne);
-        let beatstep = SerialMidi::new(uart1, CableNumber::MIN);
-        rprintln!("BeatStep MIDI ports OK");
+        // let bs_tx = gpiob.pb6.into_alternate_af7();
+        // let bs_rx = gpiob.pb7.into_alternate_af7();
+        // let mut uart1 = Serial::usart1(
+        //     dev.USART1,
+        //     (bs_tx, bs_rx),
+        //     serial::config::Config::default()
+        //         .baudrate(921_600.bps()),
+        //     clocks,
+        // ).unwrap();
+        // uart1.listen(serial::Event::Rxne);
+        // let beatstep = SerialMidi::new(uart1, CableNumber::MIN);
+        // rprintln!("BeatStep MIDI ports OK");
 
         let dw_tx = gpioa.pa2.into_alternate_af7();
         let dw_rx = gpioa.pa3.into_alternate_af7();
@@ -309,14 +309,14 @@ const APP: () = {
         // );
         // let _bstep_2_dw = midi_router.bind(Route::link(Interface::USB, Interface::Serial(0)));
 
-        let mut dwctrl = Dw6000Control::new((DW6000, channel(1)), (BEATSTEP, channel(1)));
-        dwctrl.start(cx.start, &mut midi_router, &mut tasks).unwrap();
-
-        let mut bbeat = BlinkyBeat::new((BEATSTEP, channel(1)), vec![Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
-        bbeat.start(cx.start, &mut midi_router, &mut tasks).unwrap();
-
-        let mut bounce = Bounce::new();
-        bounce.start(cx.start, &mut midi_router, &mut tasks).unwrap();
+        // let mut dwctrl = Dw6000Control::new((DW6000, channel(1)), (BEATSTEP, channel(1)));
+        // dwctrl.start(cx.start, &mut midi_router, &mut tasks).unwrap();
+        //
+        // let mut bbeat = BlinkyBeat::new((BEATSTEP, channel(1)), vec![Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
+        // bbeat.start(cx.start, &mut midi_router, &mut tasks).unwrap();
+        //
+        // let mut bounce = Bounce::new();
+        // bounce.start(cx.start, &mut midi_router, &mut tasks).unwrap();
 
         rprintln!("-> Initialized");
 
@@ -326,7 +326,7 @@ const APP: () = {
             on_board_led,
             display: display::gui::Display::new(lcd).unwrap(),
             midi_router,
-            beatstep,
+            // beatstep,
             dw6000,
             usb_midi: midi::UsbMidi {
                 dev: usb_dev,
@@ -370,18 +370,25 @@ const APP: () = {
         }
     }
 
-    /// Serial receive interrupt
-    #[task(binds = USART1, spawn = [midispatch], resources = [beatstep], priority = 3)]
-    fn usart1_irq(cx: usart1_irq::Context) {
-        if let Err(err) = cx.resources.beatstep.flush() {
-            rprintln!("Serial flush failed {:?}", err);
-        }
-
-        while let Ok(Some(packet)) = cx.resources.beatstep.receive() {
-            rprintln!("MIDI from beatstep {:?}", packet);
-            cx.spawn.midispatch(Src(BEATSTEP), PacketList::single(packet)).unwrap();
-        }
-    }
+    // /// Serial receive interrupt
+    // #[task(binds = USART1, spawn = [midispatch], resources = [beatstep], priority = 3)]
+    // fn usart1_irq(cx: usart1_irq::Context) {
+    //     if let Err(err) = cx.resources.beatstep.flush() {
+    //         rprintln!("Serial flush failed {:?}", err);
+    //     }
+    //
+    //     loop {
+    //         match cx.resources.beatstep.receive() {
+    //             Ok(Some(packet)) => {
+    //                 rprintln!("MIDI from beatstep {:?}", packet);
+    //                 cx.spawn.midispatch(Src(BEATSTEP), PacketList::single(packet)).unwrap();
+    //                 continue;
+    //             }
+    //             Err(e) => {rprintln!("Error serial read {:?}", e); break},
+    //             _ => {break;}
+    //         }
+    //     }
+    // }
 
     /// Serial receive interrupt
     #[task(binds = USART2, spawn = [midispatch], resources = [dw6000], priority = 3)]
@@ -414,7 +421,7 @@ const APP: () = {
     }
 
     // TODO split output queues (one task per interface)
-    #[task(resources = [usb_midi, dw6000, beatstep], capacity = 128, priority = 2)]
+    #[task(resources = [usb_midi, dw6000, /*beatstep*/], capacity = 128, priority = 2)]
     fn midisend(mut cx: midisend::Context, interface: Interface, packets: PacketList) {
         match interface {
             Interface::USB(_) => cx.resources.usb_midi.lock(
@@ -427,10 +434,10 @@ const APP: () = {
                     rprintln!("Failed to send Serial MIDI: {:?}", e)
                 }),
 
-            BEATSTEP => cx.resources.beatstep.lock(
-                |midi| if let Err(e) = midi.transmit(packets) {
-                    rprintln!("Failed to send Serial MIDI: {:?}", e)
-                }),
+            // BEATSTEP => cx.resources.beatstep.lock(
+            //     |midi| if let Err(e) = midi.transmit(packets) {
+            //         rprintln!("Failed to send Serial MIDI: {:?}", e)
+            //     }),
             _ => {}
         }
     }
