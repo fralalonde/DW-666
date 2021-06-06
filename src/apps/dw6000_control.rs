@@ -12,9 +12,11 @@ use spin::MutexGuard;
 use num_enum::TryFromPrimitive;
 use num::{Integer};
 use crate::apps::lfo::{Lfo, Waveform};
-use hashbrown::HashMap;
+
 use crate::devices::korg::dw6000;
 use crate::midi::Binding::Dst;
+use alloc::collections::BTreeMap;
+use hashbrown::HashMap;
 
 const SHORT_PRESS: u32 = 250;
 
@@ -251,8 +253,8 @@ impl Service for Dw6000Control {
             Route::link(beatstep.interface, dw6000.interface)
                 .filter(move |_now, context| {
                     let mut state = state.lock();
-                    for p in context.packets.clone() {
-                        if let Ok(msg) = Message::try_from(p) {
+                    for p in context.packets.clone().iter() {
+                        if let Ok(msg) = Message::try_from(*p) {
                             from_beatstep(dw6000, msg, &mut state, context)?;
                         }
                     }
@@ -285,7 +287,7 @@ fn toggle_param(param: Param, dump: &mut Vec<u8>, context: &mut RouteContext) ->
     set_param_value(param, value, dump.as_mut_slice());
     context.packets.clear();
     for packet in param_to_sysex(param, dump.as_slice()) {
-        context.packets.push(packet)
+        context.packets.push(packet);
     }
     context.strings.push(format!("{:?}\n{:.2}", param, value));
     Ok(())
@@ -300,7 +302,7 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, state: &mut MutexGuard<InnerSta
                 if let Some(bank) = state.bank {
                     // spawn.midisend(dw6000.interface, .into())?;
                     context.packets.clear();
-                    context.packets.push(program_change(dw6000.channel, (bank * 8) + prog)?.into())
+                    context.packets.push(program_change(dw6000.channel, (bank * 8) + prog)?.into());
                 }
             }
             if let Some(page) = note_page(note) {

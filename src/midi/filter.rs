@@ -3,7 +3,7 @@ use crate::midi::route::{RouteContext};
 use core::convert::TryFrom;
 
 pub fn capture_sysex(matcher: &mut Matcher, context: &mut RouteContext) -> Result<bool, MidiError> {
-    for p in &context.packets {
+    for p in context.packets.iter() {
         if let Some(tags) = matcher.match_packet(*p) {
             context.tags.extend(tags)
         }
@@ -13,7 +13,7 @@ pub fn capture_sysex(matcher: &mut Matcher, context: &mut RouteContext) -> Resul
 
 /// Print packets to the console and continue
 pub fn print_message(context: &mut RouteContext) -> Result<bool, MidiError> {
-    for p in &context.packets {
+    for p in context.packets.iter() {
         if let Ok(message) = Message::try_from(*p) {
             match message {
                 Message::SysexBegin(byte1, byte2) => rprint!("Sysex [ 0x{:x}, 0x{:x}", byte1, byte2),
@@ -34,7 +34,7 @@ pub fn print_message(context: &mut RouteContext) -> Result<bool, MidiError> {
 
 /// Print packets to the console and continue
 pub fn print_packets(context: &mut RouteContext) -> Result<bool, MidiError> {
-    for p in &context.packets {
+    for p in context.packets.iter() {
         rprintln!("packet {:x?}", p);
     }
     Ok(true)

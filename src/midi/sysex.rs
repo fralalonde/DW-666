@@ -64,10 +64,10 @@ use crate::midi::message::Message::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, 
 // }
 
 use core::convert::TryFrom;
-use hashbrown::HashMap;
-use alloc::collections::VecDeque;
+use heapless::spsc::Queue;
+use alloc::collections::BTreeMap;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum Tag {
     Channel,
     Velocity,
@@ -104,7 +104,7 @@ pub struct Sysex {
     tok_idx: usize,
     // current index inside token
     byte_idx: usize,
-    window: VecDeque<u8>,
+    window: Queue<u8, 64>,
 }
 
 impl Sysex {
@@ -113,7 +113,7 @@ impl Sysex {
             tokens/*: buffer*/,
             tok_idx: 0,
             byte_idx: 0,
-            window: VecDeque::with_capacity(3),
+            window: Queue::new(),
         }
     }
 }
@@ -133,7 +133,7 @@ impl Iterator for Sysex {
             }
             match &self.tokens[self.tok_idx] {
                 Token::Seq(slice) => {
-                    self.window.push_back(slice[self.byte_idx]);
+                    self.window.enqueue(slice[self.byte_idx]);
                     self.byte_idx += 1;
                     if self.byte_idx == slice.len() {
                         self.tok_idx += 1;
@@ -141,7 +141,7 @@ impl Iterator for Sysex {
                     }
                 }
                 Token::Val(val) => {
-                    self.window.push_back(*val);
+                    self.window.enqueue(*val);
                     self.tok_idx += 1;
                 }
                 _ => {}
@@ -154,14 +154,14 @@ impl Iterator for Sysex {
         Some(Packet::from(
             match (start, self.window.len()) {
                 (true, 0) => SysexEmpty,
-                (true, 1) => SysexSingleByte(self.window.pop_front().unwrap()),
-                (true, _) => SysexBegin(self.window.pop_front().unwrap(), self.window.pop_front().unwrap()),
+                (true, 1) => SysexSingleByte(self.window.dequeue().unwrap()),
+                (true, _) => SysexBegin(self.window.dequeue().unwrap(), self.window.dequeue().unwrap()),
 
                 (false, 0) => SysexEnd,
-                (false, 1) => SysexEnd1(self.window.pop_front().unwrap()),
-                (false, 2) => SysexEnd2(self.window.pop_front().unwrap(), self.window.pop_front().unwrap()),
+                (false, 1) => SysexEnd1(self.window.dequeue().unwrap()),
+                (false, 2) => SysexEnd2(self.window.dequeue().unwrap(), self.window.dequeue().unwrap()),
 
-                (false, _) => SysexCont(self.window.pop_front().unwrap(), self.window.pop_front().unwrap(), self.window.pop_front().unwrap()),
+                (false, _) => SysexCont(self.window.dequeue().unwrap(), self.window.dequeue().unwrap(), self.window.dequeue().unwrap()),
             }
         ))
     }
@@ -177,7 +177,7 @@ pub enum Token {
     Cap(Tag),
 }
 
-pub type CaptureBuffer = HashMap<Tag, Vec<u8>>;
+pub type CaptureBuffer = BTreeMap<Tag, Vec<u8>>;
 
 #[derive(Debug)]
 pub struct Matcher {

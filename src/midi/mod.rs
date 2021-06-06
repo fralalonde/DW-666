@@ -31,9 +31,12 @@ pub use usb::{MidiClass, usb_device, UsbMidi};
 pub use sysex::{Matcher, Token, Tag, Sysex};
 pub use route::{Router, RouteContext, Route, Service};
 pub use filter::{capture_sysex, print_message, print_packets};
-use alloc::string::String;
+
 use crate::Handle;
-use alloc::vec::Vec;
+use heapless::Vec;
+use core::ops::{Deref, DerefMut};
+use core::iter::FromIterator;
+
 
 #[derive(Clone, Copy, Debug)]
 /// MIDI channel, stored as 0-15
@@ -80,9 +83,44 @@ pub trait Receive {
     fn receive(&mut self) -> Result<Option<Packet>, MidiError>;
 }
 
+#[derive(Default, Debug, Clone)]
+pub struct PacketList(Vec<Packet, 16>);
+
+impl Deref for PacketList {
+    type Target = Vec<Packet, 16>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for PacketList {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl FromIterator<Packet> for PacketList {
+    fn from_iter<T: IntoIterator<Item=Packet>>(iter: T) -> Self {
+        let mut list = Vec::new();
+        for p in iter {
+            list.push(p);
+        }
+        PacketList(list)
+    }
+}
+
+impl PacketList {
+    pub fn single(packet: Packet) -> Self {
+        let mut list = Vec::new();
+        list.push(packet);
+        PacketList(list)
+    }
+}
+
 pub trait Transmit {
     /// Send a single packet
-    fn transmit(&mut self, event: Vec<Packet>) -> Result<(), MidiError>;
+    fn transmit(&mut self, event: PacketList) -> Result<(), MidiError>;
 }
 
 #[derive(Debug)]
@@ -136,24 +174,24 @@ impl From<TryFromSliceError> for MidiError {
 }
 
 /// RTIC spawn error
-impl From<(Binding, Vec<Packet>)> for MidiError {
-    fn from(_: (Binding, Vec<Packet>)) -> Self {
+impl From<(Binding, PacketList)> for MidiError {
+    fn from(_: (Binding, PacketList)) -> Self {
         MidiError::UnsentPacket
     }
 }
 
 /// RTIC spawn error
-impl From<(Interface, Vec<Packet>)> for MidiError {
-    fn from(_: (Interface, Vec<Packet>)) -> Self {
+impl From<(Interface, PacketList)> for MidiError {
+    fn from(_: (Interface, PacketList)) -> Self {
         MidiError::UnsentPacket
     }
 }
 
-impl From<String> for MidiError {
-    fn from(_: String) -> Self {
-        MidiError::UnsentString
-    }
-}
+// impl From<String> for MidiError {
+//     fn from(_: String) -> Self {
+//         MidiError::UnsentString
+//     }
+// }
 
 /// Just strip higher bits (meh)
 pub trait Cull<T>: Sized {

@@ -1,4 +1,4 @@
-use crate::midi::{Packet, Tag, Interface, MidiError, Binding};
+use crate::midi::{Packet, Tag, Interface, MidiError, Binding, PacketList};
 
 use alloc::vec::Vec;
 use hashbrown::{HashMap};
@@ -11,6 +11,7 @@ use alloc::boxed::Box;
 use crate::time::Tasks;
 use alloc::string::String;
 use alloc::collections::{BTreeMap};
+use core::iter::FromIterator;
 
 pub trait Service {
     fn start(&mut self, now: rtic::cyccnt::Instant, router: &mut Router, tasks: &mut Tasks) -> Result<(), MidiError>;
@@ -82,12 +83,12 @@ impl Route {
 pub struct RouteContext {
     pub destination: Option<Interface>,
     pub tags: HashMap<Tag, Vec<u8>>,
-    pub packets: Vec<Packet>,
+    pub packets: PacketList,
     pub strings: Vec<String>,
 }
 
 impl RouteContext {
-    fn restart(&mut self, packets: Vec<Packet>) {
+    fn restart(&mut self, packets: PacketList) {
         self.destination = None;
         self.tags.clear();
         self.packets = packets;
@@ -104,7 +105,9 @@ impl RouteContext {
     }
 
     fn flush_packets(&mut self, destination: Interface, spawn: midispatch::Spawn) -> Result<(), MidiError> {
-        spawn.midisend(destination, self.packets.drain(..).collect())?;
+        spawn.midisend(destination, self.packets.clone())?;
+        // heapless Vec has no drain(), wat
+        self.packets.clear();
         Ok(())
     }
 }
@@ -118,7 +121,7 @@ pub struct Router {
 }
 
 impl Router {
-    pub fn midispatch(&mut self, now: Instant, packets: Vec<Packet>, binding: Binding, spawn: midispatch::Spawn) -> Result<(), MidiError> {
+    pub fn midispatch(&mut self, now: Instant, packets: PacketList, binding: Binding, spawn: midispatch::Spawn) -> Result<(), MidiError> {
         // TODO preallocate static context
         let mut context = RouteContext::default();
 

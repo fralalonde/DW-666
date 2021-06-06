@@ -20,7 +20,6 @@ use core::alloc::Layout;
 use core::result::Result;
 use core::sync::atomic::AtomicU16;
 
-
 use cortex_m::asm;
 use cortex_m::asm::delay;
 // STM32 universal (?)
@@ -49,16 +48,14 @@ use midi::{CableNumber, MidiClass, SerialMidi, usb_device};
 use midi::{Interface, Packet, Receive, Transmit};
 
 use crate::apps::dw6000_control::Dw6000Control;
-use crate::midi::{channel, print_message, Service, Note, Route, Binding, print_packets};
+use crate::midi::{channel, print_message, Service, Note, Route, Binding, print_packets, PacketList};
 use alloc::string::String;
 use crate::time::Tasks;
 use rtic::cyccnt::U32Ext as _;
 use crate::apps::blinky_beat::BlinkyBeat;
 use crate::midi::Binding::Src;
-use alloc::vec::Vec;
 
 use embedded_graphics::image::Image;
-
 
 use embedded_graphics::{
     fonts::{Font6x8, Text},
@@ -87,6 +84,7 @@ use hal::gpio::gpioa::*;
 use display_interface_parallel_gpio::{PGPIO8BitInterface, Generic8BitBus};
 use ili9486::{ILI9486, DisplayError, Orientation, DisplaySize320x480, DisplayMode};
 use crate::display::gui;
+use heapless::Vec;
 
 mod time;
 mod midi;
@@ -149,7 +147,7 @@ impl DelayUs<u32> for CortexDelay {
 }
 
 const DW6000: Interface = Interface::Serial(0);
-const BEATSTEP: Interface = Interface::Serial(1);
+const BEATSTEP: Interface = Interface::USB(0);
 
 #[rtic::app(device = hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
@@ -183,13 +181,13 @@ const APP: () = {
         let dev: stm32::Peripherals = cx.device;
         let rcc = dev.RCC.constrain();
         let clocks = rcc.cfgr
-            // .sysclk(CPU_FREQ.hz())
+            .sysclk(CPU_FREQ.hz())
             // .pclk1(APB1_FREQ.hz())
             // .pclk2(APB2_FREQ.hz())
             .freeze();
 
-        unsafe { dev.GPIOB.ospeedr.modify(|_, w| w.bits(0xFFFFFFFF)); }
-        unsafe { dev.GPIOA.ospeedr.modify(|_, w| w.bits(0xFFFFFFFF)); }
+        // unsafe { dev.GPIOB.ospeedr.modify(|_, w| w.bits(0xFFFFFFFF)); }
+        // unsafe { dev.GPIOA.ospeedr.modify(|_, w| w.bits(0xFFFFFFFF)); }
 
         let gpioa = dev.GPIOA.split();
         let gpiob = dev.GPIOB.split();
@@ -268,12 +266,10 @@ const APP: () = {
             pin_dp: gpioa.pa12.into_alternate_af10(),
             hclk: AHB_FREQ.hz(),
         };
-        rprintln!("USB pins OK");
+
         *USB_BUS = Some(UsbBus::new(usb, unsafe { &mut USB_EP_MEMORY }));
         let usb_bus = USB_BUS.as_ref().unwrap();
-        rprintln!("USB bus OK");
         let midi_class = MidiClass::new(usb_bus);
-        rprintln!("USB class OK");
         // USB devices init _after_ classes
         let usb_dev = usb_device(usb_bus);
         rprintln!("USB dev OK");
@@ -288,11 +284,14 @@ const APP: () = {
         //     Route::echo(Interface::USB(0))
         //         .filter(|_now, cx| print_message(cx)));
 
-        // let _serial_print = midi_router.bind(Route::from(Interface::Serial(0)).filter(print_message()));
+        let _serial_print = midi_router
+            .add_route(Route::from(DW6000)
+                .filter(|t, cx| print_message(cx)));
 
         // let _usb_print = midi_router.add_route(
         //     Route::to(Interface::USB(0))
         //         .filter(|_now, cx| print_packets(cx)));
+
         // let _usb_print_in = midi_router.add_route(
         //     Route::from(Interface::USB(0))
         //         .filter(|_now, cx| print_packets(cx)));
@@ -302,6 +301,7 @@ const APP: () = {
         //         .filter(SysexCapture(dsi_evolver::program_parameter_matcher()))
         //         .filter(PrintTags)
         // );
+
         // let _evo_match = midi_router.bind(
         //     Route::from(Interface::Serial(0))
         //         .filter(capture_sysex(dsi_evolver::program_parameter_matcher()))
@@ -363,7 +363,7 @@ const APP: () = {
         // poll() is also required here else receive may block forever
         if cx.resources.usb_midi.poll() {
             while let Some(packet) = cx.resources.usb_midi.receive().unwrap() {
-                if let Err(e) = cx.spawn.midispatch(Src(Interface::USB(0)), vec![packet]) {
+                if let Err(e) = cx.spawn.midispatch(Src(BEATSTEP), PacketList::single(packet)) {
                     rprintln!("Dropped incoming MIDI: {:?}", e)
                 }
             }
@@ -378,7 +378,8 @@ const APP: () = {
         }
 
         while let Ok(Some(packet)) = cx.resources.beatstep.receive() {
-            cx.spawn.midispatch(Src(BEATSTEP), vec![packet]).unwrap();
+            rprintln!("MIDI from beatstep {:?}", packet);
+            cx.spawn.midispatch(Src(BEATSTEP), PacketList::single(packet)).unwrap();
         }
     }
 
@@ -390,7 +391,8 @@ const APP: () = {
         }
 
         while let Ok(Some(packet)) = cx.resources.dw6000.receive() {
-            cx.spawn.midispatch(Src(DW6000), vec![packet]).unwrap();
+            rprintln!("Packet USART2 {:?}", packet);
+            cx.spawn.midispatch(Src(DW6000), PacketList::single(packet)).unwrap();
         }
     }
 
@@ -406,14 +408,14 @@ const APP: () = {
     }
 
     #[task(spawn = [midisend, midisplay], resources = [midi_router, tasks], priority = 3, capacity = 16)]
-    fn midispatch(cx: midispatch::Context, binding: Binding, packets: Vec<Packet>) {
+    fn midispatch(cx: midispatch::Context, binding: Binding, packets: PacketList) {
         let router: &mut midi::Router = cx.resources.midi_router;
         router.midispatch(cx.scheduled, packets, binding, cx.spawn).unwrap();
     }
 
     // TODO split output queues (one task per interface)
     #[task(resources = [usb_midi, dw6000, beatstep], capacity = 128, priority = 2)]
-    fn midisend(mut cx: midisend::Context, interface: Interface, packets: Vec<Packet>) {
+    fn midisend(mut cx: midisend::Context, interface: Interface, packets: PacketList) {
         match interface {
             Interface::USB(_) => cx.resources.usb_midi.lock(
                 |midi| if let Err(e) = midi.transmit(packets) {

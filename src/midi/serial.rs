@@ -2,19 +2,17 @@
 
 use crate::midi::status::{SYSEX_END, is_non_status, is_channel_status};
 use crate::midi::packet::{Packet, CableNumber, CodeIndexNumber};
-use crate::midi::{MidiError, Receive, Transmit};
+use crate::midi::{MidiError, Receive, Transmit, PacketList};
 use crate::midi::status::Status;
 use core::convert::TryFrom;
 use embedded_hal::serial::{Write, Read};
 
-use stm32f4xx_hal as hal;
-use hal::stm32::USART2;
 use hal::gpio::AF7;
 use hal::gpio::gpioa::{PA2, PA3};
-use alloc::collections::VecDeque;
 use hal::serial::{Event, Pins, Instance};
-use alloc::vec::Vec;
 use hal::hal::serial;
+use heapless::spsc::Queue;
+use heapless::Vec;
 
 #[derive(Copy, Clone, Default, Debug)]
 struct PacketBuffer {
@@ -111,17 +109,9 @@ impl PacketParser {
     }
 }
 
-pub type UartPeripheral = hal::serial::Serial<
-    USART2,
-    (
-        PA2<hal::gpio::Alternate<AF7>>,
-        PA3<hal::gpio::Alternate<AF7>>,
-    ),
->;
-
 pub struct SerialMidi<UART, PINS> {
     pub uart: hal::serial::Serial<UART, PINS>,
-    pub tx_fifo: VecDeque<u8>,
+    pub tx_fifo: Queue<u8, 64>,
     cable_number: CableNumber,
     parser: PacketParser,
     last_status: Option<u8>,
@@ -134,7 +124,7 @@ impl<UART, PINS> SerialMidi<UART, PINS> where
     pub fn new(uart: hal::serial::Serial<UART, PINS>, cable_number: CableNumber) -> Self {
         SerialMidi {
             uart,
-            tx_fifo: VecDeque::new(),
+            tx_fifo: Queue::new(),
             cable_number,
             parser: PacketParser::default(),
             last_status: None,
@@ -145,7 +135,7 @@ impl<UART, PINS> SerialMidi<UART, PINS> where
         'write_bytes:
         loop {
             if self.uart.is_txe() {
-                if let Some(byte) = self.tx_fifo.pop_front() {
+                if let Some(byte) = self.tx_fifo.dequeue() {
                     self.uart.write(byte)?;
                     continue 'write_bytes;
                 } else {
@@ -166,7 +156,7 @@ impl<UART, PINS> SerialMidi<UART, PINS> where
     }
 
     fn write_byte(&mut self, byte: u8) -> Result<(), MidiError> {
-        self.tx_fifo.push_back(byte);
+        self.tx_fifo.enqueue(byte).map_err(|_| MidiError::BufferFull)?;
         Ok(())
     }
 }
@@ -176,16 +166,19 @@ impl<UART, PINS> Receive for SerialMidi<UART, PINS> where
     UART: Instance,
 {
     fn receive(&mut self) -> Result<Option<Packet>, MidiError> {
+        rprintln!("read usart");
         if self.uart.is_rxne() {
             let byte = self.uart.read()?;
-            let packet = self.parser.advance(byte);
-            if let Ok(Some(packet)) = packet {
+            rprintln!("read rxne");
+            let packet = self.parser.advance(byte)?;
+            if let Some(packet) = packet {
                 return Ok(Some(packet.with_cable_num(self.cable_number)));
             }
             packet
         } else {
-            Ok(None)
+            rprintln!("not rxne");
         }
+        Ok(None)
     }
 }
 
@@ -193,8 +186,8 @@ impl<UART, PINS> Transmit for SerialMidi<UART, PINS> where
     PINS: Pins<UART>,
     UART: Instance,
 {
-    fn transmit(&mut self, packets: Vec<Packet>) -> Result<(), MidiError> {
-        for packet in packets {
+    fn transmit(&mut self, packets: PacketList) -> Result<(), MidiError> {
+        for packet in packets.iter() {
             let mut payload = packet.payload();
             // Apply MIDI "running status"
             if is_channel_status(payload[0]) {

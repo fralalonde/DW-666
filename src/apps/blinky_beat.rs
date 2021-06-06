@@ -1,4 +1,4 @@
-use crate::midi::{Router, Service, Note, Endpoint, note_off, note_on, Velocity, channel, MidiError};
+use crate::midi::{Router, Service, Note, Endpoint, note_off, note_on, Velocity, channel, MidiError, PacketList};
 use crate::{devices};
 use alloc::vec::Vec;
 use alloc::sync::Arc;
@@ -45,9 +45,9 @@ impl Service for BlinkyBeat {
             }
             for (note, ref mut on) in &mut state.notes {
                 if *on {
-                    spawn.midispatch(Dst(bs.interface), vec![note_on(bs.channel, *note, Velocity::MAX)?.into()]).unwrap();
+                    spawn.midispatch(Dst(bs.interface), PacketList::single(note_on(bs.channel, *note, Velocity::MAX)?.into()));
                 } else {
-                    spawn.midispatch(Dst(bs.interface), vec![note_off(bs.channel, *note, Velocity::MIN)?.into()]).unwrap();
+                    spawn.midispatch(Dst(bs.interface), PacketList::single(note_off(bs.channel, *note, Velocity::MIN)?.into()));
                 }
                 *on = !*on
             }

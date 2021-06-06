@@ -31,9 +31,8 @@ lvgl = { path = "../lvgl-rs/lvgl",  default-features = false }
 cstr_core = "0.2.3"
 
 #ssd1306 = "0.4"
-#display-interface = "0.4"
 
-#heapless = {git = "https://github.com/japaric/heapless.git", branch = "const_generics", features = ["ufmt-impl", "cas"]}
+heapless = "0.7"
 #ufmt = "0.1"
 
 buddy-alloc = "0.4"
