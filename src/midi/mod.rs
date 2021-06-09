@@ -104,7 +104,9 @@ impl FromIterator<Packet> for PacketList {
     fn from_iter<T: IntoIterator<Item=Packet>>(iter: T) -> Self {
         let mut list = Vec::new();
         for p in iter {
-            list.push(p);
+            if let Err(_) = list.push(p) {
+                break;
+            }
         }
         PacketList(list)
     }
@@ -113,7 +115,7 @@ impl FromIterator<Packet> for PacketList {
 impl PacketList {
     pub fn single(packet: Packet) -> Self {
         let mut list = Vec::new();
-        list.push(packet);
+        let _ = list.push(packet);
         PacketList(list)
     }
 }

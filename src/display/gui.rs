@@ -36,7 +36,6 @@ use lvgl::style::Style;
 use lvgl::widgets::{Btn, Label};
 use cstr_core::CString;
 use crate::display::GuiError;
-use ili9486::ILI9486;
 
 pub struct Display<T, C>
     where T: DrawTarget<C>,
@@ -83,6 +82,7 @@ impl<T, C> Display<T, C>
     }
 
     fn redraw(&mut self, text: String, top_left: Point, bottom_right: Point) -> Result<(), DisplayError> {
+        self.ui.task_handler();
         // Rectangle::new(Point::new(16, 16), Point::new(240, 240))
         //     .into_styled(
         //         PrimitiveStyleBuilder::new()

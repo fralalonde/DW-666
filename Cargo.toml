@@ -43,9 +43,11 @@ stm32f4 = { version = "0.13", features = ["stm32f411", "rt"], optional = true }
 #using git version see below
 stm32f4xx-hal = { version = "0.9", features = ["stm32f411", "rt", "usb_fs"], optional = true }
 
-ili9486 = { path = "../ili9486-rs" }
+#ili9486 = { path = "../ili9486-rs" }
+ili9341 = "0.4"
 display-interface = "0.4"
-display-interface-parallel-gpio = "0.6.0"
+#display-interface-parallel-gpio = "0.6.0"
+display-interface-spi = "0.4.1"
 tinytga = { version = "0.3", features = ["graphics"] }
 
 [features]

@@ -18,7 +18,6 @@ use crate::midi::{Packet, PacketList};
 use crate::midi::MidiError;
 use crate::midi;
 use usb_device::class_prelude::EndpointAddress;
-use heapless::Vec;
 
 const USB_TX_BUFFER_SIZE: u16 = 64;
 

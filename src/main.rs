@@ -11,80 +11,70 @@ extern crate bitfield;
 
 extern crate cortex_m;
 
-#[macro_use]
-extern crate display_interface_parallel_gpio;
-
-extern crate stm32f4xx_hal as hal;
-
 use core::alloc::Layout;
 use core::result::Result;
 use core::sync::atomic::AtomicU16;
 
 use cortex_m::asm;
-use cortex_m::asm::delay;
-// STM32 universal (?)
+use cortex_m_rt::entry;
+
+extern crate stm32f4xx_hal as hal;
+
 use hal::{
-    // renamed for RTIC genericity
     gpio::{
+        {Input, Alternate},
+        gpioa::*,
+        gpiob::*,
         gpioc::PC13, GpioExt, Output,
         PushPull,
     },
     i2c::I2c,
     otg_fs::{USB, UsbBus, UsbBusType},
     rcc::RccExt,
-    serial::{self, config::StopBits, Serial},
-    // stm32 as device,
+    serial::{self, Serial},
     time::U32Ext,
     stm32,
+    spi,
+    delay::Delay,
+};
+
+use embedded_hal::{
+    blocking::delay::{DelayUs, DelayMs},
+    digital::v2::OutputPin,
+    spi as espi,
 };
 // use ssd1306::{Builder, I2CDIBuilder};
 
-use hal::prelude::_embedded_hal_digital_v2_OutputPin;
 use panic_rtt_target as _;
-use rtic::app;
+
 use usb_device::bus;
 
 use midi::{CableNumber, MidiClass, SerialMidi, usb_device};
 use midi::{Interface, Packet, Receive, Transmit};
+use crate::midi::{channel, print_message, Service, Note, Route, Binding, print_packets, PacketList};
+use crate::midi::Binding::Src;
 
 use crate::apps::dw6000_control::Dw6000Control;
-use crate::midi::{channel, print_message, Service, Note, Route, Binding, print_packets, PacketList};
+
 use alloc::string::String;
 use crate::time::Tasks;
 use rtic::cyccnt::U32Ext as _;
 use crate::apps::blinky_beat::BlinkyBeat;
-use crate::midi::Binding::Src;
 
-use embedded_graphics::image::Image;
-
-use embedded_graphics::{
-    fonts::{Font6x8, Text},
-    pixelcolor::{Rgb565, Rgb888},
-    prelude::*,
-    style::{PrimitiveStyle, TextStyle},
-};
-
-use cortex_m_rt::entry;
-
-use stm32f4xx_hal::{
-    gpio::{PullDown},
-};
-
-
-use hal::stm32::Peripherals;
-use hal::delay::Delay;
-use embedded_hal::blocking::delay::{DelayUs, DelayMs};
 use crate::apps::bounce::Bounce;
 
-use hal::gpio::gpiob::*;
-use hal::gpio::{Input, Alternate};
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
-use hal::gpio::gpioa::*;
-use display_interface_parallel_gpio::{PGPIO8BitInterface, Generic8BitBus};
-use ili9486::{ILI9486, DisplayError, Orientation, DisplaySize320x480, DisplayMode};
+
+// use display_interface_parallel_gpio::{PGPIO8BitInterface, Generic8BitBus};
+// use ili9486::{ILI9486, DisplaySize320x480, DisplayMode};
 use crate::display::gui;
 use heapless::Vec;
+use crate::display::gui::Display;
+use ili9341::Ili9341;
+use hal::spi::{Polarity, Phase, Mode, Spi, NoMiso};
+use display_interface_spi::SPIInterface;
+use embedded_graphics::pixelcolor::Rgb565;
 
 mod time;
 mod midi;
@@ -92,7 +82,7 @@ mod devices;
 mod apps;
 mod display;
 
-pub const CPU_FREQ: u32 = 96_000_000;
+pub const CPU_FREQ: u32 = 48_000_000;
 // pub const APB1_FREQ: u32 = CPU_FREQ / 2;
 // pub const APB2_FREQ: u32 = CPU_FREQ;
 
@@ -138,11 +128,17 @@ pub type Handle = u16;
 pub static NEXT_HANDLE: AtomicU16 = AtomicU16::new(0);
 
 
-struct CortexDelay;
+pub struct CortexDelay;
 
-impl DelayUs<u32> for CortexDelay {
-    fn delay_us(&mut self, us: u32) {
-        cortex_m::asm::delay(us * CYCLES_PER_MICROSEC)
+impl DelayUs<u16> for CortexDelay {
+    fn delay_us(&mut self, us: u16) {
+        asm::delay(us as u32 * CYCLES_PER_MICROSEC)
+    }
+}
+
+impl DelayMs<u16> for CortexDelay {
+    fn delay_ms(&mut self, us: u16) {
+        asm::delay(us as u32 * CYCLES_PER_MILLISEC)
     }
 }
 
@@ -156,9 +152,7 @@ const APP: () = {
         chaos: nanorand::WyRand,
         on_board_led: PC13<Output<PushPull>>,
 
-        display: gui::Display<ILI9486<PGPIO8BitInterface<Generic8BitBus<PB0<Output<PushPull>>, PB1<Output<PushPull>>, PB2<Output<PushPull>>,
-            PB3<Output<PushPull>>, PB4<Output<PushPull>>, PB12<Output<PushPull>>, PB13<Output<PushPull>>, PB14<Output<PushPull>>>,
-            PA10<Output<PushPull>>, PA6<Output<PushPull>>>, PA8<Output<PushPull>>>, Rgb565>,
+        display: gui::Display<Ili9341<SPIInterface<Spi<hal::stm32::SPI1, (PA5<Alternate<hal::gpio::AF5>>, NoMiso, PA7<Alternate<hal::gpio::AF5>>)>, PB0<Output<PushPull>>, PA4<Output<PushPull>>>, PA6<Output<PushPull>>>, Rgb565>,
 
         midi_router: midi::Router,
         usb_midi: midi::UsbMidi,
@@ -198,7 +192,7 @@ const APP: () = {
 
         let on_board_led = gpioc.pc13.into_push_pull_output();
 
-        // Setup Display
+        // Setup I2C Display
         // let scl = gpiob.pb8.into_alternate_af4().set_open_drain();
         // let sda = gpiob.pb9.into_alternate_af4().set_open_drain();
         //
@@ -209,26 +203,32 @@ const APP: () = {
         //
         // display::draw_logo(&mut oled).unwrap();
 
-        let d0 = gpiob.pb0.into_push_pull_output();
-        let d1 = gpiob.pb1.into_push_pull_output();
-        let d2 = gpiob.pb2.into_push_pull_output();
-        let d3 = gpiob.pb3.into_push_pull_output();
+        let mut delay = CortexDelay {};
 
-        let d4 = gpiob.pb4.into_push_pull_output();
-        let d5 = gpiob.pb12.into_push_pull_output();
-        let d6 = gpiob.pb13.into_push_pull_output();
-        let d7 = gpiob.pb14.into_push_pull_output();
+        let sclk = gpioa.pa5.into_alternate_af5();
+        // let miso = gpioa.pa6.into_alternate_af5();
+        let mosi = gpioa.pa7.into_alternate_af5();
 
-        let _cs = gpioa.pa9.into_push_pull_output();
-        let dc = gpioa.pa10.into_push_pull_output();
-        let wr = gpioa.pa6.into_push_pull_output();
-        let _rd = gpioa.pa5.into_push_pull_output();
-        let bus = Generic8BitBus::new((d0, d1, d2, d3, d4, d5, d6, d7)).unwrap();
+        let spi = spi::Spi::spi1(
+            dev.SPI1,
+            (sclk, NoMiso, mosi),
+            espi::MODE_0,
+            100.khz().into(),
+            clocks,
+        );
 
-        let parallel_gpio = PGPIO8BitInterface::new(bus, dc, wr);
+        let lcd_cs = gpioa.pa4.into_push_pull_output();
+        let lcd_dc = gpiob.pb0.into_push_pull_output();
 
-        let rst = gpioa.pa8.into_push_pull_output();
-        let mut lcd = ILI9486::new(parallel_gpio, rst, &mut CortexDelay {}, DisplayMode::default(), DisplaySize320x480).unwrap();
+        let lcd_spi = SPIInterface::new(spi, lcd_dc, lcd_cs);
+
+        let mut ts_cs = gpiob.pb1.into_push_pull_output();
+        ts_cs.set_high().expect("Could not disable touchscreen");
+
+        let lcd_reset = gpioa.pa6.into_push_pull_output();
+        let ili9341 = Ili9341::new(lcd_spi, lcd_reset, &mut delay).expect("LCD init failed");
+
+        let mut display = Display::new(ili9341).unwrap();
 
         rprintln!("Screen OK");
 
@@ -315,8 +315,8 @@ const APP: () = {
         // let mut bbeat = BlinkyBeat::new((BEATSTEP, channel(1)), vec![Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
         // bbeat.start(cx.start, &mut midi_router, &mut tasks).unwrap();
         //
-        // let mut bounce = Bounce::new();
-        // bounce.start(cx.start, &mut midi_router, &mut tasks).unwrap();
+        let mut bounce = Bounce::new();
+        bounce.start(cx.start, &mut midi_router, &mut tasks).unwrap();
 
         rprintln!("-> Initialized");
 
@@ -324,7 +324,7 @@ const APP: () = {
             tasks,
             chaos,
             on_board_led,
-            display: display::gui::Display::new(lcd).unwrap(),
+            display,
             midi_router,
             // beatstep,
             dw6000,
@@ -346,7 +346,7 @@ const APP: () = {
                 cx.resources.on_board_led.set_low().unwrap();
             }
             led_on = !led_on;
-            delay(LED_BLINK);
+            asm::delay(LED_BLINK);
         }
     }
 

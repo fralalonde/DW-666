@@ -7,12 +7,8 @@ use crate::midi::status::Status;
 use core::convert::TryFrom;
 use embedded_hal::serial::{Write, Read};
 
-use hal::gpio::AF7;
-use hal::gpio::gpioa::{PA2, PA3};
 use hal::serial::{Event, Pins, Instance};
-use hal::hal::serial;
 use heapless::spsc::Queue;
-use heapless::Vec;
 
 #[derive(Copy, Clone, Default, Debug)]
 struct PacketBuffer {

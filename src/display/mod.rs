@@ -1,6 +1,5 @@
 
 use lvgl::LvError;
-use core::convert::Infallible;
 use display_interface::DisplayError;
 
 pub mod gui;
