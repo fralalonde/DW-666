@@ -1,4 +1,26 @@
 use core::array::TryFromSliceError;
+use core::iter::FromIterator;
+use core::ops::{Deref, DerefMut};
+
+use heapless::Vec;
+use nb;
+use usb_device::UsbError;
+
+pub use message::{Message, note_off, note_on, program_change};
+pub use note::Note;
+pub use packet::{CableNumber, CodeIndexNumber, Packet};
+pub use serial::SerialMidi;
+pub use status::Status;
+pub use u14::U14;
+pub use u4::U4;
+pub use u6::U6;
+pub use u7::U7;
+pub use usb::{MidiClass, usb_device, UsbMidi};
+
+pub use crate::filter::{capture_sysex, print_message, print_packets};
+use crate::Handle;
+pub use crate::route::{Route, RouteContext, Router, Service};
+pub use crate::sysex::{Matcher, Sysex, Tag, Token};
 
 mod u4;
 mod u6;
@@ -10,33 +32,6 @@ mod message;
 mod packet;
 mod serial;
 mod usb;
-mod sysex;
-mod route;
-mod filter;
-
-use nb;
-use usb_device::UsbError;
-
-pub use message::{Message, note_on, program_change, note_off};
-pub use note::Note;
-pub use packet::{CableNumber, CodeIndexNumber, Packet};
-pub use status::Status;
-pub use u14::U14;
-pub use u4::U4;
-pub use u6::U6;
-pub use u7::{U7};
-
-pub use serial::{SerialMidi};
-pub use usb::{MidiClass, usb_device, UsbMidi};
-pub use sysex::{Matcher, Token, Tag, Sysex};
-pub use route::{Router, RouteContext, Route, Service};
-pub use filter::{capture_sysex, print_message, print_packets};
-
-use crate::Handle;
-use heapless::Vec;
-use core::ops::{Deref, DerefMut};
-use core::iter::FromIterator;
-
 
 #[derive(Clone, Copy, Debug)]
 /// MIDI channel, stored as 0-15

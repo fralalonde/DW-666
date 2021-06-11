@@ -1,5 +1,5 @@
 use crate::midi::{Matcher, Message, MidiError};
-use crate::midi::route::{RouteContext};
+use crate::route::{RouteContext};
 use core::convert::TryFrom;
 
 pub fn capture_sysex(matcher: &mut Matcher, context: &mut RouteContext) -> Result<bool, MidiError> {

@@ -1,67 +1,7 @@
 use crate::midi::{Packet, Message};
 use alloc::vec::Vec;
 
-use crate::midi::message::Message::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, SysexCont, SysexEmpty, SysexSingleByte};
-
-// #[derive(Debug, Clone, Copy)]
-// pub struct Range {
-//     min: u8,
-//     max: u8,
-// }
-//
-// impl Range {
-//     fn contains(&self, byte: u8) -> bool {
-//         byte >= self.min && byte < self.max
-//     }
-// }
-//
-// pub fn range(min: u8, max: u8) -> Range {
-//     assert!(min < max, "Invalid sysex value range: min ({}) is bigger than max ({})", min, max);
-//     Range {
-//         min,
-//         max,
-//     }
-// }
-
-// #[derive(Debug, Clone)]
-// pub struct Buffer<T> {
-//     inner: Box<[T]>,
-//     len: usize,
-// }
-//
-// impl<T> Deref for Buffer<T> {
-//     type Target = [T];
-//
-//     fn deref(&self) -> &Self::Target {
-//         self.inner.as_ref()
-//     }
-// }
-//
-// impl<T> Buffer<T> {
-//     pub fn with_capacity(cap: usize) -> Self {
-//         Buffer {
-//             inner: unsafe { Box::new_uninit_slice(cap).assume_init() },
-//             len: 0,
-//         }
-//     }
-//
-//     pub fn capacity(&self) -> usize {
-//         self.inner.len()
-//     }
-//
-//     pub fn push(&mut self, item: T) -> Result<(), MidiError> {
-//         if self.len < self.capacity() {
-//             self.inner[self.len] = item;
-//             Ok(())
-//         } else {
-//             Err(MidiError::BufferFull)
-//         }
-//     }
-//
-//     pub fn clear(&mut self) {
-//         self.len = 0
-//     }
-// }
+use crate::midi::Message::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, SysexCont, SysexEmpty, SysexSingleByte};
 
 use core::convert::TryFrom;
 use heapless::spsc::Queue;

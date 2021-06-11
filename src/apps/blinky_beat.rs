@@ -4,7 +4,6 @@ use alloc::vec::Vec;
 use alloc::sync::Arc;
 use crate::time::{TimeUnits, Tasks};
 
-
 pub struct BlinkyBeat {
     state: Arc<spin::Mutex<InnerState>>,
 }

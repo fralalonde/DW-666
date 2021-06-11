@@ -138,8 +138,6 @@ impl Router {
                             context.flush_strings(spawn)?;
                             if let Some(destination) = context.destination.or(route_in.destination) {
                                 Self::out(&mut self.egress, now, spawn, &mut context, destination)?
-                            } else {
-                                rprintln!("No destination route")
                             }
                         }
                     }

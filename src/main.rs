@@ -11,18 +11,25 @@ extern crate bitfield;
 
 extern crate cortex_m;
 
+use alloc::string::String;
 use core::alloc::Layout;
 use core::result::Result;
 use core::sync::atomic::AtomicU16;
 
+use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 use cortex_m::asm;
 use cortex_m_rt::entry;
-
-extern crate stm32f4xx_hal as hal;
-
+use display_interface_spi::SPIInterface;
+use embedded_graphics::pixelcolor::Rgb565;
+use embedded_hal::{
+    blocking::delay::{DelayMs, DelayUs},
+    digital::v2::OutputPin,
+    spi as espi,
+};
 use hal::{
+    delay::Delay,
     gpio::{
-        {Input, Alternate},
+        {Alternate, Input},
         gpioa::*,
         gpiob::*,
         gpioc::PC13, GpioExt, Output,
@@ -32,55 +39,43 @@ use hal::{
     otg_fs::{USB, UsbBus, UsbBusType},
     rcc::RccExt,
     serial::{self, Serial},
-    time::U32Ext,
-    stm32,
     spi,
-    delay::Delay,
+    stm32,
+    time::U32Ext,
 };
-
-use embedded_hal::{
-    blocking::delay::{DelayUs, DelayMs},
-    digital::v2::OutputPin,
-    spi as espi,
-};
-// use ssd1306::{Builder, I2CDIBuilder};
-
+use hal::spi::{Mode, NoMiso, Phase, Polarity, Spi};
+use heapless::Vec;
+use ili9341::Ili9341;
 use panic_rtt_target as _;
-
+use rtic::cyccnt::U32Ext as _;
 use usb_device::bus;
 
 use midi::{CableNumber, MidiClass, SerialMidi, usb_device};
 use midi::{Interface, Packet, Receive, Transmit};
-use crate::midi::{channel, print_message, Service, Note, Route, Binding, print_packets, PacketList};
-use crate::midi::Binding::Src;
 
-use crate::apps::dw6000_control::Dw6000Control;
-
-use alloc::string::String;
-use crate::time::Tasks;
-use rtic::cyccnt::U32Ext as _;
 use crate::apps::blinky_beat::BlinkyBeat;
-
 use crate::apps::bounce::Bounce;
-
-
-use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
-
+use crate::apps::dw6000_control::Dw6000Control;
 // use display_interface_parallel_gpio::{PGPIO8BitInterface, Generic8BitBus};
 // use ili9486::{ILI9486, DisplaySize320x480, DisplayMode};
 use crate::display::gui;
-use heapless::Vec;
 use crate::display::gui::Display;
-use ili9341::Ili9341;
-use hal::spi::{Polarity, Phase, Mode, Spi, NoMiso};
-use display_interface_spi::SPIInterface;
-use embedded_graphics::pixelcolor::Rgb565;
+use crate::midi::{Binding, channel, Note, PacketList, print_message, print_packets, Route, Service};
+use crate::midi::Binding::Src;
+use crate::time::Tasks;
+
+extern crate stm32f4xx_hal as hal;
+
+// use ssd1306::{Builder, I2CDIBuilder};
 
 mod time;
 mod midi;
 mod devices;
 mod apps;
 mod display;
+mod route;
+mod filter;
+mod sysex;
 
 pub const CPU_FREQ: u32 = 48_000_000;
 // pub const APB1_FREQ: u32 = CPU_FREQ / 2;
@@ -309,14 +304,14 @@ const APP: () = {
         // );
         // let _bstep_2_dw = midi_router.bind(Route::link(Interface::USB, Interface::Serial(0)));
 
-        // let mut dwctrl = Dw6000Control::new((DW6000, channel(1)), (BEATSTEP, channel(1)));
-        // dwctrl.start(cx.start, &mut midi_router, &mut tasks).unwrap();
-        //
-        // let mut bbeat = BlinkyBeat::new((BEATSTEP, channel(1)), vec![Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
-        // bbeat.start(cx.start, &mut midi_router, &mut tasks).unwrap();
-        //
-        let mut bounce = Bounce::new();
-        bounce.start(cx.start, &mut midi_router, &mut tasks).unwrap();
+        let mut dwctrl = Dw6000Control::new((DW6000, channel(1)), (BEATSTEP, channel(1)));
+        dwctrl.start(cx.start, &mut midi_router, &mut tasks).unwrap();
+
+        let mut bbeat = BlinkyBeat::new((BEATSTEP, channel(1)), vec![Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
+        bbeat.start(cx.start, &mut midi_router, &mut tasks).unwrap();
+
+        // let mut bounce = Bounce::new();
+        // bounce.start(cx.start, &mut midi_router, &mut tasks).unwrap();
 
         rprintln!("-> Initialized");
 
@@ -398,7 +393,6 @@ const APP: () = {
         }
 
         while let Ok(Some(packet)) = cx.resources.dw6000.receive() {
-            rprintln!("Packet USART2 {:?}", packet);
             cx.spawn.midispatch(Src(DW6000), PacketList::single(packet)).unwrap();
         }
     }

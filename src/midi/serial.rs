@@ -162,16 +162,12 @@ impl<UART, PINS> Receive for SerialMidi<UART, PINS> where
     UART: Instance,
 {
     fn receive(&mut self) -> Result<Option<Packet>, MidiError> {
-        rprintln!("read usart");
         if self.uart.is_rxne() {
             let byte = self.uart.read()?;
-            rprintln!("read rxne");
             let packet = self.parser.advance(byte)?;
             if let Some(packet) = packet {
                 return Ok(Some(packet.with_cable_num(self.cable_number)));
             }
-        } else {
-            rprintln!("not rxne?");
         }
         Ok(None)
     }
