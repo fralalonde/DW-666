@@ -2,6 +2,7 @@
 runner = "probe-run --chip STM32F411CEUx"
 
 rustflags = [
+  "-C", "link-arg=-Trouter/memory.x",
   "-C", "link-arg=-Tlink.x",
 ]
 

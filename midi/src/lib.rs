@@ -1,3 +1,9 @@
+#![no_std]
+
+#[cfg(feature = "rtt")]
+#[macro_use]
+extern crate rtt_target;
+
 use core::array::TryFromSliceError;
 use core::iter::FromIterator;
 use core::ops::{Deref, DerefMut};
@@ -9,18 +15,16 @@ use usb_device::UsbError;
 pub use message::{Message, note_off, note_on, program_change};
 pub use note::Note;
 pub use packet::{CableNumber, CodeIndexNumber, Packet};
-pub use serial::SerialMidi;
+
 pub use status::Status;
 pub use u14::U14;
 pub use u4::U4;
 pub use u6::U6;
 pub use u7::U7;
-pub use usb::{MidiClass, usb_device, UsbMidi};
+pub use parser::{PacketParser};
+pub use status::is_channel_status;
+pub use status::is_non_status;
 
-pub use crate::filter::{capture_sysex, print_message, print_packets};
-use crate::Handle;
-pub use crate::route::{Route, RouteContext, Router, Service};
-pub use crate::sysex::{Matcher, Sysex, Tag, Token};
 
 mod u4;
 mod u6;
@@ -30,8 +34,11 @@ mod status;
 mod note;
 mod message;
 mod packet;
-mod serial;
-mod usb;
+mod parser;
+
+// macro_rules! dbgprint {
+//     ($($arg:tt)*) => {{}};
+// }
 
 #[derive(Clone, Copy, Debug)]
 /// MIDI channel, stored as 0-15
@@ -148,7 +155,6 @@ pub enum MidiError {
     /// RTIC queue full?
     UnsentPacket,
     UnsentString,
-    ExclusiveRouteConflict(Handle),
 }
 
 impl From<UsbError> for MidiError {
@@ -183,12 +189,6 @@ impl From<(Interface, PacketList)> for MidiError {
         MidiError::UnsentPacket
     }
 }
-
-// impl From<String> for MidiError {
-//     fn from(_: String) -> Self {
-//         MidiError::UnsentString
-//     }
-// }
 
 /// Just strip higher bits (meh)
 pub trait Cull<T>: Sized {

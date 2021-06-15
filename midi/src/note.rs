@@ -2,8 +2,8 @@
 //! C1m is the C-1
 //! Flat notes are associated constants as aliases of sharp notes, like `Note::Bb3`
 
-use crate::midi::u7::U7;
-use crate::midi::{Cull, MidiError};
+use crate::u7::U7;
+use crate::{Cull, MidiError};
 
 use num_enum::UnsafeFromPrimitive;
 use core::convert::TryFrom;

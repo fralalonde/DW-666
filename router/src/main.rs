@@ -269,7 +269,7 @@ const APP: () = {
         let usb_bus = USB_BUS.as_ref().unwrap();
         let midi_class = port::usb::MidiClass::new(usb_bus);
         // USB devices init _after_ classes
-        let usb_dev = usb_device(usb_bus);
+        let usb_dev = port::usb::usb_device(usb_bus);
         rprintln!("USB dev OK");
 
         let chaos = nanorand::WyRand::new_seed(0);
@@ -326,7 +326,7 @@ const APP: () = {
             midi_router,
             // beatstep,
             dw6000,
-            usb_midi: midi::UsbMidi {
+            usb_midi: port::usb::UsbMidi {
                 dev: usb_dev,
                 midi_class,
             },

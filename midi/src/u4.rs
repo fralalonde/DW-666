@@ -1,5 +1,5 @@
 use core::convert::TryFrom;
-use crate::midi::{MidiError, Cull, Saturate};
+use crate::{MidiError, Cull, Saturate};
 
 /// A primitive value that can be from 0-0x7F
 #[derive(Copy, Clone, Debug, Eq, PartialOrd, PartialEq, Ord)]

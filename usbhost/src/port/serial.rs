@@ -6,6 +6,7 @@ use heapless::spsc::Queue;
 use crate::{ Packet, MidiError, CableNumber, Receive, Transmit, PacketList};
 use crate::status::is_channel_status;
 use crate::parser::PacketParser;
+use minimidi::{PacketParser, MidiError, PacketList};
 
 pub struct SerialMidi<UART> {
     pub uart: UART,

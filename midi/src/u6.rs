@@ -1,7 +1,7 @@
-use crate::midi::{Saturate, Cull, MidiError};
+use crate::{Saturate, Cull, MidiError};
 use core::convert::TryFrom;
 use core::result::Result;
-use crate::midi::u14::U14;
+use crate::u14::U14;
 
 /// A primitive value that can be from 0-0x7F
 #[derive(Copy, Clone, Debug, Eq, PartialOrd, PartialEq, Ord)]

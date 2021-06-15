@@ -12,7 +12,7 @@ use usb_device::{
 
 use core::result::Result;
 
-#[cfg(feature = "ports")]
+#[cfg(feature = "port")]
 use hal::otg_fs::{UsbBusType};
 
 use usb_device::class_prelude::EndpointAddress;
