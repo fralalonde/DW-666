@@ -6,6 +6,7 @@
 
 #[macro_use]
 extern crate rtt_target;
+use panic_rtt_target as _;
 
 #[macro_use]
 extern crate bitfield;
@@ -48,7 +49,7 @@ use hal::{
 use hal::spi::{Mode, NoMiso, Phase, Polarity, Spi};
 use heapless::Vec;
 use ili9341::Ili9341;
-use panic_rtt_target as _;
+
 use rtic::cyccnt::U32Ext as _;
 use usb_device::bus;
 

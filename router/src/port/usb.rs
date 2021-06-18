@@ -17,27 +17,25 @@ use hal::otg_fs::{UsbBusType};
 use usb_device::class_prelude::EndpointAddress;
 use midi::{Packet, MidiError, PacketList};
 
-const USB_TX_BUFFER_SIZE: u16 = 64;
+pub const USB_MIDI_PACKET_LEN: usize = 4;
 
-const USB_RX_BUFFER_SIZE: u16 = 64;
+pub const USB_MIDI_IN_SIZE: u8 = 0x06;
+pub const USB_MIDI_OUT_SIZE: u8 = 0x09;
 
-// const MIDI_IN_SIZE: u8 = 0x06;
-const MIDI_OUT_SIZE: u8 = 0x09;
+pub const USB_CLASS_NONE: u8 = 0x00;
+pub const USB_AUDIO_CLASS: u8 = 0x01;
+pub const USB_AUDIO_CONTROL_SUBCLASS: u8 = 0x01;
+pub const USB_MIDI_STREAMING_SUBCLASS: u8 = 0x03;
 
-const USB_CLASS_NONE: u8 = 0x00;
-const USB_AUDIO_CLASS: u8 = 0x01;
-const USB_AUDIO_CONTROL_SUBCLASS: u8 = 0x01;
-const USB_MIDI_STREAMING_SUBCLASS: u8 = 0x03;
+pub const USB_MIDI_IN_JACK_SUBTYPE: u8 = 0x02;
+pub const USB_MIDI_OUT_JACK_SUBTYPE: u8 = 0x03;
 
-const MIDI_IN_JACK_SUBTYPE: u8 = 0x02;
-const MIDI_OUT_JACK_SUBTYPE: u8 = 0x03;
-
-const EMBEDDED: u8 = 0x01;
-const CS_INTERFACE: u8 = 0x24;
-const CS_ENDPOINT: u8 = 0x25;
-const HEADER_SUBTYPE: u8 = 0x01;
-const MS_HEADER_SUBTYPE: u8 = 0x01;
-const MS_GENERAL: u8 = 0x01;
+pub const USB_JACK_EMBEDDED: u8 = 0x01;
+pub const USB_CS_INTERFACE: u8 = 0x24;
+pub const USB_CS_ENDPOINT: u8 = 0x25;
+pub const USB_HEADER_SUBTYPE: u8 = 0x01;
+pub const USB_MS_HEADER_SUBTYPE: u8 = 0x01;
+pub const USB_MS_GENERAL: u8 = 0x01;
 
 /// Configures the usb devices as seen by the operating system.
 pub fn usb_device<B: UsbBus>(usb_bus: &UsbBusAllocator<B>) -> UsbDevice<B> {
@@ -49,9 +47,11 @@ pub fn usb_device<B: UsbBus>(usb_bus: &UsbBusAllocator<B>) -> UsbDevice<B> {
         .build()
 }
 
-const PACKET_LEN: usize = 4;
+const USB_TX_BUFFER_SIZE: u16 = 64;
+const USB_RX_BUFFER_SIZE: u16 = 64;
+
 const TX_FIFO_SIZE: usize = USB_TX_BUFFER_SIZE as usize;
-const RX_FIFO_SIZE: usize = USB_RX_BUFFER_SIZE as usize + PACKET_LEN;
+const RX_FIFO_SIZE: usize = USB_RX_BUFFER_SIZE as usize + USB_MIDI_PACKET_LEN;
 
 pub struct UsbMidi {
     pub dev: UsbDevice<'static, UsbBusType>,
@@ -84,9 +84,9 @@ impl crate::Receive for UsbMidi {
     }
 }
 
-///Note we are using MidiIn here to refer to the fact that
-///The Host sees it as a midi in devices
-///This class allows you to send types in
+/// Note we are using MidiIn here to refer to the fact that
+/// The Host sees it as a midi in devices
+/// This class allows you to send types in
 pub struct MidiClass<'a, B: UsbBus> {
     audio_subclass: InterfaceNumber,
     midi_subclass: InterfaceNumber,
@@ -162,7 +162,7 @@ impl<B: UsbBus> MidiClass<'_, B> {
         if self.tx_len < (TX_FIFO_SIZE - payload.len()) {
             self.tx_fifo[self.tx_len..self.tx_len + payload.len()].copy_from_slice(payload);
             self.tx_len += payload.len();
-            return true
+            return true;
         }
         false
     }
@@ -186,10 +186,10 @@ impl<B: UsbBus> MidiClass<'_, B> {
 
     /// Dequeue a packet from RX FIFO (if any)
     fn rx_pop(&mut self) -> Option<[u8; 4]> {
-        if self.rx_size() >= PACKET_LEN {
+        if self.rx_size() >= USB_MIDI_PACKET_LEN {
             let raw = self.rx_fifo.as_chunks().0[0];
-            self.rx_start += PACKET_LEN;
-            return Some(raw)
+            self.rx_start += USB_MIDI_PACKET_LEN;
+            return Some(raw);
         }
         None
     }
@@ -213,7 +213,6 @@ impl<B: UsbBus> MidiClass<'_, B> {
 }
 
 impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
-
     /// Callback after USB flush (send) completed
     /// Check for packets that were enqueued while devices was busy (UsbErr::WouldBlock)
     /// If any packets are pending re-flush queue immediately
@@ -237,8 +236,8 @@ impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
             0x00, // no protocol
         )?;
 
-        writer.write(CS_INTERFACE, &[
-            HEADER_SUBTYPE,
+        writer.write(USB_CS_INTERFACE, &[
+            USB_HEADER_SUBTYPE,
             0x00,
             0x01, // Revision
             0x09,
@@ -256,20 +255,20 @@ impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
         )?;
 
         // Streaming Extras
-        writer.write(CS_INTERFACE, &[
-            MS_HEADER_SUBTYPE,
+        writer.write(USB_CS_INTERFACE, &[
+            USB_MS_HEADER_SUBTYPE,
             0x00,
             0x01, // Revision
-            0x07 + MIDI_OUT_SIZE,
+            0x07 + USB_MIDI_OUT_SIZE,
             0x00,
         ])?;
 
         // Jacks
-        writer.write(CS_INTERFACE, &[MIDI_IN_JACK_SUBTYPE, EMBEDDED, 0x01, 0x00])?;
+        writer.write(USB_CS_INTERFACE, &[USB_MIDI_IN_JACK_SUBTYPE, USB_JACK_EMBEDDED, 0x01, 0x00])?;
 
-        writer.write(CS_INTERFACE, &[
-            MIDI_OUT_JACK_SUBTYPE,
-            EMBEDDED,
+        writer.write(USB_CS_INTERFACE, &[
+            USB_MIDI_OUT_JACK_SUBTYPE,
+            USB_JACK_EMBEDDED,
             0x01,
             0x01,
             0x01,
@@ -278,10 +277,10 @@ impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
         ])?;
 
         writer.endpoint(&self.bulk_out)?;
-        writer.write(CS_ENDPOINT, &[MS_GENERAL, 0x01, 0x01])?;
+        writer.write(USB_CS_ENDPOINT, &[USB_MS_GENERAL, 0x01, 0x01])?;
 
         writer.endpoint(&self.bulk_in)?;
-        writer.write(CS_ENDPOINT, &[MS_GENERAL, 0x01, 0x01])?;
+        writer.write(USB_CS_ENDPOINT, &[USB_MS_GENERAL, 0x01, 0x01])?;
         Ok(())
     }
 }
