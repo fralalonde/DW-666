@@ -36,10 +36,6 @@ mod message;
 mod packet;
 mod parser;
 
-// macro_rules! dbgprint {
-//     ($($arg:tt)*) => {{}};
-// }
-
 #[derive(Clone, Copy, Debug)]
 /// MIDI channel, stored as 0-15
 pub struct Channel(pub u8);

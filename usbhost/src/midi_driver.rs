@@ -9,7 +9,8 @@ use usb_host::{
 
 use core::convert::TryFrom;
 use core::mem::{self, MaybeUninit};
-use core::ptr;
+// use core::ptr;
+use heapless::Vec;
 
 // How long to wait before talking to the device again after setting
 // its address. cf §9.2.6.3 of USB 2.0
@@ -25,69 +26,60 @@ const MAX_ENDPOINTS: usize = 2;
 const CONFIG_BUFFER_LEN: usize = 256;
 
 /// Boot protocol keyboard driver for USB hosts.
-pub struct MidiHost<F> {
-    devices: [Option<Device>; MAX_DEVICES],
-    callback: F,
+pub struct MidiDriver {
+    devices: Vec<Device, MAX_DEVICES>,
 }
 
-impl<F> core::fmt::Debug for MidiHost<F> {
+impl core::fmt::Debug for MidiDriver {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "BootKeyboard")
     }
 }
 
-impl<F> MidiHost<F>
-    where F: FnMut(u8, &[u8]),
-{
+impl MidiDriver {
     /// Create a new driver instance which will call
     /// `callback(address: u8, buffer: &[u8])` when a new keyboard
     /// report is received.
     ///
     /// `address` is the address of the USB device which received the
     /// report and `buffer` is the contents of the report itself.
-    pub fn new(callback: F) -> Self {
-        let devices: [Option<Device>; MAX_DEVICES] = {
-            let mut devs: [MaybeUninit<Option<Device>>; MAX_DEVICES] =
-                unsafe { mem::MaybeUninit::uninit().assume_init() };
-            for dev in &mut devs[..] {
-                unsafe { ptr::write(dev.as_mut_ptr(), None) }
-            }
-            unsafe { mem::transmute(devs) }
-        };
-
-        Self { devices, callback }
+    pub fn new() -> Self {
+        Self { devices: Vec::new() }
     }
 }
 
-impl<F> Driver for MidiHost<F>
-    where F: FnMut(u8, &[u8]),
-{
-    fn want_device(&self, _device: &DeviceDescriptor) -> bool {
-        true
+impl From<Device> for DriverError {
+    fn from(dev: Device) -> Self {
+        DriverError::Permanent(dev.addr, "Out of devices")
+    }
+}
+
+impl From<MidiEndpoint> for TransferError {
+    fn from(_: MidiEndpoint) -> Self {
+        TransferError::Permanent("")
+    }
+}
+
+impl Driver for MidiDriver {
+    fn want_device(&self, ddesc: &DeviceDescriptor) -> bool {
+        ddesc.b_device_class == USB_AUDIO_CLASS && ddesc.b_device_sub_class == USB_MIDI_STREAMING_SUBCLASS
     }
 
     fn add_device(&mut self, device: DeviceDescriptor, address: u8) -> Result<(), DriverError> {
-        if let Some(ref mut d) = self.devices.iter_mut().find(|d| d.is_none()) {
-            **d = Some(Device::new(address, device.b_max_packet_size));
-            Ok(())
-        } else {
-            Err(DriverError::Permanent(address, "Out of devices"))
-        }
+        self.devices.push(Device::new(address, device.b_max_packet_size))?;
+        Ok(())
     }
 
     fn remove_device(&mut self, address: u8) {
-        if let Some(ref mut d) = self.devices
-            .iter_mut()
-            .find(|d| d.as_ref().map_or(false, |dd| dd.addr == address))
-        {
-            **d = None;
+        if let Some((num, _dd)) = self.devices.iter().enumerate().find(|(num, dd)| dd.addr == address) {
+            self.devices.swap_remove(num);
         }
     }
 
     fn tick(&mut self, millis: usize, host: &mut dyn USBHost) -> Result<(), DriverError> {
-        for dev in self.devices.iter_mut().filter_map(|d| d.as_mut()) {
+        for dev in self.devices.iter_mut() {
             rprintln!("MIDI host dev: {:?}", dev);
-            if let Err(TransferError::Permanent(e)) = dev.tick(millis, host, &mut self.callback) {
+            if let Err(TransferError::Permanent(e)) = dev.tick(millis, host) {
                 return Err(DriverError::Permanent(dev.addr, e));
             }
         }
@@ -110,34 +102,24 @@ enum DeviceState {
 #[derive(Debug)]
 struct Device {
     addr: u8,
-    ep0: EP,
-    endpoints: [Option<EP>; MAX_ENDPOINTS],
+    ep0: MidiEndpoint,
+    endpoints: Vec<MidiEndpoint, MAX_ENDPOINTS>,
     state: DeviceState,
 }
 
 
 impl Device {
     fn new(addr: u8, max_packet_size: u8) -> Self {
-        let endpoints: [Option<EP>; MAX_ENDPOINTS] = {
-            let mut eps: [MaybeUninit<Option<EP>>; MAX_ENDPOINTS] =
-                unsafe { mem::MaybeUninit::uninit().assume_init() };
-            for ep in &mut eps[..] {
-                unsafe { ptr::write(ep.as_mut_ptr(), None) }
-            }
-            unsafe { mem::transmute(eps) }
-        };
-
         Self {
             addr,
-            ep0: EP::new(addr, 0, 0, TransferType::Control, Direction::In, u16::from(max_packet_size)),
-            endpoints,
+            ep0: MidiEndpoint::new(addr, 0, 0, TransferType::Control, Direction::In, u16::from(max_packet_size)),
+            endpoints: Vec::new(),
             state: DeviceState::Addressed,
         }
     }
 
 
-
-    fn tick(&mut self, millis: usize, host: &mut dyn USBHost, callback: &mut dyn FnMut(u8, &[u8])) -> Result<(), TransferError> {
+    fn tick(&mut self, millis: usize, host: &mut dyn USBHost /* callback: &mut dyn FnMut(u8, &[u8])*/) -> Result<(), TransferError> {
         // TODO: either we need another `control_transfer` that doesn't take data,
         // or this `none` value needs to be put in the usb-host layer. None of these options are good.
         // let none_u8: Option<&mut [u8]> = None;
@@ -198,7 +180,7 @@ impl Device {
 
                 if (conf_desc.w_total_length as usize) > CONFIG_BUFFER_LEN {
                     trace!("config descriptor: {:?}", conf_desc);
-                    return Err(TransferError::Permanent("config descriptor too large"));
+                    return Err(TransferError::Permanent("Config descriptor too large"));
                 }
 
                 // TODO Use allocation?
@@ -220,14 +202,14 @@ impl Device {
                 let (interface_num, ep) = ep_for_midi_class(config_buf).expect("No MIDI device found");
                 info!("MIDI device found on {:?}", ep);
 
-                self.endpoints[0] = Some(EP::new(
+                self.endpoints.push(MidiEndpoint::new(
                     self.addr,
                     ep.b_endpoint_address & 0x7f,
                     interface_num,
                     TransferType::Interrupt,
                     Direction::In,
                     ep.w_max_packet_size,
-                ));
+                ))?;
 
                 // TODO Browse configs and pick the "best" one
                 self.state = DeviceState::SetConfig(1)
@@ -250,7 +232,7 @@ impl Device {
             }
 
             DeviceState::SetProtocol => {
-                if let Some(ref ep) = self.endpoints[0] {
+                if let Some(ref ep) = self.endpoints.get(0) {
                     host.control_transfer(
                         &mut self.ep0,
                         RequestType::from((
@@ -287,7 +269,7 @@ impl Device {
             }
 
             DeviceState::SetReport => {
-                if let Some(ref mut ep) = self.endpoints[0] {
+                if let Some(ref mut ep) = self.endpoints.get(0) {
                     let mut r: [u8; 1] = [0];
                     let report = &mut r[..];
                     let res = host.control_transfer(
@@ -307,8 +289,6 @@ impl Device {
                         warn!("Couldn't set report: {:?}", e)
                     }
 
-                    // If we made it this far, things should be ok, so throttle the logging.
-                    log::set_max_level(LevelFilter::Info);
                     self.state = DeviceState::Running
                 } else {
                     return Err(TransferError::Permanent("MIDI device has no endpoint"));
@@ -316,7 +296,7 @@ impl Device {
             }
 
             DeviceState::Running => {
-                if let Some(ref mut ep) = self.endpoints[0] {
+                if let Some(ep) = self.endpoints.get_mut(0) {
                     let mut b: [u8; 8] = [0; 8];
                     let buf = &mut b[..];
                     match host.in_transfer(ep, buf) {
@@ -326,7 +306,7 @@ impl Device {
                         }
                         Err(TransferError::Retry(_)) => return Ok(()),
                         Ok(_) => {
-                            callback(self.addr, buf);
+                            // callback(self.addr, buf);
                         }
                     }
                 } else {
@@ -346,7 +326,7 @@ unsafe fn to_slice_mut<T>(v: &mut T) -> &mut [u8] {
 }
 
 #[derive(Debug)]
-struct EP {
+struct MidiEndpoint {
     addr: u8,
     num: u8,
     interface_num: u8,
@@ -357,7 +337,7 @@ struct EP {
     out_toggle: bool,
 }
 
-impl EP {
+impl MidiEndpoint {
     fn new(addr: u8, num: u8, interface_num: u8, transfer_type: TransferType, direction: Direction, max_packet_size: u16) -> Self {
         Self {
             addr,
@@ -372,7 +352,7 @@ impl EP {
     }
 }
 
-impl Endpoint for EP {
+impl Endpoint for MidiEndpoint {
     fn address(&self) -> u8 {
         self.addr
     }
@@ -499,7 +479,7 @@ fn ep_for_midi_class(buf: &[u8]) -> Option<(u8, &EndpointDescriptor)> {
             Descriptor::Interface(_) => {
                 midi_interface = None;
                 info!("Ignoring non-MIDI device")
-            },
+            }
 
             Descriptor::Endpoint(edesc) =>
                 if let Some(interface_num) = midi_interface {
@@ -518,9 +498,9 @@ mod test {
 
     #[test]
     fn add_remove_device() {
-        let mut driver = MidiHost::new(|_addr, _report| {});
+        let mut driver = MidiDriver::new(|_addr, _report| {});
 
-        let count = |driver: &mut MidiHost<_>| {
+        let count = |driver: &mut MidiDriver<_>| {
             driver
                 .devices
                 .iter()
@@ -537,7 +517,7 @@ mod test {
 
     #[test]
     fn too_many_devices() {
-        let mut driver = MidiHost::new(|_addr, _report| {});
+        let mut driver = MidiDriver::new(|_addr, _report| {});
 
         for i in 0..MAX_DEVICES {
             driver.add_device(dummy_device(), (i + 1) as u8).unwrap();
@@ -552,7 +532,7 @@ mod test {
         let mut dummyhost = DummyHost { fail: true };
 
         let mut calls = 0;
-        let mut driver = MidiHost::new(|_addr, _report| calls += 1);
+        let mut driver = MidiDriver::new(|_addr, _report| calls += 1);
 
         driver.add_device(dummy_device(), 1).unwrap();
         driver.tick(0, &mut dummyhost).unwrap();
