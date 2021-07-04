@@ -35,7 +35,7 @@ pub fn is_non_status(byte: u8) -> bool {
 }
 
 pub fn is_channel_status(byte: u8) -> bool {
-    byte >= NOTE_OFF && byte < SYSEX_START
+    (NOTE_OFF..SYSEX_START).contains(&byte)
 }
 
 #[derive(Copy, Clone, Debug, UnsafeFromPrimitive, Eq, PartialEq)]
@@ -118,7 +118,7 @@ impl TryFrom<u8> for Status {
         }
         if is_channel_status(byte) {
             // nuke channel bits
-            byte = byte & 0xF0
+            byte &= 0xF0
         }
         Ok(unsafe { Status::from_unchecked(byte) })
     }

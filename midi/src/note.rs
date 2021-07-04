@@ -152,12 +152,6 @@ impl TryFrom<u8> for Note {
     }
 }
 
-impl Into<u8> for Note {
-    fn into(self) -> u8 {
-        self as u8
-    }
-}
-
 impl From<Note> for U7 {
     fn from(value: Note) -> U7 {
         let byte = value as u8;

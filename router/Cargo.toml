@@ -50,6 +50,7 @@ display-interface-spi = "0.4.1"
 tinytga = { version = "0.3", features = ["graphics"] }
 
 minimidi = { path  = "../midi" }
+log = "0.4"
 
 [features]
 default = ["stm32f4xx"]

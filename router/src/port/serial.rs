@@ -1,6 +1,5 @@
 //! MIDI using HAL Serial
 
-use core::convert::TryFrom;
 use embedded_hal::serial::{Write, Read};
 
 use hal::serial::{Event, Pins, Instance};

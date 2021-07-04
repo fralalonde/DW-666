@@ -1,7 +1,7 @@
 //! Sends MIDI to Korg DW-6000 acccording to messages
 //!
 use midi::{Message, Note, program_change, MidiError, U7, Endpoint};
-use crate::route::{Router, Route,  Service, RouteContext};
+use crate::route::{Router, Route, Service, RouteContext};
 
 use crate::{devices, time, midi, sysex};
 use alloc::vec::Vec;
@@ -17,7 +17,7 @@ use crate::apps::lfo::{Lfo, Waveform};
 
 use crate::devices::korg::dw6000;
 use crate::Binding::Dst;
-use alloc::collections::BTreeMap;
+
 use hashbrown::HashMap;
 use crate::filter::capture_sysex;
 use crate::sysex::Tag;
@@ -134,13 +134,6 @@ impl From<Lfo2Dest> for Param {
 }
 
 #[derive(Debug)]
-enum ArpMode {
-    Up,
-    Down,
-    UpDown,
-}
-
-#[derive(Debug)]
 struct InnerState {
     dw6000: Endpoint,
     beatstep: Endpoint,
@@ -208,7 +201,7 @@ impl InnerState {
     fn send_param_value(&mut self, param: Param, context: &mut RouteContext) -> Result<(), MidiError> {
         if let Some(dump) = &mut self.current_dump {
             context.packets.clear();
-            context.packets.extend(param_to_sysex(param, &dump))
+            context.packets.extend(param_to_sysex(param, dump))
         }
         Ok(())
     }
@@ -221,7 +214,7 @@ impl Service for Dw6000Control {
             let mut state = state.lock();
 
             // LFO2 modulation
-            if let Some(lfo2_param) = state.lfo2_param.map(|p| Param::from(p)) {
+            if let Some(lfo2_param) = state.lfo2_param.map(Param::from) {
                 if let Some(root) = state.mod_dump.get(&lfo2_param).cloned() {
                     let max = lfo2_param.max_value();
                     let fmax = max as f32;
@@ -232,7 +225,7 @@ impl Service for Dw6000Control {
 
                     if let Some(ref mut dump) = &mut state.current_dump {
                         set_param_value(lfo2_param, mod_value, dump.as_mut_slice());
-                        let sysex = param_to_sysex(lfo2_param, &dump);
+                        let sysex = param_to_sysex(lfo2_param, dump);
                         spawn.midispatch(Dst(state.dw6000.interface), sysex.collect())?;
                     }
                 }
@@ -287,11 +280,11 @@ impl Service for Dw6000Control {
 
 fn toggle_param(param: Param, dump: &mut Vec<u8>, context: &mut RouteContext) -> Result<(), MidiError> {
     let mut value = get_param_value(param, dump.as_slice());
-    value = value ^ 1;
+    value ^= 1;
     set_param_value(param, value, dump.as_mut_slice());
     context.packets.clear();
     for packet in param_to_sysex(param, dump.as_slice()) {
-        context.packets.push(packet);
+        if context.packets.push(packet).is_err() { break; }
     }
     context.strings.push(format!("{:?}\n{:.2}", param, value));
     Ok(())
@@ -346,8 +339,8 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, state: &mut MutexGuard<InnerSta
                 } else if let Some(dump) = &mut state.current_dump {
                     set_param_value(param, value.into(), dump.as_mut_slice());
                     context.packets.clear();
-                    context.packets.extend(param_to_sysex(param, &dump));
-                    context.strings.push(format!("{:?}\n{:?}", param, get_param_value(param, &dump)));
+                    context.packets.extend(param_to_sysex(param, dump));
+                    context.strings.push(format!("{:?}\n{:?}", param, get_param_value(param, dump)));
                 } else {
                     rprintln!("no dump yet");
                 }
@@ -368,13 +361,13 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, state: &mut MutexGuard<InnerSta
                         context.strings.push(format!("{:?}\n{:?}", param, state.lfo2.get_waveform()));
                     }
                     CtlParam::Lfo2Dest => {
-                        if let Some(mod_p) = state.lfo2_param.map(|p| Param::from(p)) {
+                        if let Some(mod_p) = state.lfo2_param.map(Param::from) {
                             state.unset_modulated(mod_p, context)?;
                         }
                         if let Some(ref mut dump) = &mut state.current_dump {
                             let new_dest = Lfo2Dest::try_from(value.0).ok();
-                            if let Some(mod_p) = new_dest.map(|p| Param::from(p)) {
-                                let saved_val = get_param_value(mod_p, &dump);
+                            if let Some(mod_p) = new_dest.map(Param::from) {
+                                let saved_val = get_param_value(mod_p, dump);
                                 state.set_modulated(mod_p, saved_val);
                                 state.lfo2_param = new_dest;
                                 context.strings.push(format!("{:?}\n{:?}", param, mod_p));

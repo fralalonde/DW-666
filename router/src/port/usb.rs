@@ -19,7 +19,7 @@ use midi::{Packet, MidiError, PacketList};
 
 pub const USB_MIDI_PACKET_LEN: usize = 4;
 
-pub const USB_MIDI_IN_SIZE: u8 = 0x06;
+// pub const USB_MIDI_IN_SIZE: u8 = 0x06;
 pub const USB_MIDI_OUT_SIZE: u8 = 0x09;
 
 pub const USB_CLASS_NONE: u8 = 0x00;
@@ -218,11 +218,9 @@ impl<B: UsbBus> UsbClass<B> for MidiClass<'_, B> {
     /// If any packets are pending re-flush queue immediately
     /// This callback may chain-trigger under high output load (big sysex, etc.) - this is good
     fn endpoint_in_complete(&mut self, addr: EndpointAddress) {
-        if addr == self.bulk_in.address() {
-            if self.tx_len > 0 {
-                // send pending bytes in tx_buf
-                self.tx_flush();
-            }
+        if addr == self.bulk_in.address() && self.tx_len > 0 {
+            // send pending bytes in tx_buf
+            self.tx_flush();
         }
     }
 

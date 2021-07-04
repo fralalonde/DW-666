@@ -1,12 +1,8 @@
 //! MIDI using HAL Serial
 
-use embedded_hal::serial;
-
 use heapless::spsc::Queue;
-use crate::{ Packet, MidiError, CableNumber, Receive, Transmit, PacketList};
-use crate::status::is_channel_status;
-use crate::parser::PacketParser;
-use minimidi::{PacketParser, MidiError, PacketList};
+use minimidi::{Packet, MidiError, CableNumber, Receive, Transmit, PacketList, PacketParser, is_channel_status};
+use embedded_hal::serial;
 
 pub struct SerialMidi<UART> {
     pub uart: UART,

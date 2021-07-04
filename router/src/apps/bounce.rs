@@ -1,6 +1,5 @@
-use midi::{ Note, Endpoint, note_off, note_on, Velocity, channel, MidiError};
-use crate::{devices, route};
-use alloc::vec::Vec;
+use midi::{MidiError};
+use crate::{route};
 use alloc::sync::Arc;
 use crate::time::{TimeUnits, Tasks};
 
@@ -15,22 +14,6 @@ struct InnerState {
 }
 
 impl InnerState {}
-
-impl Bounce {
-    pub fn new() -> Self {
-        Bounce {
-            state: Arc::new(spin::Mutex::new(InnerState {
-                counter: 0
-            })),
-        }
-    }
-}
-
-use devices::arturia::beatstep;
-use beatstep::Param::*;
-use beatstep::Pad::*;
-use crate::devices::arturia::beatstep::{SwitchMode};
-use crate::Binding::Dst;
 
 impl route::Service for Bounce {
     fn start(&mut self, now: rtic::cyccnt::Instant, _router: &mut route::Router, tasks: &mut Tasks) -> Result<(), MidiError> {

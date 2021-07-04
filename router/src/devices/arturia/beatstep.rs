@@ -3,7 +3,7 @@
 //! Switching the LEDs on and off:
 
 #![allow(unused)]
-
+#![allow(clippy::upper_case_acronyms)]
 use midi::{U7, U4, Note, Program, Control, Channel, MidiError};
 use alloc::vec::Vec;
 
@@ -18,8 +18,8 @@ const DATA_FORMAT: u8 = 0x30;
 const WRITE_OK: u8 = 0x21;
 const WRITE_ERR: u8 = 0x22;
 
-const ARTURIA: &'static [u8] = &[0x00, 0x20];
-const BEATSTEP: &'static [u8] = &[0x6B, 0x7F];
+const ARTURIA: &[u8] = &[0x00, 0x20];
+const BEATSTEP: &[u8] = &[0x6B, 0x7F];
 
 // pub fn id_request() -> Sysex {
 //     Sysex::new(vec![Seq(ID_HEADER)])
@@ -51,18 +51,18 @@ const SEQ: u8 = 0x50;
 pub fn beatstep_set(param: Param) -> Vec<Sysex> {
     match param {
         Param::PadOff(pad) =>
-            vec![parameter_set(MODE, pad.control_code(), PadMode::PadOff as u8)],
+            vec![parameter_set(MODE, pad.control_code(), PadMode::Off as u8)],
         Param::PadMMC(pad, mmc) => {
             let ccode = pad.control_code();
             vec![
-                parameter_set(MODE, ccode, PadMode::PadMMC as u8),
+                parameter_set(MODE, ccode, PadMode::MMC as u8),
                 parameter_set(0x03, ccode, mmc as u8)
             ]
         }
         Param::PadCC(pad, channel, cc, on, off, switch) => {
             let ccode = pad.control_code();
             vec![
-                parameter_set(MODE, ccode, PadMode::PadCC as u8),
+                parameter_set(MODE, ccode, PadMode::CC as u8),
                 parameter_set(0x02, ccode, channel.0),
                 parameter_set(0x03, ccode, cc.0),
                 parameter_set(0x04, ccode, on.0),
@@ -73,7 +73,7 @@ pub fn beatstep_set(param: Param) -> Vec<Sysex> {
         Param::PadCCSilent(pad, channel, cc, on, off, switch) => {
             let ccode = pad.control_code();
             vec![
-                parameter_set(MODE, ccode, PadMode::PadCCSilent as u8),
+                parameter_set(MODE, ccode, PadMode::CCSilent as u8),
                 parameter_set(0x02, ccode, channel.0),
                 parameter_set(0x03, ccode, cc.0),
                 parameter_set(0x04, ccode, on.0),
@@ -84,7 +84,7 @@ pub fn beatstep_set(param: Param) -> Vec<Sysex> {
         Param::PadNote(pad, channel, note, switch) => {
             let ccode = pad.control_code();
             vec![
-                parameter_set(MODE, ccode, PadMode::PadNote as u8),
+                parameter_set(MODE, ccode, PadMode::Note as u8),
                 parameter_set(0x02, ccode, channel.0),
                 parameter_set(0x03, ccode, note as u8),
                 parameter_set(0x06, ccode, switch as u8),
@@ -93,7 +93,7 @@ pub fn beatstep_set(param: Param) -> Vec<Sysex> {
         Param::PadProgramChange(pad, channel, program, lsb, msb) => {
             let ccode = pad.control_code();
             vec![
-                parameter_set(MODE, ccode, PadMode::PadProgramChange as u8),
+                parameter_set(MODE, ccode, PadMode::ProgramChange as u8),
                 parameter_set(0x02, ccode, channel.0),
                 parameter_set(0x03, ccode, program.0),
                 parameter_set(0x04, ccode, lsb.0),
@@ -103,13 +103,13 @@ pub fn beatstep_set(param: Param) -> Vec<Sysex> {
         Param::KnobOff(knob) => {
             let ccode = knob.control_code();
             vec![
-                parameter_set(MODE, ccode, KnobMode::KnobOff as u8),
+                parameter_set(MODE, ccode, KnobMode::Off as u8),
             ]
         }
         Param::KnobCC(encoder, channel, control, minimum, maximum, behavior) => {
             let ccode = encoder.control_code();
             vec![
-                parameter_set(MODE, ccode, KnobMode::KnobCC as u8),
+                parameter_set(MODE, ccode, KnobMode::CC as u8),
                 parameter_set(0x02, ccode, channel.0),
                 parameter_set(0x03, ccode, control.0),
                 parameter_set(0x04, ccode, minimum.0),
@@ -120,7 +120,7 @@ pub fn beatstep_set(param: Param) -> Vec<Sysex> {
         Param::KnobNRPN(knob, channel, granularity, banklsb, bankmsb, nrpntype) => {
             let ccode = knob.control_code();
             vec![
-                parameter_set(MODE, ccode, KnobMode::KnobNRPN as u8),
+                parameter_set(MODE, ccode, KnobMode::NRPN as u8),
                 parameter_set(0x02, ccode, channel.0),
                 parameter_set(0x03, ccode, granularity as u8),
                 parameter_set(0x04, ccode, banklsb.0),
@@ -247,18 +247,18 @@ pub type BankMSB = U7;
 pub type StepNum = U4;
 
 enum PadMode {
-    PadOff = 0,
-    PadMMC = 7,
-    PadCC = 8,
-    PadCCSilent = 1,
-    PadNote = 9,
-    PadProgramChange = 0x0B,
+    Off = 0,
+    MMC = 7,
+    CC = 8,
+    CCSilent = 1,
+    Note = 9,
+    ProgramChange = 0x0B,
 }
 
 enum KnobMode {
-    KnobOff = 0,
-    KnobCC = 1,
-    KnobNRPN = 4,
+    Off = 0,
+    CC = 1,
+    NRPN = 4,
 }
 
 /// base note is C5= 0x3C, to transpose down 12 semitones to C4, nn=0x30 and so on
@@ -386,7 +386,7 @@ impl Param {
             Param::KnobOff(_) => 0,
             Param::KnobNRPN(..) => 4,
 
-            _ => Err(MidiError::NoModeForParameter)?
+            _ => return Err(MidiError::NoModeForParameter)
         })
     }
 }

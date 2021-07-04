@@ -73,7 +73,7 @@ impl Iterator for Sysex {
             }
             match &self.tokens[self.tok_idx] {
                 Token::Seq(slice) => {
-                    if let Err(_) = self.window.enqueue(slice[self.byte_idx]) {
+                    if self.window.enqueue(slice[self.byte_idx]).is_err() {
                         break;
                     }
                     self.byte_idx += 1;
@@ -83,7 +83,7 @@ impl Iterator for Sysex {
                     }
                 }
                 Token::Val(val) => {
-                    if let Err(_) = self.window.enqueue(*val) {
+                    if self.window.enqueue(*val).is_err() {
                         break;
                     }
                     self.tok_idx += 1;

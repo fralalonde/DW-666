@@ -46,9 +46,9 @@ impl Service for BlinkyBeat {
             }
             for (note, ref mut on) in &mut state.notes {
                 if *on {
-                    spawn.midispatch(Dst(bs.interface), PacketList::single(note_on(bs.channel, *note, Velocity::MAX)?.into()));
+                    spawn.midispatch(Dst(bs.interface), PacketList::single(note_on(bs.channel, *note, Velocity::MAX)?.into()))?;
                 } else {
-                    spawn.midispatch(Dst(bs.interface), PacketList::single(note_off(bs.channel, *note, Velocity::MIN)?.into()));
+                    spawn.midispatch(Dst(bs.interface), PacketList::single(note_off(bs.channel, *note, Velocity::MIN)?.into()))?;
                 }
                 *on = !*on
             }

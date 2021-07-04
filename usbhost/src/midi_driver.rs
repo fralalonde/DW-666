@@ -1,6 +1,6 @@
 //! Simple USB host-side driver for boot protocol keyboards.
 
-use log::{self, error, info, trace, warn, LevelFilter};
+use log::{self, error, info, trace, warn};
 use usb_host::{
     ConfigurationDescriptor, DescriptorType, DeviceDescriptor, Direction, Driver, DriverError,
     Endpoint, EndpointDescriptor, InterfaceDescriptor, RequestCode, RequestDirection, RequestKind,
@@ -9,7 +9,6 @@ use usb_host::{
 
 use core::convert::TryFrom;
 use core::mem::{self, MaybeUninit};
-// use core::ptr;
 use heapless::Vec;
 
 // How long to wait before talking to the device again after setting
@@ -26,26 +25,9 @@ const MAX_ENDPOINTS: usize = 2;
 const CONFIG_BUFFER_LEN: usize = 256;
 
 /// Boot protocol keyboard driver for USB hosts.
+#[derive(Default, Debug)]
 pub struct MidiDriver {
     devices: Vec<Device, MAX_DEVICES>,
-}
-
-impl core::fmt::Debug for MidiDriver {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "BootKeyboard")
-    }
-}
-
-impl MidiDriver {
-    /// Create a new driver instance which will call
-    /// `callback(address: u8, buffer: &[u8])` when a new keyboard
-    /// report is received.
-    ///
-    /// `address` is the address of the USB device which received the
-    /// report and `buffer` is the contents of the report itself.
-    pub fn new() -> Self {
-        Self { devices: Vec::new() }
-    }
 }
 
 impl From<Device> for DriverError {
@@ -71,7 +53,7 @@ impl Driver for MidiDriver {
     }
 
     fn remove_device(&mut self, address: u8) {
-        if let Some((num, _dd)) = self.devices.iter().enumerate().find(|(num, dd)| dd.addr == address) {
+        if let Some((num, _dd)) = self.devices.iter().enumerate().find(|(_num, dd)| dd.addr == address) {
             self.devices.swap_remove(num);
         }
     }
@@ -184,7 +166,7 @@ impl Device {
                 }
 
                 // TODO Use allocation?
-                let mut config = unsafe { MaybeUninit::<[u8; CONFIG_BUFFER_LEN]>::uninit().assume_init() };
+                let mut config = [0; CONFIG_BUFFER_LEN];
                 let config_buf = &mut config[..conf_desc.w_total_length as usize];
                 let len = host.control_transfer(
                     &mut self.ep0,
@@ -232,7 +214,7 @@ impl Device {
             }
 
             DeviceState::SetProtocol => {
-                if let Some(ref ep) = self.endpoints.get(0) {
+                if let Some(ep) = self.endpoints.get(0) {
                     host.control_transfer(
                         &mut self.ep0,
                         RequestType::from((
@@ -537,146 +519,6 @@ mod test {
         driver.add_device(dummy_device(), 1).unwrap();
         driver.tick(0, &mut dummyhost).unwrap();
         assert!(driver.tick(SETTLE_DELAY + 1, &mut dummyhost).is_err());
-    }
-
-    #[test]
-    fn parse_logitech_g105_config() {
-        // Config, Interface (0.0), HID, Endpoint, Interface (1.0), HID, Endpoint
-        let raw: &[u8] = &[
-            0x09, 0x02, 0x3b, 0x00, 0x02, 0x01, 0x04, 0xa0, 0x64, 0x09, 0x04, 0x00, 0x00, 0x01,
-            0x03, 0x01, 0x01, 0x00, 0x09, 0x21, 0x10, 0x01, 0x00, 0x01, 0x22, 0x41, 0x00, 0x07,
-            0x05, 0x81, 0x03, 0x08, 0x00, 0x0a, 0x09, 0x04, 0x01, 0x00, 0x01, 0x03, 0x00, 0x00,
-            0x00, 0x09, 0x21, 0x10, 0x01, 0x00, 0x01, 0x22, 0x85, 0x00, 0x07, 0x05, 0x82, 0x03,
-            0x08, 0x00, 0x0a,
-        ];
-        let mut parser = DescriptorParser::from(raw);
-
-        let config_desc = ConfigurationDescriptor {
-            b_length: 9,
-            b_descriptor_type: DescriptorType::Configuration,
-            w_total_length: 59,
-            b_num_interfaces: 2,
-            b_configuration_value: 1,
-            i_configuration: 4,
-            bm_attributes: 0xa0,
-            b_max_power: 100,
-        };
-        let desc = parser.next().expect("Parsing configuration");
-        if let Descriptor::Configuration(cdesc) = desc {
-            assert_eq!(*cdesc, config_desc, "Configuration descriptor mismatch.");
-        } else {
-            panic!("Wrong descriptor type.");
-        }
-
-        let interface_desc1 = InterfaceDescriptor {
-            b_length: 9,
-            b_descriptor_type: DescriptorType::Interface,
-            b_interface_number: 0,
-            b_alternate_setting: 0,
-            b_num_endpoints: 1,
-            b_interface_class: 0x03,     // HID
-            b_interface_sub_class: 0x01, // Boot Interface,
-            b_interface_protocol: 0x01,  // Keyboard
-            i_interface: 0,
-        };
-        let desc = parser.next().expect("Parsing configuration");
-        if let Descriptor::Interface(cdesc) = desc {
-            assert_eq!(*cdesc, interface_desc1, "Interface descriptor mismatch.");
-        } else {
-            panic!("Wrong descriptor type.");
-        }
-
-        // Unknown descriptor just yields a byte slice.
-        let hid_desc1: &[u8] = &[0x09, 0x21, 0x10, 0x01, 0x00, 0x01, 0x22, 0x41, 0x00];
-        let desc = parser.next().expect("Parsing configuration");
-        if let Descriptor::Other(cdesc) = desc {
-            assert_eq!(cdesc, hid_desc1, "HID descriptor mismatch.");
-        } else {
-            panic!("Wrong descriptor type.");
-        }
-
-        let endpoint_desc1 = EndpointDescriptor {
-            b_length: 7,
-            b_descriptor_type: DescriptorType::Endpoint,
-            b_endpoint_address: 0x81,
-            bm_attributes: 0x03,
-            w_max_packet_size: 0x08,
-            b_interval: 0x0a,
-        };
-        let desc = parser.next().expect("Parsing configuration");
-        if let Descriptor::Endpoint(cdesc) = desc {
-            assert_eq!(*cdesc, endpoint_desc1, "Endpoint descriptor mismatch.");
-        } else {
-            panic!("Wrong descriptor type.");
-        }
-
-        let interface_desc2 = InterfaceDescriptor {
-            b_length: 9,
-            b_descriptor_type: DescriptorType::Interface,
-            b_interface_number: 1,
-            b_alternate_setting: 0,
-            b_num_endpoints: 1,
-            b_interface_class: 0x03,     // HID
-            b_interface_sub_class: 0x00, // No subclass
-            b_interface_protocol: 0x00,  // No protocol
-            i_interface: 0,
-        };
-        let desc = parser.next().expect("Parsing configuration");
-        if let Descriptor::Interface(cdesc) = desc {
-            assert_eq!(*cdesc, interface_desc2, "Interface descriptor mismatch.");
-        } else {
-            panic!("Wrong descriptor type.");
-        }
-
-        // Unknown descriptor just yields a byte slice.
-        let hid_desc2 = &[0x09, 0x21, 0x10, 0x01, 0x00, 0x01, 0x22, 0x85, 0x00];
-        let desc = parser.next().expect("Parsing configuration");
-        if let Descriptor::Other(cdesc) = desc {
-            assert_eq!(cdesc, hid_desc2, "HID descriptor mismatch.");
-        } else {
-            panic!("Wrong descriptor type.");
-        }
-
-        let endpoint_desc2 = EndpointDescriptor {
-            b_length: 7,
-            b_descriptor_type: DescriptorType::Endpoint,
-            b_endpoint_address: 0x82,
-            bm_attributes: 0x03,
-            w_max_packet_size: 0x08,
-            b_interval: 0x0a,
-        };
-        let desc = parser.next().expect("Parsing configuration");
-        if let Descriptor::Endpoint(cdesc) = desc {
-            assert_eq!(*cdesc, endpoint_desc2, "Endpoint descriptor mismatch.");
-        } else {
-            panic!("Wrong descriptor type.");
-        }
-
-        assert!(parser.next().is_none(), "Extra descriptors.");
-    }
-
-    #[test]
-    fn logitech_g105_discovers_ep0() {
-        // Config, Interface (0.0), HID, Endpoint, Interface (1.0), HID, Endpoint
-        let raw: &[u8] = &[
-            0x09, 0x02, 0x3b, 0x00, 0x02, 0x01, 0x04, 0xa0, 0x64, 0x09, 0x04, 0x00, 0x00, 0x01,
-            0x03, 0x01, 0x01, 0x00, 0x09, 0x21, 0x10, 0x01, 0x00, 0x01, 0x22, 0x41, 0x00, 0x07,
-            0x05, 0x81, 0x03, 0x08, 0x00, 0x0a, 0x09, 0x04, 0x01, 0x00, 0x01, 0x03, 0x00, 0x00,
-            0x00, 0x09, 0x21, 0x10, 0x01, 0x00, 0x01, 0x22, 0x85, 0x00, 0x07, 0x05, 0x82, 0x03,
-            0x08, 0x00, 0x0a,
-        ];
-
-        let (got_inum, got) = ep_for_midi_class(raw).expect("Looking for endpoint");
-        let want = EndpointDescriptor {
-            b_length: 7,
-            b_descriptor_type: DescriptorType::Endpoint,
-            b_endpoint_address: 0x81,
-            bm_attributes: 0x03,
-            w_max_packet_size: 0x08,
-            b_interval: 0x0a,
-        };
-        assert_eq!(got_inum, 0);
-        assert_eq!(*got, want);
     }
 
     fn dummy_device() -> DeviceDescriptor {

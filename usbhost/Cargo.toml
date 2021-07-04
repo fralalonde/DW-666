@@ -16,9 +16,10 @@ cortex-m-rt = "0.6"
 
 rtt-target = { version = "0.3", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
-#rtt-logger = "0.1"
 
 trinket_m0 = {version = "0.9", features = ["usb", "rt", "unproven"] }
 usb-host = "0.1.2"
 atsamd-usb-host = { path = "../../atsamd-usb-host", features = ["samd21e"] }
 log = "0.4"
+
+minimidi = { path  = "../midi" }

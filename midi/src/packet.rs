@@ -32,7 +32,7 @@ impl Packet {
 
     pub fn status(&self) -> Option<Status> {
         let payload = self.payload();
-        if payload.len() == 0 {
+        if payload.is_empty() {
             None
         } else {
             Status::try_from(self.payload()[0]).ok()
@@ -130,24 +130,24 @@ impl From<Message> for Packet {
             // but let's support it for completeness
             Message::SysexBegin(b1, b2) => {
                 packet[1] = SYSEX_START;
-                packet[2] = u8::from(b1);
-                packet[3] = u8::from(b2);
+                packet[2] = b1;
+                packet[3] = b2;
             }
             Message::SysexCont(b1, b2, b3) => {
-                packet[1] = u8::from(b1);
-                packet[2] = u8::from(b2);
-                packet[3] = u8::from(b3);
+                packet[1] = b1;
+                packet[2] = b2;
+                packet[3] = b3;
             }
             Message::SysexEnd => {
                 packet[1] = SYSEX_END;
             }
             Message::SysexEnd1(b1) => {
-                packet[1] = u8::from(b1);
+                packet[1] = b1;
                 packet[2] = SYSEX_END;
             }
             Message::SysexEnd2(b1, b2) => {
-                packet[1] = u8::from(b1);
-                packet[2] = u8::from(b2);
+                packet[1] = b1;
+                packet[2] = b2;
                 packet[3] = SYSEX_END;
             }
 
@@ -157,7 +157,7 @@ impl From<Message> for Packet {
             }
             Message::SysexSingleByte(b1) => {
                 packet[1] = SYSEX_START;
-                packet[2] = u8::from(b1);
+                packet[2] = b1;
                 packet[3] = SYSEX_END;
             }
 

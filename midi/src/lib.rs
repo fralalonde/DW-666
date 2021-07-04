@@ -9,7 +9,6 @@ use core::iter::FromIterator;
 use core::ops::{Deref, DerefMut};
 
 use heapless::Vec;
-use nb;
 use usb_device::UsbError;
 
 pub use message::{Message, note_off, note_on, program_change};
@@ -102,7 +101,7 @@ impl FromIterator<Packet> for PacketList {
     fn from_iter<T: IntoIterator<Item=Packet>>(iter: T) -> Self {
         let mut list = Vec::new();
         for p in iter {
-            if let Err(_) = list.push(p) {
+            if list.push(p).is_err() {
                 break;
             }
         }

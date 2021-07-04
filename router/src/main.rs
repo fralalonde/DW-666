@@ -21,7 +21,6 @@ use core::sync::atomic::AtomicU16;
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 use cortex_m::asm;
-use cortex_m_rt::entry;
 use display_interface_spi::SPIInterface;
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_hal::{
@@ -30,15 +29,13 @@ use embedded_hal::{
     spi as espi,
 };
 use hal::{
-    delay::Delay,
     gpio::{
-        {Alternate, Input},
+        {Alternate},
         gpioa::*,
         gpiob::*,
         gpioc::PC13, GpioExt, Output,
         PushPull,
     },
-    i2c::I2c,
     otg_fs::{USB, UsbBus, UsbBusType},
     rcc::RccExt,
     serial::{self, Serial},
@@ -46,18 +43,16 @@ use hal::{
     stm32,
     time::U32Ext,
 };
-use hal::spi::{Mode, NoMiso, Phase, Polarity, Spi};
-use heapless::Vec;
+use hal::spi::{NoMiso, Spi};
 use ili9341::Ili9341;
 
 use rtic::cyccnt::U32Ext as _;
 use usb_device::bus;
 
 use midi::{CableNumber};
-use midi::{Interface, Packet, Receive, Transmit};
+use midi::{Interface, Receive, Transmit};
 
 use crate::apps::blinky_beat::BlinkyBeat;
-use crate::apps::bounce::Bounce;
 use crate::apps::dw6000_control::Dw6000Control;
 // use display_interface_parallel_gpio::{PGPIO8BitInterface, Generic8BitBus};
 // use ili9486::{ILI9486, DisplaySize320x480, DisplayMode};
@@ -67,6 +62,7 @@ use midi::{Binding, channel, Note, PacketList};
 use crate::Binding::Src;
 use crate::time::Tasks;
 use crate::route::Service;
+use crate::port::serial::SerialMidi;
 
 extern crate stm32f4xx_hal as hal;
 
@@ -155,7 +151,7 @@ const APP: () = {
 
         midi_router: route::Router,
         usb_midi: port::usb::UsbMidi,
-        // beatstep: SerialMidi<hal::stm32::USART1, (PB6<Alternate<hal::gpio::AF7>>, PB7<Alternate<hal::gpio::AF7>>)>,
+        beatstep: SerialMidi<hal::stm32::USART1, (PB6<Alternate<hal::gpio::AF7>>, PB7<Alternate<hal::gpio::AF7>>)>,
         dw6000: port::serial::SerialMidi<hal::stm32::USART2, (PA2<Alternate<hal::gpio::AF7>>, PA3<Alternate<hal::gpio::AF7>>)>,
     }
 
@@ -227,22 +223,22 @@ const APP: () = {
         let lcd_reset = gpioa.pa6.into_push_pull_output();
         let ili9341 = Ili9341::new(lcd_spi, lcd_reset, &mut delay).expect("LCD init failed");
 
-        let mut display = Display::new(ili9341).unwrap();
+        let display = Display::new(ili9341).unwrap();
 
         rprintln!("Screen OK");
 
-        // let bs_tx = gpiob.pb6.into_alternate_af7();
-        // let bs_rx = gpiob.pb7.into_alternate_af7();
-        // let mut uart1 = Serial::usart1(
-        //     dev.USART1,
-        //     (bs_tx, bs_rx),
-        //     serial::config::Config::default()
-        //         .baudrate(921_600.bps()),
-        //     clocks,
-        // ).unwrap();
-        // uart1.listen(serial::Event::Rxne);
-        // let beatstep = SerialMidi::new(uart1, CableNumber::MIN);
-        // rprintln!("BeatStep MIDI port OK");
+        let bs_tx = gpiob.pb6.into_alternate_af7();
+        let bs_rx = gpiob.pb7.into_alternate_af7();
+        let mut uart1 = Serial::usart1(
+            dev.USART1,
+            (bs_tx, bs_rx),
+            serial::config::Config::default()
+                .baudrate(115200.bps()),
+            clocks,
+        ).unwrap();
+        uart1.listen(serial::Event::Rxne);
+        let beatstep = SerialMidi::new(uart1, CableNumber::MIN);
+        rprintln!("BeatStep MIDI port OK");
 
         let dw_tx = gpioa.pa2.into_alternate_af7();
         let dw_rx = gpioa.pa3.into_alternate_af7();
@@ -254,7 +250,7 @@ const APP: () = {
             clocks,
         ).unwrap();
         uart2.listen(serial::Event::Rxne);
-        let dw6000 = port::serial::SerialMidi::new(uart2, CableNumber::MIN);
+        let dw6000 = SerialMidi::new(uart2, CableNumber::MIN);
         rprintln!("DW6000 MIDI port OK");
 
         let usb = USB {
@@ -285,7 +281,7 @@ const APP: () = {
 
         let _serial_print = midi_router
             .add_route(route::Route::from(DW6000)
-                .filter(|t, cx| filter::print_message(cx)));
+                .filter(|_t, cx| filter::print_message(cx)));
 
         // let _usb_print = midi_router.add_route(
         //     Route::to(Interface::USB(0))
@@ -325,7 +321,7 @@ const APP: () = {
             on_board_led,
             display,
             midi_router,
-            // beatstep,
+            beatstep,
             dw6000,
             usb_midi: port::usb::UsbMidi {
                 dev: usb_dev,
@@ -369,25 +365,25 @@ const APP: () = {
         }
     }
 
-    // /// Serial receive interrupt
-    // #[task(binds = USART1, spawn = [midispatch], resources = [beatstep], priority = 3)]
-    // fn usart1_irq(cx: usart1_irq::Context) {
-    //     if let Err(err) = cx.resources.beatstep.flush() {
-    //         rprintln!("Serial flush failed {:?}", err);
-    //     }
-    //
-    //     loop {
-    //         match cx.resources.beatstep.receive() {
-    //             Ok(Some(packet)) => {
-    //                 rprintln!("MIDI from beatstep {:?}", packet);
-    //                 cx.spawn.midispatch(Src(BEATSTEP), PacketList::single(packet)).unwrap();
-    //                 continue;
-    //             }
-    //             Err(e) => {rprintln!("Error serial read {:?}", e); break},
-    //             _ => {break;}
-    //         }
-    //     }
-    // }
+    /// Serial receive interrupt
+    #[task(binds = USART1, spawn = [midispatch], resources = [beatstep], priority = 3)]
+    fn usart1_irq(cx: usart1_irq::Context) {
+        if let Err(err) = cx.resources.beatstep.flush() {
+            rprintln!("Serial flush failed {:?}", err);
+        }
+
+        loop {
+            match cx.resources.beatstep.receive() {
+                Ok(Some(packet)) => {
+                    rprintln!("MIDI from beatstep {:?}", packet);
+                    cx.spawn.midispatch(Src(BEATSTEP), PacketList::single(packet)).unwrap();
+                    continue;
+                }
+                Err(e) => {rprintln!("Error serial read {:?}", e); break},
+                _ => {break;}
+            }
+        }
+    }
 
     /// Serial receive interrupt
     #[task(binds = USART2, spawn = [midispatch], resources = [dw6000], priority = 3)]

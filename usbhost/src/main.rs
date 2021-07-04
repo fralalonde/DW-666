@@ -12,11 +12,8 @@ use panic_rtt_target as _;
 use trinket_m0 as hal;
 
 use hal::clock::GenericClockController;
-use hal::entry;
-use hal::pac::{interrupt, CorePeripherals, Peripherals};
+use hal::pac::{ CorePeripherals, Peripherals};
 
-use cortex_m::asm::delay as cycle_delay;
-use cortex_m::peripheral::{NVIC, DWT};
 use atsamd_hal::time::Hertz;
 
 use atsamd_hal::gpio::v2::PA10;
@@ -24,7 +21,7 @@ use atsamd_hal::delay::Delay;
 use atsamd_hal::hal::blocking::delay::DelayMs;
 use atsamd_hal::sercom::UART0;
 
-use atsamd_usb_host::{SAMDHost, Pins, Event, Events};
+use atsamd_usb_host::{SAMDHost, Pins, Events};
 
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering::Relaxed;
@@ -33,6 +30,14 @@ use heapless::Vec;
 use crate::midi_driver::MidiDriver;
 use log::LevelFilter;
 
+use rtt_target::*;
+use hal::sercom::*;
+use atsamd_hal::gpio::{self, *};
+
+use minimidi::{CableNumber, Interface, PacketList, Binding, Receive, };
+use crate::port::serial::SerialMidi;
+
+mod port;
 mod midi_driver;
 
 static mut MILLIS: AtomicUsize = AtomicUsize::new(0);
@@ -43,9 +48,8 @@ fn millis() -> usize {
 }
 
 use log::{Metadata, Record};
-
-use rtt_target::*;
-use atsamd_hal::common::sercom::v2::{Pad, Pad3, Pad2};
+use atsamd_hal::gpio::PfD;
+use minimidi::Binding::Src;
 
 /// An RTT-based logger implementation.
 pub struct RTTLogger {}
@@ -64,25 +68,25 @@ impl log::Log for RTTLogger {
     fn flush(&self) {}
 }
 
-static MY_LOGGER: RTTLogger = RTTLogger{};
+const UPSTREAM_SERIAL: Interface = Interface::Serial(0);
 
 #[rtic::app(device = crate::hal::pac, peripherals = true)]
 const APP: () = {
     struct Resources {
-        red_led: atsamd_hal::gpio::Pin<PA10, atsamd_hal::gpio::v2::Output<atsamd_hal::gpio::v2::PushPull>>,
+        red_led: atsamd_hal::gpio::Pin<PA10, atsamd_hal::gpio::v2::Output<gpio::v2::PushPull>>,
         delay: Delay,
         usb_host: SAMDHost,
         midi_driver: MidiDriver,
-        serial: UART0<
-            Pad<SERCOM0, Pad3, atsamd_hal::gpio::Pin<PA07, atsamd_hal::gpio::v2::Alternate<atsamd_hal::gpio::v2::D>>>,
-            Pad<SERCOM0, Pad2, atsamd_hal::gpio::Pin<PA06, atsamd_hal::gpio::v2::Alternate<atsamd_hal::gpio::v2::D>>>,
-            (), ()>,
+        serial_midi: SerialMidi<UART0<Sercom0Pad3<Pa7<PfD>>, Sercom0Pad2<Pa6<PfD>>, (), ()>>,
     }
 
     #[init]
     fn init(cx: init::Context) -> init::LateResources {
-        let mut peripherals = cx.device;
-        let mut core = cx.core;
+        // RTIC needs statics to go first
+        static MY_LOGGER: RTTLogger = RTTLogger {};
+
+        let mut peripherals: Peripherals = cx.device;
+        let core: CorePeripherals = cx.core;
         let mut clocks = GenericClockController::with_internal_32kosc(
             peripherals.GCLK,
             &mut peripherals.PM,
@@ -91,15 +95,16 @@ const APP: () = {
         );
 
         rtt_init_print!();
+        info!("init");
 
         log::set_max_level(LevelFilter::Debug);
-        unsafe { log::set_logger_racy(&MY_LOGGER); }
+        unsafe { log::set_logger_racy(&MY_LOGGER).unwrap(); }
 
         let mut pins = hal::Pins::new(peripherals.PORT);
-        let mut red_led = pins.d13.into_open_drain_output(&mut pins.port);
-        let mut delay = Delay::new(core.SYST, &mut clocks);
+        let red_led = pins.d13.into_open_drain_output(&mut pins.port);
+        let delay = Delay::new(core.SYST, &mut clocks);
 
-        let serial = hal::uart(
+        let serial: UART0<Sercom0Pad3<Pa7<PfD>>, Sercom0Pad2<Pa6<PfD>>, (), ()> = hal::uart(
             &mut clocks,
             Hertz(115200),
             peripherals.SERCOM0,
@@ -108,6 +113,8 @@ const APP: () = {
             pins.d4.into_floating_input(&mut pins.port),
             &mut pins.port,
         );
+        let serial_midi = port::serial::SerialMidi::new(serial, CableNumber::MIN);
+        info!("serial");
 
         let usb_pins = Pins::new(
             pins.usb_dm.into_floating_input(&mut pins.port),
@@ -115,8 +122,9 @@ const APP: () = {
             Some(pins.usb_sof.into_floating_input(&mut pins.port)),
             Some(pins.usb_host_enable.into_floating_input(&mut pins.port)),
         );
+        info!("usb");
 
-        let mut usb_host = SAMDHost::new(
+        let usb_host = SAMDHost::new(
             peripherals.USB,
             usb_pins,
             &mut pins.port,
@@ -124,16 +132,17 @@ const APP: () = {
             &mut peripherals.PM,
             &|| millis() as usize,
         );
+        info!("usb host");
 
-        let mut midi_driver = MidiDriver::new();
-
+        let midi_driver = MidiDriver::default();
+        info!("usb midi driver");
 
         init::LateResources {
             delay,
             red_led,
             usb_host,
             midi_driver,
-            serial,
+            serial_midi,
         }
     }
 
@@ -150,23 +159,43 @@ const APP: () = {
             red_led.toggle();
             delay.delay_ms(400u16);
             red_led.toggle();
-            info!("asdfasdfasdf");
+        }
+    }
+
+    /// Serial receive interrupt
+    #[task(binds = SERCOM0, spawn = [midispatch], resources = [serial_midi], priority = 3)]
+    fn serial_irq(cx: serial_irq::Context) {
+        info!("serial IRQ");
+        if let Err(err) = cx.resources.serial_midi.flush() {
+            error!("Serial flush failed {:?}", err);
+        }
+
+        while let Ok(Some(packet)) = cx.resources.serial_midi.receive() {
+            cx.spawn.midispatch(Src(UPSTREAM_SERIAL), PacketList::single(packet)).unwrap();
         }
     }
 
     #[task(binds = USB, resources = [usb_host], spawn = [usb_task])]
     fn usb_irq(mut cx: usb_irq::Context) {
+        info!("usb IRQ");
         let events = cx.resources.usb_host.lock(|u| u.handle_irq());
         cx.spawn.usb_task(events);
     }
 
     #[task(resources = [usb_host, midi_driver], priority = 3)]
-    fn usb_task(mut cx: usb_task::Context, events: Events) {
+    fn usb_task(cx: usb_task::Context, events: Events) {
         // TODO make driver list 'static
         let mut usb_drivers: Vec<&mut (dyn usb_host::Driver + Send + Sync), 16> = Vec::new();
         usb_drivers.push(cx.resources.midi_driver);
         cx.resources.usb_host.task(&mut usb_drivers, events)
     }
+
+    #[task(/*spawn = [midisend, midisplay],*/ /*resources = [midi_router, tasks],*/ priority = 3, capacity = 16)]
+    fn midispatch(cx: midispatch::Context, binding: Binding, packets: PacketList) {
+        // let router: &mut route::Router = cx.resources.midi_router;
+        // router.midispatch(cx.scheduled, packets, binding, cx.spawn).unwrap();
+    }
+
 
     extern "C" {
         // Reuse some interrupts for software task scheduling.

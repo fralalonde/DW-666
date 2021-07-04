@@ -1,4 +1,4 @@
-use midi::{Packet, Interface, MidiError, Binding, PacketList};
+use midi::{Interface, MidiError, Binding, PacketList};
 
 use alloc::vec::Vec;
 use hashbrown::{HashMap};
@@ -11,7 +11,6 @@ use alloc::boxed::Box;
 use crate::time::Tasks;
 use alloc::string::String;
 use alloc::collections::{BTreeMap};
-use core::iter::FromIterator;
 use crate::sysex::Tag;
 
 pub trait Service {
@@ -29,16 +28,12 @@ pub struct Route {
 impl Route {
     /// Route A -> *
     pub fn from(interface: Interface) -> Self {
-        let mut route = Route::default();
-        route.source = Some(interface);
-        route
+        Route { source: Some(interface), ..Default::default() }
     }
 
     /// Route * -> A
     pub fn to(interface: Interface) -> Self {
-        let mut route = Route::default();
-        route.destination = Some(interface);
-        route
+        Route { destination: Some(interface), ..Default::default() }
     }
 
     /// Route A -> B
@@ -128,7 +123,7 @@ impl Router {
 
         match binding {
             Binding::Dst(destination) => {
-                context.restart(packets.clone());
+                context.restart(packets);
                 Self::out(&mut self.egress, now, spawn, &mut context, destination)?
             }
             Binding::Src(source) =>
