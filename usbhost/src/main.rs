@@ -54,7 +54,7 @@ use minimidi::Binding::Src;
 /// An RTT-based logger implementation.
 pub struct RTTLogger {}
 
-impl log::Log for RTTLogger {
+impl log::Log for RTTLogger     {
     fn enabled(&self, _metadata: &Metadata) -> bool {
         true
     }
@@ -97,7 +97,7 @@ const APP: () = {
         rtt_init_print!();
         info!("init");
 
-        log::set_max_level(LevelFilter::Debug);
+        log::set_max_level(LevelFilter::Trace);
         unsafe { log::set_logger_racy(&MY_LOGGER).unwrap(); }
 
         let mut pins = hal::Pins::new(peripherals.PORT);
@@ -124,7 +124,7 @@ const APP: () = {
         );
         info!("usb");
 
-        let usb_host = SAMDHost::new(
+        let mut usb_host = SAMDHost::new(
             peripherals.USB,
             usb_pins,
             &mut pins.port,
@@ -132,10 +132,19 @@ const APP: () = {
             &mut peripherals.PM,
             &|| millis() as usize,
         );
-        info!("usb host");
+        info!("USB host");
 
         let midi_driver = MidiDriver::default();
-        info!("usb midi driver");
+        info!("USB midi driver");
+
+        // enable USB
+        usb_host.reset_periph();
+
+        info!("done init start");
+
+        // let mut usb_drivers: Vec<&mut (dyn usb_host::Driver + Send + Sync), 16> = Vec::new();
+        // // usb_drivers.push(cx.resources.midi_driver);
+        // usb_host.task(&mut usb_drivers, [None, None]);
 
         init::LateResources {
             delay,
@@ -146,19 +155,22 @@ const APP: () = {
         }
     }
 
-    #[idle(resources = [red_led, delay])]
-    fn idle(cx: idle::Context) -> ! {
+    #[idle(resources = [red_led, delay, usb_host], spawn = [usb_task])]
+    fn idle(mut cx: idle::Context) -> ! {
         let red_led = cx.resources.red_led;
         let delay: &mut Delay = cx.resources.delay;
-
-        // If we made it this far, things should be ok, so throttle the logging.
-        // log::set_max_level(LevelFilter::Info);
+        info!("idel start");
 
         loop {
             delay.delay_ms(400u16);
             red_led.toggle();
             delay.delay_ms(400u16);
             red_led.toggle();
+
+            // let events = cx.resources.usb_host.lock(|u| u.handle_irq());
+            // debug!("IRQ {:?}", events);
+            // cx.spawn.usb_task(events);
+            info!("idel loop");
         }
     }
 
@@ -175,10 +187,11 @@ const APP: () = {
         }
     }
 
-    #[task(binds = USB, resources = [usb_host], spawn = [usb_task])]
+    #[task(binds = SERCOM1, resources = [usb_host], spawn = [usb_task], priority = 3)]
     fn usb_irq(mut cx: usb_irq::Context) {
         info!("usb IRQ");
-        let events = cx.resources.usb_host.lock(|u| u.handle_irq());
+        // let events = cx.resources.usb_host.lock(|u| u.handle_irq());let events = cx.resources.usb_host.lock(|u| u.handle_irq());
+        let events = cx.resources.usb_host.handle_irq();
         cx.spawn.usb_task(events);
     }
 
@@ -199,7 +212,7 @@ const APP: () = {
 
     extern "C" {
         // Reuse some interrupts for software task scheduling.
-        fn SERCOM3();
+        // fn SERCOM3();
         fn TC4();
     }
 };

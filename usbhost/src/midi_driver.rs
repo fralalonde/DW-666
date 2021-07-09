@@ -166,7 +166,7 @@ impl Device {
                 }
 
                 // TODO Use allocation?
-                let mut config = [0; CONFIG_BUFFER_LEN];
+                let mut config = [0 ; CONFIG_BUFFER_LEN];
                 let config_buf = &mut config[..conf_desc.w_total_length as usize];
                 let len = host.control_transfer(
                     &mut self.ep0,
