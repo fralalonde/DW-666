@@ -1,1 +1,0 @@
-INCLUDE router/memory.x

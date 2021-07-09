@@ -1,10 +1,11 @@
-[target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-run --chip STM32F411CEUx"
+[build]
+target = "thumbv7em-none-eabihf"     # Cortex-M4F and Cortex-M7F (with FPU)
 
 rustflags = [
   "-C", "link-arg=-Trouter/memory.x",
   "-C", "link-arg=-Tlink.x",
 ]
 
-[build]
-target = "thumbv7em-none-eabihf"     # Cortex-M4F and Cortex-M7F (with FPU)
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+runner = "probe-run --chip STM32F411CEUx"
+
