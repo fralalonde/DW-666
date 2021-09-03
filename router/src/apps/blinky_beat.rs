@@ -1,14 +1,15 @@
 use midi::{ Note, Endpoint, note_off, note_on, Velocity, channel, MidiError, PacketList};
-use crate::{devices};
+use crate::{devices, app};
 use alloc::vec::Vec;
 use alloc::sync::Arc;
-use crate::time::{TimeUnits, Tasks};
+use crate::time::{/*TimeUnits,*/ Tasks};
 use devices::arturia::beatstep;
 use beatstep::Param::*;
 use beatstep::Pad::*;
 use crate::devices::arturia::beatstep::{SwitchMode};
-use crate::Binding::Dst;
 use crate::route::{Router, Service};
+use midi::Binding::Dst;
+use rtic::rtic_monotonic::Milliseconds;
 
 
 pub struct BlinkyBeat {
@@ -36,23 +37,23 @@ impl BlinkyBeat {
 
 
 impl Service for BlinkyBeat {
-    fn start(&mut self, now: rtic::cyccnt::Instant, _router: &mut Router, tasks: &mut Tasks) -> Result<(), MidiError> {
+    fn start(&mut self, _router: &mut Router, tasks: &mut Tasks) -> Result<(), MidiError> {
         let state = self.state.clone();
-        tasks.repeat(now, move |_now, _chaos, spawn| {
+        tasks.repeat(move |_chaos| {
             let mut state = state.lock();
             let bs = state.beatstep;
             for sysex in devices::arturia::beatstep::beatstep_set(PadNote(Pad(0), channel(1), Note::C1m, SwitchMode::Gate)) {
-                spawn.midispatch(Dst(bs.interface), sysex.collect()).unwrap();
+                app::midispatch::spawn(Dst(bs.interface), sysex.collect()).unwrap();
             }
             for (note, ref mut on) in &mut state.notes {
                 if *on {
-                    spawn.midispatch(Dst(bs.interface), PacketList::single(note_on(bs.channel, *note, Velocity::MAX)?.into()))?;
+                    app::midispatch::spawn(Dst(bs.interface), PacketList::single(note_on(bs.channel, *note, Velocity::MAX)?.into()))?;
                 } else {
-                    spawn.midispatch(Dst(bs.interface), PacketList::single(note_off(bs.channel, *note, Velocity::MIN)?.into()))?;
+                    app::midispatch::spawn(Dst(bs.interface), PacketList::single(note_off(bs.channel, *note, Velocity::MIN)?.into()))?;
                 }
                 *on = !*on
             }
-            Ok(Some(2000.millis()))
+            Ok(Some(Milliseconds(2000)))
         });
 
         rprintln!("BlinkyBeat Active");

@@ -6,6 +6,7 @@
 
 #[macro_use]
 extern crate rtt_target;
+
 use panic_rtt_target as _;
 
 #[macro_use]
@@ -14,55 +15,13 @@ extern crate bitfield;
 extern crate cortex_m;
 extern crate minimidi as midi;
 
-use alloc::string::String;
 use core::alloc::Layout;
-use core::result::Result;
+
 use core::sync::atomic::AtomicU16;
 
 use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 use cortex_m::asm;
-use display_interface_spi::SPIInterface;
-use embedded_graphics::pixelcolor::Rgb565;
-use embedded_hal::{
-    blocking::delay::{DelayMs, DelayUs},
-    digital::v2::OutputPin,
-    spi as espi,
-};
-use hal::{
-    gpio::{
-        {Alternate},
-        gpioa::*,
-        gpiob::*,
-        gpioc::PC13, GpioExt, Output,
-        PushPull,
-    },
-    otg_fs::{USB, UsbBus, UsbBusType},
-    rcc::RccExt,
-    serial::{self, Serial},
-    spi,
-    stm32,
-    time::U32Ext,
-};
-use hal::spi::{NoMiso, Spi};
-use ili9341::Ili9341;
 
-use rtic::cyccnt::U32Ext as _;
-use usb_device::bus;
-
-use midi::{CableNumber};
-use midi::{Interface, Receive, Transmit};
-
-use crate::apps::blinky_beat::BlinkyBeat;
-use crate::apps::dw6000_control::Dw6000Control;
-// use display_interface_parallel_gpio::{PGPIO8BitInterface, Generic8BitBus};
-// use ili9486::{ILI9486, DisplaySize320x480, DisplayMode};
-use crate::display::gui;
-use crate::display::gui::Display;
-use midi::{Binding, channel, Note, PacketList};
-use crate::Binding::Src;
-use crate::time::Tasks;
-use crate::route::Service;
-use crate::port::serial::SerialMidi;
 
 extern crate stm32f4xx_hal as hal;
 
@@ -76,20 +35,6 @@ mod route;
 mod filter;
 mod sysex;
 mod port;
-
-pub const CPU_FREQ: u32 = 48_000_000;
-// pub const APB1_FREQ: u32 = CPU_FREQ / 2;
-// pub const APB2_FREQ: u32 = CPU_FREQ;
-
-pub const CYCLES_PER_MICROSEC: u32 = CPU_FREQ / 1_000_000;
-pub const CYCLES_PER_MILLISEC: u32 = CPU_FREQ / 1_000;
-
-pub const AHB_FREQ: u32 = CPU_FREQ / 2;
-
-const LED_BLINK: u32 = CPU_FREQ / 4;
-const TASKS_PERIOD: u32 = CYCLES_PER_MILLISEC;
-
-static mut USB_EP_MEMORY: [u32; 1024] = [0; 1024];
 
 #[macro_use]
 extern crate alloc;
@@ -122,32 +67,112 @@ pub type Handle = u16;
 
 pub static NEXT_HANDLE: AtomicU16 = AtomicU16::new(0);
 
+#[rtic::app(device = hal::pac, peripherals = true, dispatchers = [EXTI0, EXTI1, USART6])]
+mod app {
+    use crate::time::{Tasks, AppClock};
+    use crate::route::Service;
+    use crate::port::serial::SerialMidi;
 
-pub struct CortexDelay;
+    use crate::port;
+    use crate::route;
+    use crate::time;
+    use crate::filter;
 
-impl DelayUs<u16> for CortexDelay {
-    fn delay_us(&mut self, us: u16) {
-        asm::delay(us as u32 * CYCLES_PER_MICROSEC)
+    use crate::apps::blinky_beat::BlinkyBeat;
+    use crate::apps::dw6000_control::Dw6000Control;
+
+    use crate::display::gui::{self, Display};
+
+    use midi::{Receive, Transmit};
+    use usb_device::bus;
+
+    use midi::{CableNumber, Interface, Binding, channel, Note, PacketList};
+    use Binding::{Src};
+
+    use ili9341::Ili9341;
+    use display_interface_spi::SPIInterface;
+
+    use embedded_graphics::pixelcolor::Rgb565;
+    use embedded_hal::{
+        blocking::delay::{DelayMs, DelayUs},
+        digital::v2::OutputPin,
+        spi as espi,
+    };
+
+    use hal::{
+        // bring in .khz(), .mhz()
+        time::U32Ext as _,
+        serial::{self, Serial},
+        stm32,
+        spi::{NoMiso, Spi, self},
+        otg_fs::{USB, UsbBus, UsbBusType},
+        gpio::{
+            {Alternate},
+            gpioa::*,
+            gpiob::*,
+            gpioc::PC13, GpioExt, Output,
+            PushPull,
+        },
+        rcc::RccExt,
+        prelude::*,
+    };
+
+    use cortex_m::asm;
+
+    use alloc::string::String;
+
+    use rtic::export::Peripherals;
+    use dwt_systick_monotonic::DwtSystick;
+    use embedded_time::{
+        Clock,
+        duration,
+        duration::Extensions,
+    };
+    use rtic::rtic_monotonic::Milliseconds;
+
+    pub const CPU_FREQ: u32 = 48_000_000;
+    // pub const APB1_FREQ: u32 = CPU_FREQ / 2;
+    // pub const APB2_FREQ: u32 = CPU_FREQ;
+
+    pub const CYCLES_PER_MICROSEC: u32 = CPU_FREQ / 1_000_000;
+    pub const CYCLES_PER_MILLISEC: u32 = CPU_FREQ / 1_000;
+
+    pub const AHB_FREQ: u32 = CPU_FREQ / 2;
+
+    const LED_BLINK: u32 = CPU_FREQ / 4;
+    const TASKS_PERIOD: Milliseconds = Milliseconds(1);
+
+    const DW6000: Interface = Interface::Serial(0);
+    const BEATSTEP: Interface = Interface::USB(0);
+
+    static mut USB_EP_MEMORY: [u32; 1024] = [0; 1024];
+
+    pub static CLOCK: AppClock = AppClock::new();
+
+    pub struct CortexDelay;
+
+    impl DelayUs<u16> for CortexDelay {
+        fn delay_us(&mut self, us: u16) {
+            asm::delay(us as u32 * CYCLES_PER_MICROSEC)
+        }
     }
-}
 
-impl DelayMs<u16> for CortexDelay {
-    fn delay_ms(&mut self, us: u16) {
-        asm::delay(us as u32 * CYCLES_PER_MILLISEC)
+    impl DelayMs<u16> for CortexDelay {
+        fn delay_ms(&mut self, us: u16) {
+            asm::delay(us as u32 * CYCLES_PER_MILLISEC)
+        }
     }
-}
 
-const DW6000: Interface = Interface::Serial(0);
-const BEATSTEP: Interface = Interface::USB(0);
+    #[monotonic(binds = SysTick, default = true)]
+    type DwtTicks = DwtSystick<CPU_FREQ>;
 
-#[rtic::app(device = hal::pac, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
-const APP: () = {
-    struct Resources {
+    pub type Ticks = DwtTicks;
+
+    #[shared]
+    struct SharedResources {
         tasks: Tasks,
         chaos: nanorand::WyRand,
         on_board_led: PC13<Output<PushPull>>,
-
-        display: gui::Display<Ili9341<SPIInterface<Spi<hal::stm32::SPI1, (PA5<Alternate<hal::gpio::AF5>>, NoMiso, PA7<Alternate<hal::gpio::AF5>>)>, PB0<Output<PushPull>>, PA4<Output<PushPull>>>, PA6<Output<PushPull>>>, Rgb565>,
 
         midi_router: route::Router,
         usb_midi: port::usb::UsbMidi,
@@ -155,15 +180,20 @@ const APP: () = {
         dw6000: port::serial::SerialMidi<hal::stm32::USART2, (PA2<Alternate<hal::gpio::AF7>>, PA3<Alternate<hal::gpio::AF7>>)>,
     }
 
-    #[init(schedule = [tasks])]
-    fn init(cx: init::Context) -> init::LateResources {
-        // RTIC needs statics to go first
-        static mut USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None;
+    #[local]
+    struct LocalResources {
+        display: gui::Display<Ili9341<SPIInterface<Spi<hal::stm32::SPI1, (PA5<Alternate<hal::gpio::AF5>>, NoMiso, PA7<Alternate<hal::gpio::AF5>>)>, PB0<Output<PushPull>>, PA4<Output<PushPull>>>, PA6<Output<PushPull>>>, Rgb565>,
+    }
 
+    #[init(
+        local = [USB_BUS: Option<bus::UsbBusAllocator<UsbBusType>> = None])
+    ]
+    fn init(cx: init::Context) -> (SharedResources, LocalResources, init::Monotonics) {
+        let USB_BUS: &'static mut Option<bus::UsbBusAllocator<UsbBusType>> = cx.local.USB_BUS;
         rtt_init_print!();
         rprintln!("Initializing");
 
-        let mut core: rtic::Peripherals = cx.core;
+        let mut core: Peripherals = cx.core;
         core.DCB.enable_trace();
         core.DWT.enable_cycle_counter();
 
@@ -175,6 +205,8 @@ const APP: () = {
             // .pclk2(APB2_FREQ.hz())
             .freeze();
 
+        let mono = DwtSystick::new(&mut core.DCB, core.DWT, core.SYST, CPU_FREQ);
+
         // unsafe { dev.GPIOB.ospeedr.modify(|_, w| w.bits(0xFFFFFFFF)); }
         // unsafe { dev.GPIOA.ospeedr.modify(|_, w| w.bits(0xFFFFFFFF)); }
 
@@ -183,7 +215,7 @@ const APP: () = {
         let gpioc = dev.GPIOC.split();
 
         let mut tasks = time::Tasks::default();
-        cx.schedule.tasks(cx.start).unwrap();
+        tasks::spawn().unwrap();
 
         let on_board_led = gpioc.pc13.into_push_pull_output();
 
@@ -281,7 +313,7 @@ const APP: () = {
 
         let _serial_print = midi_router
             .add_route(route::Route::from(DW6000)
-                .filter(|_t, cx| filter::print_message(cx)));
+                .filter(|cx| filter::print_message(cx)));
 
         // let _usb_print = midi_router.add_route(
         //     Route::to(Interface::USB(0))
@@ -305,126 +337,141 @@ const APP: () = {
         // let _bstep_2_dw = midi_router.bind(Route::link(Interface::USB, Interface::Serial(0)));
 
         let mut dwctrl = Dw6000Control::new((DW6000, channel(1)), (BEATSTEP, channel(1)));
-        dwctrl.start(cx.start, &mut midi_router, &mut tasks).unwrap();
+        dwctrl.start(&mut midi_router, &mut tasks).unwrap();
 
         let mut bbeat = BlinkyBeat::new((BEATSTEP, channel(1)), vec![Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
-        bbeat.start(cx.start, &mut midi_router, &mut tasks).unwrap();
+        bbeat.start(&mut midi_router, &mut tasks).unwrap();
 
         // let mut bounce = Bounce::new();
-        // bounce.start(cx.start, &mut midi_router, &mut tasks).unwrap();
+        // bounce.start(&mut midi_router, &mut tasks).unwrap();
 
         rprintln!("-> Initialized");
+        (
+            SharedResources {
+                tasks,
+                chaos,
+                on_board_led,
 
-        init::LateResources {
-            tasks,
-            chaos,
-            on_board_led,
-            display,
-            midi_router,
-            beatstep,
-            dw6000,
-            usb_midi: port::usb::UsbMidi {
-                dev: usb_dev,
-                midi_class,
+                midi_router,
+                beatstep,
+                dw6000,
+                usb_midi: port::usb::UsbMidi {
+                    dev: usb_dev,
+                    midi_class,
+                },
             },
-        }
+            LocalResources {
+                display,
+            },
+            init::Monotonics(mono)
+        )
     }
 
-    #[idle(resources = [on_board_led])]
-    fn idle(cx: idle::Context) -> ! {
-        let mut led_on = false;
+    #[idle(shared = [on_board_led])]
+    fn idle(mut cx: idle::Context) -> ! {
+        // let mut led_on = false;
 
         loop {
-            if led_on {
-                cx.resources.on_board_led.set_high().unwrap();
-            } else {
-                cx.resources.on_board_led.set_low().unwrap();
-            }
-            led_on = !led_on;
+            cx.shared.on_board_led.lock(|led| {
+                // if led_on {
+                led.toggle().unwrap();
+                // } else {
+                //     cx.resources.on_board_led.set_low().unwrap();
+                // }
+                // led_on = !led_on;
+            });
             asm::delay(LED_BLINK);
         }
     }
 
     /// USB polling required every 0.125 millisecond
-    #[task(binds = OTG_FS_WKUP, resources = [usb_midi], priority = 3)]
-    fn usb_poll(cx: usb_poll::Context) {
-        let _ = cx.resources.usb_midi.poll();
+    #[task(binds = OTG_FS_WKUP, shared = [usb_midi], priority = 3)]
+    fn usb_poll(mut cx: usb_poll::Context) {
+        cx.shared.usb_midi.lock(|u| u.poll());
     }
 
     /// USB receive interrupt
     /// Using LOWER priority to backoff on USB reception if Serial queues not emptying fast enough
-    #[task(binds = OTG_FS, spawn = [midispatch], resources = [usb_midi], priority = 3)]
-    fn usb_interrupt(cx: usb_interrupt::Context) {
+    #[task(binds = OTG_FS, shared = [usb_midi], priority = 3)]
+    fn usb_interrupt(mut cx: usb_interrupt::Context) {
         // poll() is also required here else receive may block forever
-        if cx.resources.usb_midi.poll() {
-            while let Some(packet) = cx.resources.usb_midi.receive().unwrap() {
-                if let Err(e) = cx.spawn.midispatch(Src(BEATSTEP), PacketList::single(packet)) {
+        cx.shared.usb_midi.lock(|u| if u.poll() {
+            while let Some(packet) = u.receive().unwrap() {
+                if let Err(e) = midispatch::spawn(Src(BEATSTEP), PacketList::single(packet)) {
                     rprintln!("Dropped incoming MIDI: {:?}", e)
                 }
             }
-        }
+        });
     }
 
     /// Serial receive interrupt
-    #[task(binds = USART1, spawn = [midispatch], resources = [beatstep], priority = 3)]
-    fn usart1_irq(cx: usart1_irq::Context) {
-        if let Err(err) = cx.resources.beatstep.flush() {
+    #[task(binds = USART1, shared = [beatstep], priority = 3)]
+    fn usart1_irq(mut cx: usart1_irq::Context) {
+        if let Err(err) = cx.shared.beatstep.lock(|b| b.flush()) {
             rprintln!("Serial flush failed {:?}", err);
         }
 
-        loop {
-            match cx.resources.beatstep.receive() {
-                Ok(Some(packet)) => {
-                    rprintln!("MIDI from beatstep {:?}", packet);
-                    cx.spawn.midispatch(Src(BEATSTEP), PacketList::single(packet)).unwrap();
-                    continue;
+        cx.shared.beatstep.lock(|bstep| {
+            loop {
+                match bstep.receive() {
+                    Ok(Some(packet)) => {
+                        rprintln!("MIDI from beatstep {:?}", packet);
+                        midispatch::spawn(Src(BEATSTEP), PacketList::single(packet)).unwrap();
+                        continue;
+                    }
+                    Err(e) => {
+                        rprintln!("Error serial read {:?}", e);
+                        break;
+                    }
+                    _ => { break; }
                 }
-                Err(e) => {rprintln!("Error serial read {:?}", e); break},
-                _ => {break;}
             }
-        }
+        });
     }
 
     /// Serial receive interrupt
-    #[task(binds = USART2, spawn = [midispatch], resources = [dw6000], priority = 3)]
-    fn usart2_irq(cx: usart2_irq::Context) {
-        if let Err(err) = cx.resources.dw6000.flush() {
-            rprintln!("Serial flush failed {:?}", err);
-        }
+    #[task(binds = USART2, shared = [dw6000], priority = 3)]
+    fn usart2_irq(mut cx: usart2_irq::Context) {
+        cx.shared.dw6000.lock(|dw6000| {
+            if let Err(err) = dw6000.flush() {
+                rprintln!("Serial flush failed {:?}", err);
+            }
 
-        while let Ok(Some(packet)) = cx.resources.dw6000.receive() {
-            cx.spawn.midispatch(Src(DW6000), PacketList::single(packet)).unwrap();
-        }
+            while let Ok(Some(packet)) = dw6000.receive() {
+                midispatch::spawn(Src(DW6000), PacketList::single(packet)).unwrap();
+            }
+        });
     }
 
-    #[task(resources = [chaos, tasks], spawn = [midispatch, midisplay], schedule = [tasks], priority = 3)]
-    fn tasks(mut cx: tasks::Context) {
-        let tasks = &mut cx.resources.tasks;
-        let chaos = &mut cx.resources.chaos;
-        let spawn = &mut cx.spawn;
-
-        tasks.handle(cx.scheduled, chaos, spawn);
-
-        cx.schedule.tasks(cx.scheduled + TASKS_PERIOD.cycles()).unwrap();
+    pub fn ttt(cx: tasks::Context) {
+        self::tasks(cx)
     }
 
-    #[task(spawn = [midisend, midisplay], resources = [midi_router, tasks], priority = 3, capacity = 16)]
-    fn midispatch(cx: midispatch::Context, binding: Binding, packets: PacketList) {
-        let router: &mut route::Router = cx.resources.midi_router;
-        router.midispatch(cx.scheduled, packets, binding, cx.spawn).unwrap();
+    #[task(shared = [chaos, tasks], priority = 3)]
+    fn tasks(cx: tasks::Context) {
+        (cx.shared.chaos, cx.shared.tasks).lock(|chaos, tasks| {
+            tasks.handle(chaos);
+        });
+
+        tasks::spawn_after(TASKS_PERIOD).unwrap();
+    }
+
+    #[task(shared = [midi_router, tasks], priority = 3, capacity = 16)]
+    fn midispatch(mut cx: midispatch::Context, binding: Binding, packets: PacketList) {
+        cx.shared.midi_router.lock(|r| r.midispatch(packets, binding).unwrap());
     }
 
     // TODO split output queues (one task per interface)
-    #[task(resources = [usb_midi, dw6000, /*beatstep*/], capacity = 128, priority = 2)]
+    #[task(shared = [usb_midi, dw6000, /*beatstep*/], capacity = 128, priority = 2)]
     fn midisend(mut cx: midisend::Context, interface: Interface, packets: PacketList) {
         match interface {
-            Interface::USB(_) => cx.resources.usb_midi.lock(
+            Interface::USB(_) => cx.shared.usb_midi.lock(
                 |midi| if let Err(e) = midi.transmit(packets) {
                     rprintln!("Failed to send USB MIDI: {:?}", e)
                 }),
 
-            DW6000 => cx.resources.dw6000.lock(
-                |midi| if let Err(e) = midi.transmit(packets) {
+            DW6000 => cx.shared.dw6000.lock(
+                |dw6000| if let Err(e) = dw6000.transmit(packets) {
                     rprintln!("Failed to send Serial MIDI: {:?}", e)
                 }),
 
@@ -437,17 +484,10 @@ const APP: () = {
     }
 
     // Update the UI - using
-    #[task(resources = [display], capacity = 8)]
-    fn midisplay(ctx: midisplay::Context, text: String) {
-        ctx.resources.display.print(text).unwrap()
+    #[task(local = [display], capacity = 8)]
+    fn midisplay(cx: midisplay::Context, text: String) {
+        cx.local.display.print(text).unwrap();
     }
-
-    extern "C" {
-        // Reuse some interrupts for software task scheduling.
-        fn EXTI0();
-        fn EXTI1();
-        fn USART6();
-    }
-};
+}
 
 

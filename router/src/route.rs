@@ -5,8 +5,8 @@ use hashbrown::{HashMap};
 
 use core::sync::atomic::Ordering::Relaxed;
 
-use crate::{midispatch, Handle, NEXT_HANDLE};
-use rtic::cyccnt::{Instant};
+use crate::{Handle, NEXT_HANDLE};
+
 use alloc::boxed::Box;
 use crate::time::Tasks;
 use alloc::string::String;
@@ -14,7 +14,7 @@ use alloc::collections::{BTreeMap};
 use crate::sysex::Tag;
 
 pub trait Service {
-    fn start(&mut self, now: rtic::cyccnt::Instant, router: &mut Router, tasks: &mut Tasks) -> Result<(), MidiError>;
+    fn start(&mut self, router: &mut Router, tasks: &mut Tasks) -> Result<(), MidiError>;
     fn stop(&mut self, _router: &mut Router) {}
 }
 
@@ -22,7 +22,7 @@ pub trait Service {
 pub struct Route {
     source: Option<Interface>,
     destination: Option<Interface>,
-    filters: Vec<Box<dyn FnMut(Instant, &mut RouteContext) -> Result<bool, MidiError> + Send + 'static>>,
+    filters: Vec<Box<dyn FnMut(&mut RouteContext) -> Result<bool, MidiError> + Send + 'static>>,
 }
 
 impl Route {
@@ -54,7 +54,7 @@ impl Route {
     }
 
     pub fn filter<F>(mut self, filter: F) -> Self
-        where F: FnMut(Instant, &mut RouteContext) -> Result<bool, MidiError> + Send + 'static
+        where F: FnMut(&mut RouteContext) -> Result<bool, MidiError> + Send + 'static
     {
         self.filters.push(Box::new(filter));
         self
@@ -63,9 +63,9 @@ impl Route {
     /// Return true if router should forward event to destinations
     /// Return false to discard the event
     /// Does not affect other routes
-    fn apply_filters(&mut self, now: Instant, context: &mut RouteContext) -> bool {
+    fn apply_filters(&mut self, context: &mut RouteContext) -> bool {
         for filter in &mut self.filters {
-            match (filter)(now, context) {
+            match (filter)(context) {
                 Err(e) => rprintln!("Filter error: {:?}", e),
                 Ok(false) => return false,
                 _ => {}
@@ -91,18 +91,18 @@ impl RouteContext {
         self.strings = vec![];
     }
 
-    fn flush_strings(&mut self, spawn: midispatch::Spawn) -> Result<(), MidiError> {
+    fn flush_strings(&mut self) -> Result<(), MidiError> {
         for s in self.strings.drain(..) {
-            if let Err(e) = spawn.midisplay(s) {
+            if let Err(e) = crate::app::midisplay::spawn(s) {
                 rprintln!("Failed enqueue redraw {}", e)
             }
         }
         Ok(())
     }
 
-    fn flush_packets(&mut self, destination: Interface, spawn: midispatch::Spawn) -> Result<(), MidiError> {
-        spawn.midisend(destination, self.packets.clone())?;
-        // heapless Vec has no drain(), wat
+    fn flush_packets(&mut self, destination: Interface) -> Result<(), MidiError> {
+        crate::app::midisend::spawn(destination, self.packets.clone())?;
+        // heapless Vec has no drain() method :(
         self.packets.clear();
         Ok(())
     }
@@ -117,23 +117,23 @@ pub struct Router {
 }
 
 impl Router {
-    pub fn midispatch(&mut self, now: Instant, packets: PacketList, binding: Binding, spawn: midispatch::Spawn) -> Result<(), MidiError> {
+    pub fn midispatch(&mut self, packets: PacketList, binding: Binding) -> Result<(), MidiError> {
         // TODO preallocate static context
         let mut context = RouteContext::default();
 
         match binding {
             Binding::Dst(destination) => {
                 context.restart(packets);
-                Self::out(&mut self.egress, now, spawn, &mut context, destination)?
+                Self::out(&mut self.egress, &mut context, destination)?
             }
             Binding::Src(source) =>
                 if let Some(routes) = self.ingress.get_mut(&source) {
                     for route_in in routes.values_mut() {
                         context.restart(packets.clone());
-                        if route_in.apply_filters(now, &mut context) {
-                            context.flush_strings(spawn)?;
+                        if route_in.apply_filters(&mut context) {
+                            context.flush_strings()?;
                             if let Some(destination) = context.destination.or(route_in.destination) {
-                                Self::out(&mut self.egress, now, spawn, &mut context, destination)?
+                                Self::out(&mut self.egress, &mut context, destination)?
                             }
                         }
                     }
@@ -142,19 +142,19 @@ impl Router {
         Ok(())
     }
 
-    fn out(egress: &mut HashMap<Interface, RouteVec>, now: Instant, spawn: midispatch::Spawn, context: &mut RouteContext, destination: Interface) -> Result<(), MidiError> {
+    fn out(egress: &mut HashMap<Interface, RouteVec>, context: &mut RouteContext, destination: Interface) -> Result<(), MidiError> {
         if let Some(routes) = egress.get_mut(&destination) {
             for route_out in routes.values_mut() {
                 // isolate out routes from each other
                 let mut context = context.clone();
-                if route_out.apply_filters(now, &mut context) {
-                    context.flush_packets(destination, spawn)?;
-                    context.flush_strings(spawn)?;
+                if route_out.apply_filters(&mut context) {
+                    context.flush_packets(destination)?;
+                    context.flush_strings()?;
                 }
             }
         } else {
             // no destination route, just send
-            context.flush_packets(destination, spawn)?;
+            context.flush_packets(destination)?;
         }
 
         Ok(())

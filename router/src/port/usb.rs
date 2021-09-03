@@ -65,7 +65,7 @@ impl UsbMidi {
     }
 }
 
-impl crate::Transmit for UsbMidi {
+impl midi::Transmit for UsbMidi {
     fn transmit(&mut self, packets: PacketList) -> Result<(), MidiError> {
         for packet in packets.iter() {
             self.midi_class.tx_push(packet.bytes());
@@ -75,7 +75,7 @@ impl crate::Transmit for UsbMidi {
     }
 }
 
-impl crate::Receive for UsbMidi {
+impl midi::Receive for UsbMidi {
     fn receive(&mut self) -> Result<Option<Packet>, MidiError> {
         if let Some(bytes) = self.midi_class.receive() {
             return Ok(Some(Packet::from_raw(bytes)));
