@@ -44,7 +44,7 @@ impl AppClock {
 }
 
 struct TimerTask {
-    next_run: Instant<app::Ticks>,
+    next_run: Option<Instant<app::Ticks>>,
     op: Box<dyn FnMut(&mut WyRand) -> Result<Option<Milliseconds>, MidiError> + Send>,
 }
 
@@ -59,7 +59,7 @@ impl Tasks {
         where OP: FnMut(&mut WyRand) -> Result<Option<Milliseconds>, MidiError> + Send + 'static
     {
         self.new_tasks.push_back(TimerTask {
-            next_run: app::monotonics::now(),
+            next_run: None,
             op: Box::new(task),
         })
     }
@@ -73,12 +73,14 @@ impl Tasks {
 
         loop {
             if let Some(task) = self.new_tasks.get(0) {
-                if task.next_run > app::monotonics::now() {
-                    // next task not scheduled yet
-                    return;
+                if let Some(task) = task.next_run {
+                    if task > app::monotonics::now() {
+                        // next task not scheduled yet
+                        return;
+                    }
                 }
             } else {
-                // NO task
+                // no task in queue
                 return;
             }
             if let Some(mut task) = self.new_tasks.pop_front() {
@@ -90,7 +92,7 @@ impl Tasks {
                             rprintln!("Dropping fast loop task");
                             continue;
                         }
-                        task.next_run = next_run;
+                        task.next_run = Some(next_run);
                         self.new_tasks.push_back(task);
                     }
                     Err(e) => {
