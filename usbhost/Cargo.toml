@@ -24,6 +24,10 @@ log = "0.4"
 
 minimidi = { path  = "../midi" }
 
+[dependencies.dwt-systick-monotonic]
+version = "0.1.0-alpha.3"
+optional = true
+
 [profile.dev]
 debug = true
 opt-level = "z"

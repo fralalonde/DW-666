@@ -37,6 +37,7 @@ heapless = "0.7"
 #ufmt = "0.1"
 
 buddy-alloc = "0.4"
+embed-alloc = { path  = "../alloc" }
 hashbrown = "0.11"
 nanorand = { version = "0.5", default-features = false, features = ["wyrand"] }
 

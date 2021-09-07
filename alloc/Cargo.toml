@@ -1,0 +1,17 @@
+[package]
+authors = ["Francis Lalonde <fralalonde@gmail.com>"]
+edition = "2018"
+name = "embed-alloc"
+readme = "README.md"
+version = "0.1.0"
+
+[dependencies]
+cortex-m = "0.6"
+cortex-m-rt = "0.6"
+buddy-alloc = "0.4"
+
+rtt-target = { version = "0.3", features = ["cortex-m"], optional = true }
+panic-rtt-target = { version = "0.1", features = ["cortex-m"], optional = true }
+
+[features]
+rtt = ["rtt-target", "panic-rtt-target"]

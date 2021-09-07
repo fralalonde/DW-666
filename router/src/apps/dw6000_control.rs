@@ -300,7 +300,7 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, state: &mut MutexGuard<InnerSta
                 if let Some(bank) = state.bank {
                     // spawn.midisend(dw6000.interface, .into())?;
                     context.packets.clear();
-                    context.packets.push(program_change(dw6000.channel, (bank * 8) + prog)?.into());
+                    context.packets.push(program_change(dw6000.channel, (bank * 8) + prog)?.into()).unwrap();
                 }
             }
             if let Some(page) = note_page(note) {
@@ -478,7 +478,7 @@ fn cc_to_dw_param(cc: midi::Control, page: KnobPage) -> Option<Param> {
             11 => Some(Param::Osc2Wave),
             12 => Some(Param::Interval),
             13 => Some(Param::Osc2Detune),
-            14 => Some(Param::Osc2Wave),
+            // 14 => Some(Param::Osc2Wave),
             _ => None
         }
         KnobPage::Env => match cc.into() {

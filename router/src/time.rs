@@ -23,7 +23,6 @@ impl Clock for AppClock {
     type T = u32;
     const SCALING_FACTOR: Fraction = Fraction::new(1, 1000);
 
-
     fn try_now(&self) -> Result<Instant<Self>, Error> {
         Ok(self.now())
     }

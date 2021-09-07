@@ -1,12 +1,12 @@
 [workspace]
-members = ["midi", "usbhost", "router"]
+members = ["alloc", "midi", "usbhost", "router"]
 resolver = "2"
 
 [profile.dev]
 debug = true
 opt-level = "z"
 lto = true
-panic = "abort"
+panic = "unwind"
 #debug-assertions = true
 #incremental = false
 #opt-level = 3

@@ -19,9 +19,9 @@ use core::alloc::Layout;
 
 use core::sync::atomic::AtomicU16;
 
-use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 use cortex_m::asm;
-
+use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
+use embed_alloc::CortexMSafeAlloc;
 
 extern crate stm32f4xx_hal as hal;
 
@@ -39,28 +39,18 @@ mod port;
 #[macro_use]
 extern crate alloc;
 
-// define what happens in an Out Of Memory (OOM) condition
-#[alloc_error_handler]
-fn alloc_error(_layout: Layout) -> ! {
-    asm::bkpt();
-    loop {}
-}
-
 const FAST_HEAP_SIZE: usize = 16 * 1024;
-// 32 KB
 const HEAP_SIZE: usize = 48 * 1024;
-// 96KB
 const LEAF_SIZE: usize = 16;
-
 
 pub static mut FAST_HEAP: [u8; FAST_HEAP_SIZE] = [0u8; FAST_HEAP_SIZE];
 pub static mut HEAP: [u8; HEAP_SIZE] = [0u8; HEAP_SIZE];
 
 #[cfg_attr(not(test), global_allocator)]
-static ALLOC: NonThreadsafeAlloc = unsafe {
+static ALLOC: CortexMSafeAlloc = unsafe {
     let fast_param = FastAllocParam::new(FAST_HEAP.as_ptr(), FAST_HEAP_SIZE);
     let buddy_param = BuddyAllocParam::new(HEAP.as_ptr(), HEAP_SIZE, LEAF_SIZE);
-    NonThreadsafeAlloc::new(fast_param, buddy_param)
+    CortexMSafeAlloc(NonThreadsafeAlloc::new(fast_param, buddy_param))
 };
 
 pub type Handle = u16;
@@ -73,7 +63,7 @@ mod app {
     use crate::route::Service;
     use crate::port::serial::SerialMidi;
 
-    use crate::port;
+    use crate::{port};
     use crate::route;
     use crate::time;
     use crate::filter;
@@ -176,7 +166,7 @@ mod app {
 
         midi_router: route::Router,
         usb_midi: port::usb::UsbMidi,
-        beatstep: SerialMidi<hal::stm32::USART1, (PB6<Alternate<hal::gpio::AF7>>, PB7<Alternate<hal::gpio::AF7>>)>,
+        // beatstep: SerialMidi<hal::stm32::USART1, (PB6<Alternate<hal::gpio::AF7>>, PB7<Alternate<hal::gpio::AF7>>)>,
         dw6000: port::serial::SerialMidi<hal::stm32::USART2, (PA2<Alternate<hal::gpio::AF7>>, PA3<Alternate<hal::gpio::AF7>>)>,
     }
 
@@ -259,18 +249,18 @@ mod app {
 
         rprintln!("Screen OK");
 
-        let bs_tx = gpiob.pb6.into_alternate_af7();
-        let bs_rx = gpiob.pb7.into_alternate_af7();
-        let mut uart1 = Serial::usart1(
-            dev.USART1,
-            (bs_tx, bs_rx),
-            serial::config::Config::default()
-                .baudrate(115200.bps()),
-            clocks,
-        ).unwrap();
-        uart1.listen(serial::Event::Rxne);
-        let beatstep = SerialMidi::new(uart1, CableNumber::MIN);
-        rprintln!("BeatStep MIDI port OK");
+        // let bs_tx = gpiob.pb6.into_alternate_af7();
+        // let bs_rx = gpiob.pb7.into_alternate_af7();
+        // let mut uart1 = Serial::usart1(
+        //     dev.USART1,
+        //     (bs_tx, bs_rx),
+        //     serial::config::Config::default()
+        //         .baudrate(115200.bps()),
+        //     clocks,
+        // ).unwrap();
+        // uart1.listen(serial::Event::Rxne);
+        // let beatstep = SerialMidi::new(uart1, CableNumber::MIN);
+        // rprintln!("BeatStep MIDI port OK");
 
         let dw_tx = gpioa.pa2.into_alternate_af7();
         let dw_rx = gpioa.pa3.into_alternate_af7();
@@ -311,9 +301,9 @@ mod app {
         //     Route::echo(Interface::USB(0))
         //         .filter(|_now, cx| print_message(cx)));
 
-        let _serial_print = midi_router
-            .add_route(route::Route::from(DW6000)
-                .filter(|cx| filter::print_message(cx)));
+        // let _serial_print = midi_router
+        //     .add_route(route::Route::from(DW6000)
+        //         .filter(|cx| filter::print_message(cx)));
 
         // let _usb_print = midi_router.add_route(
         //     Route::to(Interface::USB(0))
@@ -353,7 +343,7 @@ mod app {
                 on_board_led,
 
                 midi_router,
-                beatstep,
+                // beatstep,
                 dw6000,
                 usb_midi: port::usb::UsbMidi {
                     dev: usb_dev,
@@ -373,12 +363,7 @@ mod app {
 
         loop {
             cx.shared.on_board_led.lock(|led| {
-                // if led_on {
                 led.toggle().unwrap();
-                // } else {
-                //     cx.resources.on_board_led.set_low().unwrap();
-                // }
-                // led_on = !led_on;
             });
             asm::delay(LED_BLINK);
         }
@@ -404,30 +389,30 @@ mod app {
         });
     }
 
-    /// Serial receive interrupt
-    #[task(binds = USART1, shared = [beatstep], priority = 3)]
-    fn usart1_irq(mut cx: usart1_irq::Context) {
-        if let Err(err) = cx.shared.beatstep.lock(|b| b.flush()) {
-            rprintln!("Serial flush failed {:?}", err);
-        }
-
-        cx.shared.beatstep.lock(|bstep| {
-            loop {
-                match bstep.receive() {
-                    Ok(Some(packet)) => {
-                        rprintln!("MIDI from beatstep {:?}", packet);
-                        midispatch::spawn(Src(BEATSTEP), PacketList::single(packet)).unwrap();
-                        continue;
-                    }
-                    Err(e) => {
-                        rprintln!("Error serial read {:?}", e);
-                        break;
-                    }
-                    _ => { break; }
-                }
-            }
-        });
-    }
+    // /// Serial receive interrupt
+    // #[task(binds = USART1, shared = [beatstep], priority = 3)]
+    // fn usart1_irq(mut cx: usart1_irq::Context) {
+    //     if let Err(err) = cx.shared.beatstep.lock(|b| b.flush()) {
+    //         rprintln!("Serial flush failed {:?}", err);
+    //     }
+    //
+    //     cx.shared.beatstep.lock(|bstep| {
+    //         loop {
+    //             match bstep.receive() {
+    //                 Ok(Some(packet)) => {
+    //                     rprintln!("MIDI from beatstep {:?}", packet);
+    //                     midispatch::spawn(Src(BEATSTEP), PacketList::single(packet)).unwrap();
+    //                     continue;
+    //                 }
+    //                 Err(e) => {
+    //                     rprintln!("Error serial read {:?}", e);
+    //                     break;
+    //                 }
+    //                 _ => { break; }
+    //             }
+    //         }
+    //     });
+    // }
 
     /// Serial receive interrupt
     #[task(binds = USART2, shared = [dw6000], priority = 3)]
@@ -465,6 +450,7 @@ mod app {
     #[task(shared = [usb_midi, dw6000, /*beatstep*/], capacity = 128, priority = 2)]
     fn midisend(mut cx: midisend::Context, interface: Interface, packets: PacketList) {
         match interface {
+            // includes BeatStep
             Interface::USB(_) => cx.shared.usb_midi.lock(
                 |midi| if let Err(e) = midi.transmit(packets) {
                     rprintln!("Failed to send USB MIDI: {:?}", e)
