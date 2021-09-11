@@ -1,4 +1,4 @@
-#![no_main]
+ #![no_main]
 #![no_std]
 #![feature(slice_as_chunks)]
 
@@ -121,8 +121,6 @@ mod app {
     use rtic::rtic_monotonic::Milliseconds;
 
     pub const CPU_FREQ: u32 = 48_000_000;
-    // pub const APB1_FREQ: u32 = CPU_FREQ / 2;
-    // pub const APB2_FREQ: u32 = CPU_FREQ;
 
     pub const CYCLES_PER_MICROSEC: u32 = CPU_FREQ / 1_000_000;
     pub const CYCLES_PER_MILLISEC: u32 = CPU_FREQ / 1_000;
@@ -133,7 +131,7 @@ mod app {
     const TASKS_PERIOD: Milliseconds = Milliseconds(1);
 
     const DW6000: Interface = Interface::Serial(0);
-    const BEATSTEP: Interface = Interface::USB(0);
+    const BEATSTEP: Interface = Interface::Serial(0);
 
     static mut USB_EP_MEMORY: [u32; 1024] = [0; 1024];
 
@@ -166,7 +164,7 @@ mod app {
 
         midi_router: route::Router,
         usb_midi: port::usb::UsbMidi,
-        // beatstep: SerialMidi<hal::stm32::USART1, (PB6<Alternate<hal::gpio::AF7>>, PB7<Alternate<hal::gpio::AF7>>)>,
+        beatstep: SerialMidi<hal::stm32::USART1, (PB6<Alternate<hal::gpio::AF7>>, PB7<Alternate<hal::gpio::AF7>>)>,
         dw6000: port::serial::SerialMidi<hal::stm32::USART2, (PA2<Alternate<hal::gpio::AF7>>, PA3<Alternate<hal::gpio::AF7>>)>,
     }
 
@@ -191,14 +189,9 @@ mod app {
         let rcc = dev.RCC.constrain();
         let clocks = rcc.cfgr
             .sysclk(CPU_FREQ.hz())
-            // .pclk1(APB1_FREQ.hz())
-            // .pclk2(APB2_FREQ.hz())
             .freeze();
 
         let mono = DwtSystick::new(&mut core.DCB, core.DWT, core.SYST, CPU_FREQ);
-
-        // unsafe { dev.GPIOB.ospeedr.modify(|_, w| w.bits(0xFFFFFFFF)); }
-        // unsafe { dev.GPIOA.ospeedr.modify(|_, w| w.bits(0xFFFFFFFF)); }
 
         let gpioa = dev.GPIOA.split();
         let gpiob = dev.GPIOB.split();
@@ -249,18 +242,18 @@ mod app {
 
         rprintln!("Screen OK");
 
-        // let bs_tx = gpiob.pb6.into_alternate_af7();
-        // let bs_rx = gpiob.pb7.into_alternate_af7();
-        // let mut uart1 = Serial::usart1(
-        //     dev.USART1,
-        //     (bs_tx, bs_rx),
-        //     serial::config::Config::default()
-        //         .baudrate(115200.bps()),
-        //     clocks,
-        // ).unwrap();
-        // uart1.listen(serial::Event::Rxne);
-        // let beatstep = SerialMidi::new(uart1, CableNumber::MIN);
-        // rprintln!("BeatStep MIDI port OK");
+        let bs_tx = gpiob.pb6.into_alternate_af7();
+        let bs_rx = gpiob.pb7.into_alternate_af7();
+        let mut uart1 = Serial::usart1(
+            dev.USART1,
+            (bs_tx, bs_rx),
+            serial::config::Config::default()
+                .baudrate(115200.bps()),
+            clocks,
+        ).unwrap();
+        uart1.listen(serial::Event::Rxne);
+        let beatstep = SerialMidi::new(uart1, CableNumber::MIN);
+        rprintln!("BeatStep MIDI port OK");
 
         let dw_tx = gpioa.pa2.into_alternate_af7();
         let dw_rx = gpioa.pa3.into_alternate_af7();
@@ -343,7 +336,7 @@ mod app {
                 on_board_led,
 
                 midi_router,
-                // beatstep,
+                beatstep,
                 dw6000,
                 usb_midi: port::usb::UsbMidi {
                     dev: usb_dev,
@@ -389,30 +382,30 @@ mod app {
         });
     }
 
-    // /// Serial receive interrupt
-    // #[task(binds = USART1, shared = [beatstep], priority = 3)]
-    // fn usart1_irq(mut cx: usart1_irq::Context) {
-    //     if let Err(err) = cx.shared.beatstep.lock(|b| b.flush()) {
-    //         rprintln!("Serial flush failed {:?}", err);
-    //     }
-    //
-    //     cx.shared.beatstep.lock(|bstep| {
-    //         loop {
-    //             match bstep.receive() {
-    //                 Ok(Some(packet)) => {
-    //                     rprintln!("MIDI from beatstep {:?}", packet);
-    //                     midispatch::spawn(Src(BEATSTEP), PacketList::single(packet)).unwrap();
-    //                     continue;
-    //                 }
-    //                 Err(e) => {
-    //                     rprintln!("Error serial read {:?}", e);
-    //                     break;
-    //                 }
-    //                 _ => { break; }
-    //             }
-    //         }
-    //     });
-    // }
+    /// Serial receive interrupt
+    #[task(binds = USART1, shared = [beatstep], priority = 3)]
+    fn usart1_irq(mut cx: usart1_irq::Context) {
+        if let Err(err) = cx.shared.beatstep.lock(|b| b.flush()) {
+            rprintln!("Serial flush failed {:?}", err);
+        }
+
+        cx.shared.beatstep.lock(|bstep| {
+            loop {
+                match bstep.receive() {
+                    Ok(Some(packet)) => {
+                        rprintln!("MIDI from beatstep {:?}", packet);
+                        midispatch::spawn(Src(BEATSTEP), PacketList::single(packet)).unwrap();
+                        continue;
+                    }
+                    Err(e) => {
+                        rprintln!("Error serial read {:?}", e);
+                        break;
+                    }
+                    _ => { break; }
+                }
+            }
+        });
+    }
 
     /// Serial receive interrupt
     #[task(binds = USART2, shared = [dw6000], priority = 3)]
@@ -441,13 +434,13 @@ mod app {
         tasks::spawn_after(TASKS_PERIOD).unwrap();
     }
 
-    #[task(shared = [midi_router, tasks], priority = 3, capacity = 16)]
+    #[task(shared = [midi_router, tasks], priority = 2, capacity = 16)]
     fn midispatch(mut cx: midispatch::Context, binding: Binding, packets: PacketList) {
         cx.shared.midi_router.lock(|r| r.midispatch(packets, binding).unwrap());
     }
 
     // TODO split output queues (one task per interface)
-    #[task(shared = [usb_midi, dw6000, /*beatstep*/], capacity = 128, priority = 2)]
+    #[task(shared = [usb_midi, dw6000, beatstep], capacity = 128, priority = 2)]
     fn midisend(mut cx: midisend::Context, interface: Interface, packets: PacketList) {
         match interface {
             // includes BeatStep
@@ -461,10 +454,10 @@ mod app {
                     rprintln!("Failed to send Serial MIDI: {:?}", e)
                 }),
 
-            // BEATSTEP => cx.resources.beatstep.lock(
-            //     |midi| if let Err(e) = midi.transmit(packets) {
-            //         rprintln!("Failed to send Serial MIDI: {:?}", e)
-            //     }),
+            BEATSTEP => cx.shared.beatstep.lock(
+                |midi| if let Err(e) = midi.transmit(packets) {
+                    rprintln!("Failed to send Serial MIDI: {:?}", e)
+                }),
             _ => {}
         }
     }

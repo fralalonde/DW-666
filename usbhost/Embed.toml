@@ -1,3 +1,14 @@
+[default.general]
+# The chip name of the chip to be debugged.
+# FIX the real chip is ATSAMD21E18A but cargo-embed requires ATSAMD21E17A
+# see  https://github.com/probe-rs/probe-rs/issues/507
+chip = "ATSAMD21E17A"
+
+# A list of chip descriptions to be loaded during runtime.
+chip_descriptions = []
+# The default log level to be used.
+#log_level = "Warn"
+
 [default.probe]
 # USB vendor ID
 # usb_vid = "1337"
@@ -20,14 +31,6 @@ halt_afterwards = false
 restore_unwritten_bytes = false
 # The path where an SVG of the assembled flash layout should be written to.
 # flash_layout_output_path = "out.svg"
-
-[default.general]
-# The chip name of the chip to be debugged.
-chip = "ATSAMD21E18A"
-# A list of chip descriptions to be loaded during runtime.
-chip_descriptions = []
-# The default log level to be used.
-#log_level = "Warn"
 
 [default.rtt]
 # Whether or not an RTTUI should be opened after flashing.

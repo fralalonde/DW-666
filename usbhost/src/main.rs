@@ -21,7 +21,7 @@ use atsamd_hal::delay::Delay;
 use atsamd_hal::hal::blocking::delay::DelayMs;
 use atsamd_hal::sercom::UART0;
 
-use atsamd_usb_host::{SAMDHost, Pins, Events};
+use atsamd_usb_host::{SAMDHost, Pins, Events, Event};
 
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering::Relaxed;
@@ -114,7 +114,7 @@ const APP: () = {
             &mut pins.port,
         );
         let serial_midi = port::serial::SerialMidi::new(serial, CableNumber::MIN);
-        info!("serial");
+        info!("Serial OK");
 
         let usb_pins = Pins::new(
             pins.usb_dm.into_floating_input(&mut pins.port),
@@ -122,7 +122,7 @@ const APP: () = {
             Some(pins.usb_sof.into_floating_input(&mut pins.port)),
             Some(pins.usb_host_enable.into_floating_input(&mut pins.port)),
         );
-        info!("usb");
+        info!("USB OK");
 
         let mut usb_host = SAMDHost::new(
             peripherals.USB,
@@ -132,19 +132,19 @@ const APP: () = {
             &mut peripherals.PM,
             &|| millis() as usize,
         );
-        info!("USB host");
+        info!("USB Host OK");
 
         let midi_driver = MidiDriver::default();
-        info!("USB midi driver");
+        info!("USB MIDI driver created");
 
         // enable USB
         usb_host.reset_periph();
 
-        info!("done init start");
+        info!("Board Initialization Complete");
 
-        // let mut usb_drivers: Vec<&mut (dyn usb_host::Driver + Send + Sync), 16> = Vec::new();
-        // // usb_drivers.push(cx.resources.midi_driver);
-        // usb_host.task(&mut usb_drivers, [None, None]);
+        let mut usb_drivers: Vec<&mut (dyn usb_host::Driver + Send + Sync), 16> = Vec::new();
+        // usb_drivers.push(cx.resources.midi_driver);
+        usb_host.process_event(&mut usb_drivers, Event::Detached);
 
         init::LateResources {
             delay,
@@ -156,28 +156,21 @@ const APP: () = {
     }
 
     #[idle(resources = [red_led, delay, usb_host], spawn = [usb_task])]
-    fn idle(mut cx: idle::Context) -> ! {
+    fn idle(cx: idle::Context) -> ! {
         let red_led = cx.resources.red_led;
         let delay: &mut Delay = cx.resources.delay;
-        info!("idel start");
+        info!("Idle Loop Start");
 
         loop {
-            delay.delay_ms(400u16);
+            delay.delay_ms(250u16);
             red_led.toggle();
-            delay.delay_ms(400u16);
-            red_led.toggle();
-
-            // let events = cx.resources.usb_host.lock(|u| u.handle_irq());
-            // debug!("IRQ {:?}", events);
-            // cx.spawn.usb_task(events);
-            info!("idel loop");
         }
     }
 
     /// Serial receive interrupt
     #[task(binds = SERCOM0, spawn = [midispatch], resources = [serial_midi], priority = 3)]
     fn serial_irq(cx: serial_irq::Context) {
-        info!("serial IRQ");
+        info!("Serial IRQ");
         if let Err(err) = cx.resources.serial_midi.flush() {
             error!("Serial flush failed {:?}", err);
         }
@@ -187,23 +180,24 @@ const APP: () = {
         }
     }
 
-    #[task(binds = SERCOM1, resources = [usb_host], spawn = [usb_task], priority = 3)]
-    fn usb_irq(mut cx: usb_irq::Context) {
-        info!("usb IRQ");
-        // let events = cx.resources.usb_host.lock(|u| u.handle_irq());let events = cx.resources.usb_host.lock(|u| u.handle_irq());
+    #[task(binds = USB, resources = [usb_host], spawn = [usb_task], priority = 3)]
+    fn usb_irq(cx: usb_irq::Context) {
         let events = cx.resources.usb_host.handle_irq();
-        cx.spawn.usb_task(events);
+        for event in events.iter().filter_map(|z| *z) {
+            cx.spawn.usb_task(event)/*.unwrap()*/;
+        }
     }
 
-    #[task(resources = [usb_host, midi_driver], priority = 3)]
-    fn usb_task(cx: usb_task::Context, events: Events) {
+    #[task(resources = [usb_host, midi_driver], priority = 2, capacity = 16)]
+    fn usb_task(mut cx: usb_task::Context, event: Event) {
         // TODO make driver list 'static
-        let mut usb_drivers: Vec<&mut (dyn usb_host::Driver + Send + Sync), 16> = Vec::new();
+        debug!("pwoceesdf");
+        let mut usb_drivers: Vec<&mut (dyn usb_host::Driver + Send + Sync), 4> = Vec::new();
         usb_drivers.push(cx.resources.midi_driver);
-        cx.resources.usb_host.task(&mut usb_drivers, events)
+        cx.resources.usb_host.lock(|h| h.process_event(&mut usb_drivers, event));
     }
 
-    #[task(/*spawn = [midisend, midisplay],*/ /*resources = [midi_router, tasks],*/ priority = 3, capacity = 16)]
+    #[task(/*spawn = [midisend, midisplay],*/ /*resources = [midi_router, tasks],*/ priority = 2, capacity = 16)]
     fn midispatch(cx: midispatch::Context, binding: Binding, packets: PacketList) {
         // let router: &mut route::Router = cx.resources.midi_router;
         // router.midispatch(cx.scheduled, packets, binding, cx.spawn).unwrap();
@@ -212,7 +206,7 @@ const APP: () = {
 
     extern "C" {
         // Reuse some interrupts for software task scheduling.
-        // fn SERCOM3();
+        fn SERCOM3();
         fn TC4();
     }
 };

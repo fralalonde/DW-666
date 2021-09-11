@@ -60,7 +60,7 @@ impl Driver for MidiDriver {
 
     fn tick(&mut self, millis: usize, host: &mut dyn USBHost) -> Result<(), DriverError> {
         for dev in self.devices.iter_mut() {
-            rprintln!("MIDI host dev: {:?}", dev);
+            info!("MIDI host dev: {:?}", dev);
             if let Err(TransferError::Permanent(e)) = dev.tick(millis, host) {
                 return Err(DriverError::Permanent(dev.addr, e));
             }
@@ -99,7 +99,6 @@ impl Device {
             state: DeviceState::Addressed,
         }
     }
-
 
     fn tick(&mut self, millis: usize, host: &mut dyn USBHost /* callback: &mut dyn FnMut(u8, &[u8])*/) -> Result<(), TransferError> {
         // TODO: either we need another `control_transfer` that doesn't take data,
@@ -268,7 +267,7 @@ impl Device {
                     );
 
                     if let Err(e) = res {
-                        warn!("Couldn't set report: {:?}", e)
+                        warn!("Couldn't set USB Device report: {:?}", e)
                     }
 
                     self.state = DeviceState::Running
@@ -283,11 +282,12 @@ impl Device {
                     let buf = &mut b[..];
                     match host.in_transfer(ep, buf) {
                         Err(TransferError::Permanent(msg)) => {
-                            error!("reading report: {}", msg);
+                            error!("Reading report: {}", msg);
                             return Err(TransferError::Permanent(msg));
                         }
                         Err(TransferError::Retry(_)) => return Ok(()),
                         Ok(_) => {
+                            // FIXME enable?
                             // callback(self.addr, buf);
                         }
                     }
