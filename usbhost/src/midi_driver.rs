@@ -1,7 +1,7 @@
 //! Simple USB host-side driver for boot protocol keyboards.
 
 use log::{self, error, info, trace, warn};
-use usb_host::{
+use atsamd_usb_host::usb_host::{
     ConfigurationDescriptor, DescriptorType, DeviceDescriptor, Direction, Driver, DriverError,
     Endpoint, EndpointDescriptor, InterfaceDescriptor, RequestCode, RequestDirection, RequestKind,
     RequestRecipient, RequestType, TransferError, TransferType, USBHost, WValue,
@@ -10,6 +10,8 @@ use usb_host::{
 use core::convert::TryFrom;
 use core::mem::{self, MaybeUninit};
 use heapless::Vec;
+
+use alloc::boxed::Box;
 
 // How long to wait before talking to the device again after setting
 // its address. cf §9.2.6.3 of USB 2.0
@@ -42,26 +44,28 @@ impl From<MidiEndpoint> for TransferError {
     }
 }
 
+#[async_trait]
 impl Driver for MidiDriver {
-    fn want_device(&self, ddesc: &DeviceDescriptor) -> bool {
+    async fn want_device(&self, ddesc: &DeviceDescriptor) -> bool {
         ddesc.b_device_class == USB_AUDIO_CLASS && ddesc.b_device_sub_class == USB_MIDI_STREAMING_SUBCLASS
     }
 
-    fn add_device(&mut self, device: DeviceDescriptor, address: u8) -> Result<(), DriverError> {
+    async fn add_device(&mut self, device: DeviceDescriptor, address: u8) -> Result<(), DriverError> {
         self.devices.push(Device::new(address, device.b_max_packet_size))?;
         Ok(())
     }
 
-    fn remove_device(&mut self, address: u8) {
+    async fn remove_device(&mut self, address: u8) {
         if let Some((num, _dd)) = self.devices.iter().enumerate().find(|(_num, dd)| dd.addr == address) {
             self.devices.swap_remove(num);
         }
     }
 
-    fn tick(&mut self, millis: usize, host: &mut dyn USBHost) -> Result<(), DriverError> {
+    async fn tick(&mut self, millis: usize, host: &mut dyn USBHost) -> Result<(), DriverError> {
         for dev in self.devices.iter_mut() {
             info!("MIDI host dev: {:?}", dev);
-            if let Err(TransferError::Permanent(e)) = dev.tick(millis, host) {
+            let result = dev.tick(millis, host).await;
+            if let Err(TransferError::Permanent(e)) = result {
                 return Err(DriverError::Permanent(dev.addr, e));
             }
         }
@@ -100,7 +104,7 @@ impl Device {
         }
     }
 
-    fn tick(&mut self, millis: usize, host: &mut dyn USBHost /* callback: &mut dyn FnMut(u8, &[u8])*/) -> Result<(), TransferError> {
+    async fn tick(&mut self, millis: usize, host: &mut dyn USBHost /* callback: &mut dyn FnMut(u8, &[u8])*/) -> Result<(), TransferError> {
         // TODO: either we need another `control_transfer` that doesn't take data,
         // or this `none` value needs to be put in the usb-host layer. None of these options are good.
         // let none_u8: Option<&mut [u8]> = None;
@@ -136,7 +140,7 @@ impl Device {
                     WValue::from((0, DescriptorType::Device as u8)),
                     0,
                     Some(buf),
-                )?;
+                ).await?;
                 assert_eq!(len, mem::size_of::<DeviceDescriptor>());
                 self.state = DeviceState::GetConfig
             }
@@ -155,7 +159,7 @@ impl Device {
                     WValue::from((0, DescriptorType::Configuration as u8)),
                     0,
                     Some(desc_buf),
-                )?;
+                ).await?;
                 assert_eq!(len, mem::size_of::<ConfigurationDescriptor>());
                 let conf_desc = unsafe { conf_desc.assume_init() };
 
@@ -178,7 +182,7 @@ impl Device {
                     WValue::from((0, DescriptorType::Configuration as u8)),
                     0,
                     Some(config_buf),
-                )?;
+                ).await?;
                 assert_eq!(len, conf_desc.w_total_length as usize);
                 let (interface_num, ep) = ep_for_midi_class(config_buf).expect("No MIDI device found");
                 info!("MIDI device found on {:?}", ep);
@@ -208,7 +212,7 @@ impl Device {
                     WValue::from((config_index, 0)),
                     0,
                     None,
-                )?;
+                ).await?;
                 self.state = DeviceState::SetProtocol;
             }
 
@@ -225,7 +229,7 @@ impl Device {
                         WValue::from((0, 0)),
                         u16::from(ep.interface_num),
                         None,
-                    )?;
+                    ).await?;
 
                     self.state = DeviceState::SetIdle;
                 } else {
@@ -245,7 +249,7 @@ impl Device {
                     WValue::from((0, 0)),
                     0,
                     None,
-                )?;
+                ).await?;
                 self.state = DeviceState::SetReport;
             }
 
@@ -264,7 +268,7 @@ impl Device {
                         WValue::from((0, 2)),
                         u16::from(ep.interface_num),
                         Some(report),
-                    );
+                    ).await;
 
                     if let Err(e) = res {
                         warn!("Couldn't set USB Device report: {:?}", e)
@@ -280,15 +284,15 @@ impl Device {
                 if let Some(ep) = self.endpoints.get_mut(0) {
                     let mut b: [u8; 8] = [0; 8];
                     let buf = &mut b[..];
-                    match host.in_transfer(ep, buf) {
+                    match host.in_transfer(ep, buf).await {
                         Err(TransferError::Permanent(msg)) => {
                             error!("Reading report: {}", msg);
                             return Err(TransferError::Permanent(msg));
                         }
                         Err(TransferError::Retry(_)) => return Ok(()),
                         Ok(_) => {
-                            // FIXME enable?
                             // callback(self.addr, buf);
+                            info!("USB Driver Callback here")
                         }
                     }
                 } else {

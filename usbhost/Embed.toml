@@ -1,13 +1,20 @@
 [default.general]
 # The chip name of the chip to be debugged.
-# FIX the real chip is ATSAMD21E18A but cargo-embed requires ATSAMD21E17A
+# FIX the real chip is ATSAMD21E18A but cargo-embed 0.11 requires ATSAMD21E17A
 # see  https://github.com/probe-rs/probe-rs/issues/507
+#chip = "ATSAMD21E18A"
 chip = "ATSAMD21E17A"
 
 # A list of chip descriptions to be loaded during runtime.
 chip_descriptions = []
 # The default log level to be used.
 #log_level = "Warn"
+# The default log level to be used. Possible values are one of:
+#   "OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"
+log_level = "WARN"
+# Use this flag to assert the nreset & ntrst pins during attaching the probe to the chip.
+connect_under_reset = false
+
 
 [default.probe]
 # USB vendor ID
@@ -32,6 +39,14 @@ restore_unwritten_bytes = false
 # The path where an SVG of the assembled flash layout should be written to.
 # flash_layout_output_path = "out.svg"
 
+
+[default.reset]
+# Whether or not the target should be reset.
+# When flashing is enabled as well, the target will be reset after flashing.
+enabled = true
+# Whether or not the target should be halted after reset.
+halt_afterwards = false
+
 [default.rtt]
 # Whether or not an RTTUI should be opened after flashing.
 # This is exclusive and cannot be used with GDB at the moment.
@@ -41,7 +56,7 @@ channels = [
     # { up = 0, down = 0, name = "name" }
 ]
 # The duration in ms for which the logger should retry to attach to RTT.
-timeout = 30000
+timeout = 3000
 # Whether timestamps in the RTTUI are enabled
 show_timestamps = true
 

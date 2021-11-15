@@ -5,7 +5,7 @@ resolver = "2"
 [profile.dev]
 debug = true
 opt-level = "z"
-lto = true
+#lto = true
 panic = "unwind"
 #debug-assertions = true
 #incremental = false

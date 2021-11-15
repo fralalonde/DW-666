@@ -8,12 +8,11 @@ version = "0.1.0"
 
 
 [dependencies]
-cortex-m = "0.6"
-cortex-m-rt = "0.6"
-cortex-m-rtic = "0.6.0-alpha.5"
+cortex-m = "0.7"
+cortex-m-rtic = "0.6.0-rc.2"
 
 embedded-hal = "0.2"
-embedded-time = "0.12"
+#embedded-time = "0.12"
 embedded-graphics = "0.6"
 #embedded-text = "0.4.1"
 usb-device = "0.2"
@@ -55,7 +54,7 @@ minimidi = { path  = "../midi" }
 log = "0.4"
 
 [dependencies.dwt-systick-monotonic]
-version = "0.1.0-alpha.3"
+version = "0.1.0-rc.1"
 
 [features]
 default = ["stm32f4xx"]

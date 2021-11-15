@@ -2,19 +2,11 @@
 
 #![feature(alloc_error_handler)]
 
-
-#[cfg(feature = "rtt")]
-#[macro_use]
-extern crate rtt_target;
-
-#[macro_use]
 extern crate alloc;
 
-use cortex_m::asm;
-use cortex_m::interrupt::Mutex;
-
-use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
+use buddy_alloc::{NonThreadsafeAlloc};
 use core::alloc::{Layout, GlobalAlloc};
+use cortex_m::asm;
 
 // define what happens in an Out Of Memory (OOM) condition
 #[alloc_error_handler]

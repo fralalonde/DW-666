@@ -6,9 +6,6 @@ readme = "README.md"
 version = "0.1.0"
 
 [dependencies]
-cortex-m = "0.6"
-cortex-m-rt = "0.6"
-
 embedded-hal = "0.2"
 usb-device = "0.2"
 heapless = "0.7"
@@ -18,13 +15,5 @@ num = { version = "0.4", default-features = false }
 nb = "1"
 bitfield = "0.13"
 
-rtt-target = { version = "0.3", features = ["cortex-m"], optional = true }
-panic-rtt-target = { version = "0.1", features = ["cortex-m"], optional = true }
+rtt-target = { version = "0.3", features = ["cortex-m"] }
 
-[features]
-#default  = ["port", "rtt"]
-#default  = ["atsamd"]
-
-#port = ["stm32f4xx-hal"]
-#atsamd = ["atsamd-hal"]
-rtt = ["rtt-target", "panic-rtt-target"]
