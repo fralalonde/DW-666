@@ -1,0 +1,17 @@
+[package]
+authors = ["Francis Lalonde <fralalonde@gmail.com>"]
+edition = "2021"
+name = "runtime"
+readme = "README.md"
+version = "0.1.0"
+
+[dependencies]
+woke = { path = "../woke" }
+embed-alloc = { path = "../alloc" }
+sync-thumbv6m = { path = "../sync-thumbv6m", version = "0.2" }
+embedded-time = { path = "../../embedded-time" }
+log = "0.4"
+embedded-hal = "0.2"
+atomic-polyfill = "0.1"
+cortex-m = "0.7"
+cortex-m-rt = "0.6"

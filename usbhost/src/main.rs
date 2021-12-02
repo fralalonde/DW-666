@@ -1,4 +1,6 @@
 #![feature(async_closure)]
+#![feature(const_raw_ptr_deref)]
+#![feature(const_fn_trait_bound)]
 
 #![no_std]
 #![no_main]
@@ -19,7 +21,7 @@ use buddy_alloc::{BuddyAllocParam, FastAllocParam, NonThreadsafeAlloc};
 use embed_alloc::CortexMSafeAlloc;
 
 const FAST_HEAP_SIZE: usize = 16 * 1024;
-const HEAP_SIZE: usize = 48 * 1024;
+const HEAP_SIZE: usize = 8 * 1024;
 const LEAF_SIZE: usize = 16;
 
 pub static mut FAST_HEAP: [u8; FAST_HEAP_SIZE] = [0u8; FAST_HEAP_SIZE];
@@ -34,13 +36,12 @@ static ALLOC: CortexMSafeAlloc = unsafe {
 
 mod port;
 mod midi_driver;
-mod exec;
 
 use trinket_m0 as bsp;
 
 use bsp::clock::GenericClockController;
 use bsp::entry;
-use bsp::pac::{interrupt, CorePeripherals, Peripherals, TC4};
+use bsp::pac::{interrupt, CorePeripherals, Peripherals, TC4, TC5};
 
 use cortex_m::peripheral::NVIC;
 
@@ -50,12 +51,9 @@ use trinket_m0::hal::timer::TimerCounter;
 use trinket_m0::hal::timer_traits::InterruptDrivenTimer;
 use trinket_m0::time::U32Ext;
 
-use alloc::boxed::Box;
-
 use core::mem;
 
 use atsamd_hal as hal;
-use embedded_hal as ehal;
 use hal::pac;
 
 use hal::sercom::{
@@ -74,14 +72,13 @@ use panic_rtt_target as _;
 
 use hal::delay::Delay;
 
-use atsamd_hal::pac::{USB};
 use atsamd_hal::time::{Hertz};
 
 use atsamd_hal::gpio::v2::*;
 
 use atsamd_hal::sercom::UART0;
 
-use atsamd_usb_host::{SAMDHost, Pins, Event};
+use atsamd_usb_host::{SAMDHost, Pins, HostEvent, DriverEvent};
 
 use crate::midi_driver::MidiDriver;
 use log::LevelFilter;
@@ -104,8 +101,12 @@ use core::sync::atomic::Ordering::Relaxed;
 use atomic_polyfill::AtomicUsize;
 
 use sync_thumbv6m::alloc::Arc;
-use atsamd_usb_host::usb_host::Driver;
-use crate::exec::Instant;
+use atsamd_usb_host::usb_host::{Driver, DriverError};
+use embedded_time::Clock;
+use embedded_time::duration::{Microseconds, Milliseconds};
+use heapless::Vec;
+use atsamd_usb_host::HostEvent::NoEvent;
+use sync_thumbv6m::spin::SpinMutex;
 
 /// An RTT-based logger implementation.
 pub struct RTTLogger {}
@@ -124,19 +125,14 @@ impl log::Log for RTTLogger {
     fn flush(&self) {}
 }
 
-static _LOGGER: RTTLogger = RTTLogger {};
+static LOGGER: RTTLogger = RTTLogger {};
 
 const UPSTREAM_SERIAL: Interface = Interface::Serial(0);
 
 static mut USB_HOST: MaybeUninit<SAMDHost> = mem::MaybeUninit::uninit();
 
-static mut REACTOR: MaybeUninit<Arc<exec::Reactor>> = mem::MaybeUninit::uninit();
+static mut USB_DRIVERS: Vec<Arc<SpinMutex<(dyn Driver + Send + Sync)>>, 4> = heapless::Vec::new();
 
-static MILLIS: AtomicUsize = AtomicUsize::new(0);
-
-fn millis() -> Instant {
-    MILLIS.load(Relaxed)
-}
 
 #[entry]
 fn main() -> ! {
@@ -151,34 +147,34 @@ fn main() -> ! {
         &mut peripherals.NVMCTRL,
     );
 
-    rtt_init_print!();
+    rtt_init_print!(NoBlockTrim, 1024);
     info!("init");
 
     let _gclk = clocks.gclk0();
-    let rtc_clock_src = clocks
-        .configure_gclk_divider_and_source(ClockGenId::GCLK2, 1, ClockSource::OSC32K, false)
-        .unwrap();
-    clocks.configure_standby(ClockGenId::GCLK2, true);
-    let rtc_clock = clocks.rtc(&rtc_clock_src).unwrap();
-    let rtc = Rtc::count32_mode(peripherals.RTC, rtc_clock.freq(), &mut peripherals.PM);
+    // let rtc_clock_src = clocks
+    //     .configure_gclk_divider_and_source(ClockGenId::GCLK2, 1, ClockSource::OSC32K, false)
+    //     .unwrap();
+    // clocks.configure_standby(ClockGenId::GCLK2, true);
+    // let rtc_clock = clocks.rtc(&rtc_clock_src).unwrap();
+    // let rtc = Rtc::count32_mode(peripherals.RTC, rtc_clock.freq(), &mut peripherals.PM);
 
     log::set_max_level(LevelFilter::Trace);
-    unsafe { log::set_logger_racy(&_LOGGER).unwrap(); }
+    unsafe { log::set_logger_racy(&LOGGER).unwrap(); }
 
     let mut pins = bsp::Pins::new(peripherals.PORT);
     let mut red_led = pins.d13.into_open_drain_output(&mut pins.port);
     let mut delay = Delay::new(core.SYST, &mut clocks);
 
-    unsafe { REACTOR = MaybeUninit::new(Arc::new(exec::Reactor::new(16, millis))) };
+    runtime::init();
 
     let timer_clock = clocks
         .configure_gclk_divider_and_source(ClockGenId::GCLK4, 1, ClockSource::OSC32K, false)
         .unwrap();
     let tc45 = &clocks.tc4_tc5(&timer_clock).unwrap();
 
-    let mut tc4 = TimerCounter::tc4_(tc45, peripherals.TC4, &mut peripherals.PM);
-    tc4.start(1.khz());
-    tc4.enable_interrupt();
+    // let mut tc4 = TimerCounter::tc4_(tc45, peripherals.TC4, &mut peripherals.PM);
+    // tc4.start(800.hz());
+    // tc4.enable_interrupt();
 
     let serial: UART0<Sercom0Pad3<Pa7<PfD>>, Sercom0Pad2<Pa6<PfD>>, (), ()> = bsp::uart(
         &mut clocks,
@@ -205,16 +201,15 @@ fn main() -> ! {
         &mut pins.port,
         &mut clocks,
         &mut peripherals.PM,
-        Box::new(MidiDriver::default()),
-        millis,
+        runtime::now_millis,
     );
     info!("USB Host OK");
 
-    let midi_driver = MidiDriver::default();
-    info!("USB MIDI driver created");
-
-    // enable USB
-    usb_host.reset();
+    unsafe {
+        USB_DRIVERS.push(Arc::new(SpinMutex::new(MidiDriver::default())));
+        usb_host.reset();
+        USB_HOST = MaybeUninit::new(usb_host);
+    };
 
     info!("Board Initialization Complete");
 
@@ -222,22 +217,24 @@ fn main() -> ! {
         core.NVIC.set_priority(interrupt::USB, 3);
         NVIC::unmask(interrupt::USB);
 
-        core.NVIC.set_priority(interrupt::TC4, 3);
-        NVIC::unmask(interrupt::TC4);
-
         core.NVIC.set_priority(interrupt::SERCOM0, 3);
         NVIC::unmask(interrupt::SERCOM0);
     }
 
-    // Flash the LED in a spin loop to demonstrate that USB is
-    // entirely interrupt driven.
-    loop {
-        info!("Idle Loop Start");
-        //
-        // delay.delay_ms(255u16);
-        // red_led.toggle();
+    runtime::spawn(async {
+        loop {
+            usb_service(NoEvent).await;
+            runtime::delay_us(125).await;
+        }
+    });
 
-        unsafe { REACTOR.assume_init_ref().advance() };
+    loop {
+        // wake up
+        runtime::run_scheduled();
+        // do things
+        runtime::process_queue();
+        // breathe
+        cortex_m::asm::delay(4096);
     }
 }
 
@@ -246,15 +243,11 @@ fn midispatch(binding: Binding, packets: PacketList) {
     // router.midispatch(cx.scheduled, packets, binding, cx.spawn).unwrap();
 }
 
-#[interrupt]
-fn TC4() {
-    trace!("IRQ TC4");
-    MILLIS.fetch_add(1, Relaxed);
-    // TODO check if next scheduled delay awakes
-    unsafe {
-        TC4::ptr().as_ref().unwrap().count16().intflag.modify(|_, w| w.ovf().set_bit());
-    }
-}
+// #[interrupt]
+// fn TC4() {
+//     exec::spawn(usb_service(HostEvent::NoEvent));
+//     unsafe { TC4::ptr().as_ref().unwrap().count16().intflag.modify(|_, w| w.ovf().set_bit()); }
+// }
 
 #[interrupt]
 fn SERCOM0() {
@@ -270,10 +263,45 @@ fn SERCOM0() {
 
 #[interrupt]
 unsafe fn USB() {
-    trace!("IRQ USB");
-    let event = USB_HOST.assume_init_ref().irq_next_event();
-    REACTOR.assume_init_ref().clone().spawn(
-        USB_HOST.assume_init_mut().tick(event)
-    )
+    let host_event = USB_HOST.assume_init_ref().get_host_event();
+    runtime::spawn(usb_service(host_event))
+}
+
+async fn usb_service(host_event: HostEvent) {
+    let driver_event = unsafe { USB_HOST.assume_init_mut().tick(host_event).await };
+
+    if let Some(driver_event) = driver_event {
+        match driver_event {
+            DriverEvent::Tick => {
+                for mut driver in unsafe { &USB_DRIVERS } {
+                    let mut driver = driver.lock();
+                    if let Err(e) = driver.tick(runtime::now_millis, unsafe { USB_HOST.assume_init_mut() }) {
+                        warn!("USB Driver Error [{:?}]: {:?}", driver, e);
+                        if let DriverError::Permanent(addr, _) = e {
+                            driver.remove_device(addr);
+                        }
+                    }
+                }
+            }
+            DriverEvent::NewDevice(desc, addr) => {
+                let mut device_registered = false;
+                for driver in unsafe { &mut USB_DRIVERS } {
+                    let mut driver = driver.lock();
+                    if driver.want_device(&desc) {
+                        if let Err(e) = driver.add_device(desc, addr) {
+                            error!("Driver failed to add device");
+                        } else {
+                            trace!("USB Device registered by driver");
+                            device_registered = true;
+                            break;
+                        }
+                    }
+                }
+                if !device_registered {
+                    warn!("USB Device not registered by drivers");
+                }
+            }
+        }
+    }
 }
 

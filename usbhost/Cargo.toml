@@ -7,7 +7,6 @@ edition = "2021"
 [dependencies]
 embedded-hal = "0.2"
 heapless = "0.7"
-woke = { path = "../../woke" }
 nb = "0.1"
 cortex-m = "0.7"
 cortex-m-rt = "0.6"
@@ -17,19 +16,18 @@ rtt-target = { version = "0.3", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
 
 trinket_m0 = { version = "0.10", features = ["usb", "rt", "unproven"] }
-#usb-host = "0.1"
-#usb-host = { path = "../../usb-host"}
-atsamd-usb-host = { path = "../../atsamd-usb-host", features = ["samd21e"] }
+atsamd-usb-host = { path = "../atsamd-usb-host", features = ["samd21e"] }
 log = "0.4"
 async-trait = "0.1.51"
 atomic-polyfill = "0.1"
 
 minimidi = { path = "../midi" }
+runtime = { path = "../runtime" }
 
 embedded-time = { path = "../../embedded-time" }
 buddy-alloc = "0.4"
 embed-alloc = { path = "../alloc" }
-sync-thumbv6m = { path = "../../sync-thumbv6m" }
+sync-thumbv6m = { path = "../sync-thumbv6m", version = "0.2" }
 
 [dependencies.rtic-monotonic]
 version = "=0.1.0-rc.1"
