@@ -1,0 +1,4 @@
+use_field_init_shorthand = true
+overflow_delimited_expr = true
+#struct_lit_width = 60
+#width_heuristics = "Off"
