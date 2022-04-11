@@ -30,7 +30,7 @@ extern crate stm32f4xx_hal as hal;
 mod time;
 mod devices;
 mod apps;
-mod display;
+// mod display;
 mod route;
 mod filter;
 mod sysex;
@@ -79,15 +79,15 @@ mod app {
     use midi::{CableNumber, Interface, Binding, channel, Note, PacketList};
     use Binding::{Src};
 
-    use ili9341::Ili9341;
-    use display_interface_spi::SPIInterface;
-
-    use embedded_graphics::pixelcolor::Rgb565;
-    use embedded_hal::{
-        blocking::delay::{DelayMs, DelayUs},
-        digital::v2::OutputPin,
-        spi as espi,
-    };
+    // use ili9341::Ili9341;
+    // use display_interface_spi::SPIInterface;
+    //
+    // use embedded_graphics::pixelcolor::Rgb565;
+    // use embedded_hal::{
+    //     blocking::delay::{DelayMs, DelayUs},
+    //     digital::v2::OutputPin,
+    //     spi as espi,
+    // };
 
     use hal::{
         // bring in .khz(), .mhz()
@@ -170,7 +170,7 @@ mod app {
 
     #[local]
     struct LocalResources {
-        display: gui::Display<Ili9341<SPIInterface<Spi<hal::stm32::SPI1, (PA5<Alternate<hal::gpio::AF5>>, NoMiso, PA7<Alternate<hal::gpio::AF5>>)>, PB0<Output<PushPull>>, PA4<Output<PushPull>>>, PA6<Output<PushPull>>>, Rgb565>,
+        // display: gui::Display<Ili9341<SPIInterface<Spi<hal::stm32::SPI1, (PA5<Alternate<hal::gpio::AF5>>, NoMiso, PA7<Alternate<hal::gpio::AF5>>)>, PB0<Output<PushPull>>, PA4<Output<PushPull>>>, PA6<Output<PushPull>>>, Rgb565>,
     }
 
     #[init(
@@ -215,30 +215,30 @@ mod app {
 
         let mut delay = CortexDelay {};
 
-        let sclk = gpioa.pa5.into_alternate_af5();
-        // let miso = gpioa.pa6.into_alternate_af5();
-        let mosi = gpioa.pa7.into_alternate_af5();
+        // let sclk = gpioa.pa5.into_alternate_af5();
+        // // let miso = gpioa.pa6.into_alternate_af5();
+        // let mosi = gpioa.pa7.into_alternate_af5();
+        //
+        // let spi = spi::Spi::spi1(
+        //     dev.SPI1,
+        //     (sclk, NoMiso, mosi),
+        //     espi::MODE_0,
+        //     100.khz().into(),
+        //     clocks,
+        // );
+        //
+        // let lcd_cs = gpioa.pa4.into_push_pull_output();
+        // let lcd_dc = gpiob.pb0.into_push_pull_output();
+        //
+        // let lcd_spi = SPIInterface::new(spi, lcd_dc, lcd_cs);
+        //
+        // let mut ts_cs = gpiob.pb1.into_push_pull_output();
+        // ts_cs.set_high().expect("Could not disable touchscreen");
+        //
+        // let lcd_reset = gpioa.pa6.into_push_pull_output();
+        // let ili9341 = Ili9341::new(lcd_spi, lcd_reset, &mut delay).expect("LCD init failed");
 
-        let spi = spi::Spi::spi1(
-            dev.SPI1,
-            (sclk, NoMiso, mosi),
-            espi::MODE_0,
-            100.khz().into(),
-            clocks,
-        );
-
-        let lcd_cs = gpioa.pa4.into_push_pull_output();
-        let lcd_dc = gpiob.pb0.into_push_pull_output();
-
-        let lcd_spi = SPIInterface::new(spi, lcd_dc, lcd_cs);
-
-        let mut ts_cs = gpiob.pb1.into_push_pull_output();
-        ts_cs.set_high().expect("Could not disable touchscreen");
-
-        let lcd_reset = gpioa.pa6.into_push_pull_output();
-        let ili9341 = Ili9341::new(lcd_spi, lcd_reset, &mut delay).expect("LCD init failed");
-
-        let display = Display::new(ili9341).unwrap();
+        // let display = Display::new(ili9341).unwrap();
 
         rprintln!("Screen OK");
 

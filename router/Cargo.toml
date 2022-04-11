@@ -13,7 +13,7 @@ cortex-m-rtic = "0.6.0-rc.2"
 
 embedded-hal = "0.2"
 embedded-time = "0.12"
-embedded-graphics = "0.6"
+#embedded-graphics = "0.6"
 #embedded-text = "0.4.1"
 usb-device = "0.2"
 
@@ -27,7 +27,7 @@ micromath = "1"
 rtt-target = { version = "0.3", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
 #lvgl = "0.5.2"
-lvgl = { path = "/home/fralalonde/Code/lvgl-rs/lvgl", default-features = false }
+#lvgl = { path = "../../lvgl-rs/lvgl", default-features = false }
 cstr_core = "0.2"
 
 #ssd1306 = "0.4"
@@ -44,11 +44,11 @@ stm32f4 = { version = "0.13", features = ["stm32f411", "rt"], optional = true }
 stm32f4xx-hal = { version = "0.9", features = ["stm32f411", "rt", "usb_fs"], optional = true }
 
 
-ili9341 = "0.4"
-display-interface = "0.4"
-
-display-interface-spi = "0.4.1"
-tinytga = { version = "0.3", features = ["graphics"] }
+#ili9341 = "0.4"
+#display-interface = "0.4"
+#
+#display-interface-spi = "0.4.1"
+#tinytga = { version = "0.3", features = ["graphics"] }
 
 embedded-midi = { path = "../midi" }
 log = "0.4"

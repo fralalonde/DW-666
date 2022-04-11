@@ -1,5 +1,5 @@
 [workspace]
-members = ["alloc", "woke", "midi", "sync-thumbv6m", "usbhost", "router", "usb_serial"]
+members = ["alloc", "midi", "router"]
 resolver = "2"
 
 [profile.dev]
