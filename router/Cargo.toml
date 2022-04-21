@@ -41,14 +41,14 @@ hashbrown = "0.11"
 
 stm32f4xx-hal = { version = "0.13", features = ["stm32f411", "rt", "usb_fs"] }
 
-
 #ili9341 = "0.4"
 #display-interface = "0.4"
 #
 #display-interface-spi = "0.4.1"
 #tinytga = { version = "0.3", features = ["graphics"] }
 
-embedded-midi = { path = "../../embedded-midi", features = ["defmt"] }
+embedded-midi = { git = "https://github.com/fralalonde/embedded-midi.git", branch = "main", features = ["defmt"] }
+#embedded-midi = { path = "../../embedded-midi", features = ["defmt"] }
 runtime = { path = "../runtime" }
 
 [[bin]]

@@ -285,10 +285,10 @@ fn main() -> ! {
     // let _bstep_2_dw = midi_router.bind(Route::link(Interface::USB, Interface::Serial(0)));
 
     let mut dwctrl = Dw6000Control::new((IF_DW6000, channel(1)), (IF_BEATSTEP, channel(1)));
-    dwctrl.start();
+    dwctrl.start().unwrap();
 
     let mut bbeat = BlinkyBeat::new((IF_BEATSTEP, channel(1)), vec![Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
-    bbeat.start();
+    bbeat.start().unwrap();
 
     // let mut bounce = Bounce::new();
     // bounce.start().unwrap();
