@@ -1,8 +1,6 @@
 use midi::{MidiError};
 use crate::{route};
 use alloc::sync::Arc;
-use embedded_time::duration::Milliseconds;
-use crate::time::{Tasks};
 
 pub struct Bounce {
     state: Arc<spin::Mutex<InnerState>>,
@@ -16,16 +14,18 @@ struct InnerState {
 impl InnerState {}
 
 impl route::Service for Bounce {
-    fn start(&mut self, _router: &mut route::Router, tasks: &mut Tasks) -> Result<(), MidiError> {
+    fn start(&mut self) -> Result<(), MidiError> {
         let state = self.state.clone();
-        tasks.repeat(move |_chaos| {
-            let mut state = state.lock();
-            crate::app::midisplay::spawn(format!("{}", state.counter)).unwrap();
-            state.counter += 1;
-            Ok(Some(Milliseconds(1000)))
+        runtime::spawn(async move {
+            loop {
+                let mut state = state.lock();
+                // midisplay::spawn(format!("{}", state.counter)).unwrap();
+                state.counter += 1;
+                if runtime::delay_ms(1000).await.is_err() {break}
+            }
         });
 
-        rprintln!("Bounce Active");
+        info!("Bounce Active");
         Ok(())
     }
 }

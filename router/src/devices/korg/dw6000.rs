@@ -1,11 +1,14 @@
 //! From https://www.untergeek.de/2014/11/taming-arturias-beatstep-sysex-codes-for-programming-via-ipad/
 //! Thanks to Richard Wanderlöf and Untergeek
 //! Switching the LEDs on and off:
+#![allow(dead_code)]
 
 use crate::sysex::{Matcher, Token, Tag, Sysex};
 use Token::{Seq, Cap, Val, Buf};
 use Tag::*;
 use alloc::vec::Vec;
+
+
 
 const KORG: u8 = 0x42;
 const DW_6000: u8 = 0x04;

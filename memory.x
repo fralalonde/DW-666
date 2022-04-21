@@ -1,2 +1,9 @@
-# This file is a stub for linker scripts expecting memory.x in root
-# Subcrates includes it's own memory.x because on different boards/platforms
+# STM32F411 "BlackPill" memory layout
+MEMORY
+{
+  FLASH : ORIGIN = 0x08000000, LENGTH = 512K
+  RAM : ORIGIN = 0x20000000, LENGTH = 128K
+}
+
+_stack_start = ORIGIN(RAM) + LENGTH(RAM);
+

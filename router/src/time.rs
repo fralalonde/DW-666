@@ -2,48 +2,48 @@
 //! Define 64bits versions that handle all cases
 
 use alloc::boxed::Box;
-use crate::app::{Ticks};
+// use crate::app::{Ticks};
 use nanorand::WyRand;
 use alloc::collections::VecDeque;
 
-use embedded_time::{duration::*, Instant, Clock};
+// use embedded_time::{duration::*, Instant, Clock};
 
 use midi::MidiError;
 
 use crate::app;
 use core::ops::Add;
-use embedded_time::clock::Error;
 use core::sync::atomic::AtomicU32;
 use core::sync::atomic::Ordering::Relaxed;
+use systick_monotonic::fugit::Instant;
 
-#[derive(Default)]
-pub struct AppClock(AtomicU32);
-
-impl Clock for AppClock {
-    type T = u32;
-    const SCALING_FACTOR: Fraction = Fraction::new(1, 1000);
-
-    fn try_now(&self) -> Result<Instant<Self>, Error> {
-        Ok(self.now())
-    }
-}
-
-impl AppClock {
-    pub const fn new() -> Self {
-        AppClock(AtomicU32::new(0))
-    }
-
-    pub fn now(&self) -> Instant<Self> {
-        Instant::new(self.0.load(Relaxed))
-    }
-
-    fn tick(&self) {
-        self.0.fetch_add(1, Relaxed);
-    }
-}
+// #[derive(Default)]
+// pub struct AppClock(AtomicU32);
+//
+// impl Clock for AppClock {
+//     type T = u32;
+//     const SCALING_FACTOR: Fraction = Fraction::new(1, 1000);
+//
+//     fn try_now(&self) -> Result<Instant<Self>, Error> {
+//         Ok(self.now())
+//     }
+// }
+//
+// impl AppClock {
+//     pub const fn new() -> Self {
+//         AppClock(AtomicU32::new(0))
+//     }
+//
+//     pub fn now(&self) -> Instant<Self> {
+//         Instant::new(self.0.load(Relaxed))
+//     }
+//
+//     fn tick(&self) {
+//         self.0.fetch_add(1, Relaxed);
+//     }
+// }
 
 struct TimerTask {
-    next_run: Option<Instant<app::Ticks>>,
+    next_run: Option<Instant>,
     op: Box<dyn FnMut(&mut WyRand) -> Result<Option<Milliseconds>, MidiError> + Send>,
 }
 
@@ -88,14 +88,14 @@ impl Tasks {
                         let now: Instant<Ticks> = app::monotonics::now();
                         let next_run = now.add(next_run_in);
                         if next_run <= now {
-                            rprintln!("Dropping fast loop task");
+                            info!("Dropping fast loop task");
                             continue;
                         }
                         task.next_run = Some(next_run);
                         self.new_tasks.push_back(task);
                     }
                     Err(e) => {
-                        rprintln!("Task error {:?}", e)
+                        info!("Task error {:?}", e)
                     }
                     Ok(None) => {
                         // task finished

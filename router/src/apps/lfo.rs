@@ -1,13 +1,11 @@
-use nanorand::{WyRand, RNG};
-use crate::app::{CPU_FREQ, Ticks};
+// use nanorand::{WyRand, RNG};
+use crate::{CPU_FREQ};
 
 use num_enum::{FromPrimitive};
 use core::f32;
 use micromath::F32Ext;
-use embedded_time::{Instant};
-use crate::app;
+
 use core::fmt::{Debug, Formatter};
-use crate::time::AppClock;
 
 #[derive(Debug, FromPrimitive, Copy, Clone)]
 #[repr(u8)]
@@ -18,7 +16,7 @@ pub enum Waveform {
     Saw,
     RevSaw,
     Square,
-    Random,
+    // Random,
 }
 
 impl Default for Waveform {
@@ -35,7 +33,7 @@ impl Debug for Lfo {
 }
 
 pub struct Lfo {
-    offset: Instant<AppClock>,
+    offset_ms: u64,
     period: f32,
     // between 0 and 1
     amount: f32,
@@ -45,7 +43,7 @@ pub struct Lfo {
 impl Default for Lfo {
     fn default() -> Self {
         Self {
-            offset: app::CLOCK.now(),
+            offset_ms: runtime::now_millis(),
             period: 0.0,
             amount: 0.0,
             wave: Default::default(),
@@ -57,9 +55,9 @@ const F_CPU_FREQ: f32 = CPU_FREQ as f32;
 
 // Yes, these computations are HORRIBLY INEFFICIENT and naive. IJDGAF.
 impl Lfo {
-    pub fn mod_value(&mut self, froot: f32, chaos: &mut WyRand) -> f32 {
-        let now = app::CLOCK.now();
-        let time = (now - self.offset).integer();
+    pub fn mod_value(&mut self, froot: f32/*, chaos: &mut WyRand*/) -> f32 {
+        let now = runtime::now_millis();
+        let time = now - self.offset_ms;
         (froot + match self.wave {
             Waveform::Triangle => {
                 let timex = time as f32 % self.period;
@@ -87,7 +85,7 @@ impl Lfo {
                 let timex = time as f32 / self.period;
                 (timex.fract() - 0.5) * 2.0 * self.amount
             }
-            Waveform::Random => ((chaos.generate_range::<u32>(0, u32::MAX) as f32 / u32::MAX as f32) - 0.5) * 2.0 * self.amount
+            // Waveform::Random => ((chaos.generate_range::<u32>(0, u32::MAX) as f32 / u32::MAX as f32) - 0.5) * 2.0 * self.amount
         }).max(0.0).min(1.0)
     }
 

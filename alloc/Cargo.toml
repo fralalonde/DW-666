@@ -9,4 +9,4 @@ version = "0.1.0"
 cortex-m = "0.7"
 buddy-alloc = "0.4"
 
-rtt-target = { version = "0.3", features = ["cortex-m"]}
+#rtt-target = { version = "0.3", features = ["cortex-m"]}

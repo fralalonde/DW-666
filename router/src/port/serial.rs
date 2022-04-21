@@ -32,7 +32,7 @@ impl<UART, PINS> SerialMidi<UART, PINS> where
     pub fn flush(&mut self) -> Result<(), MidiError> {
         'write_bytes:
         loop {
-            if self.uart.is_txe() {
+            if self.uart.is_tx_empty() {
                 if let Some(byte) = self.tx_fifo.dequeue() {
                     self.uart.write(byte)?;
                     continue 'write_bytes;
@@ -64,7 +64,7 @@ impl<UART, PINS> Receive for SerialMidi<UART, PINS> where
     UART: Instance,
 {
     fn receive(&mut self) -> Result<Option<Packet>, MidiError> {
-        if self.uart.is_rxne() {
+        if self.uart.is_rx_not_empty() {
             let byte = self.uart.read()?;
             let packet = self.parser.advance(byte)?;
             if let Some(packet) = packet {

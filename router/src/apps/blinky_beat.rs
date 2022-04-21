@@ -1,14 +1,13 @@
 use midi::{ Note, Endpoint, note_off, note_on, Velocity, channel, MidiError, PacketList};
-use crate::{devices, app};
+use crate::{devices, midi_route};
 use alloc::vec::Vec;
 use alloc::sync::Arc;
-use embedded_time::duration::Milliseconds;
-use crate::time::{/*TimeUnits,*/ Tasks};
+
 use devices::arturia::beatstep;
 use beatstep::Param::*;
 use beatstep::Pad::*;
 use crate::devices::arturia::beatstep::{SwitchMode};
-use crate::route::{Router, Service};
+use crate::route::{Service};
 use midi::Binding::Dst;
 
 pub struct BlinkyBeat {
@@ -36,26 +35,28 @@ impl BlinkyBeat {
 
 
 impl Service for BlinkyBeat {
-    fn start(&mut self, _router: &mut Router, tasks: &mut Tasks) -> Result<(), MidiError> {
+    fn start(&mut self) -> Result<(), MidiError> {
         let state = self.state.clone();
-        tasks.repeat(move |_chaos| {
-            let mut state = state.lock();
-            let bs = state.beatstep;
-            for sysex in devices::arturia::beatstep::beatstep_set(PadNote(Pad(0), channel(1), Note::C1m, SwitchMode::Gate)) {
-                app::midi_route::spawn(Dst(bs.interface), sysex.collect()).unwrap();
-            }
-            for (note, ref mut on) in &mut state.notes {
-                if *on {
-                    app::midi_route::spawn(Dst(bs.interface), PacketList::single(note_on(bs.channel, *note, Velocity::MAX)?.into()))?;
-                } else {
-                    app::midi_route::spawn(Dst(bs.interface), PacketList::single(note_off(bs.channel, *note, Velocity::MIN)?.into()))?;
-                }
-                *on = !*on
-            }
-            Ok(Some(Milliseconds(2000)))
+        runtime::spawn(async move {
+           loop {
+               let mut state = state.lock();
+               let bs = state.beatstep;
+               for sysex in devices::arturia::beatstep::beatstep_set(PadNote(Pad(0), channel(1), Note::C1m, SwitchMode::Gate)) {
+                   midi_route(Dst(bs.interface), sysex.collect());
+               }
+               for (note, ref mut on) in &mut state.notes {
+                   if *on {
+                       midi_route(Dst(bs.interface), PacketList::single(note_on(bs.channel, *note, Velocity::MAX).unwrap().into()));
+                   } else {
+                       midi_route(Dst(bs.interface), PacketList::single(note_off(bs.channel, *note, Velocity::MIN).unwrap().into()));
+                   }
+                   *on = !*on
+               }
+               if runtime::delay_ms(2000).await.is_err() {break}
+           }
         });
 
-        rprintln!("BlinkyBeat Active");
+        info!("BlinkyBeat Active");
         Ok(())
     }
 }

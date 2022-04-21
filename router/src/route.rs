@@ -5,17 +5,15 @@ use hashbrown::{HashMap};
 
 use core::sync::atomic::Ordering::Relaxed;
 
-use crate::{Handle, NEXT_HANDLE};
+use crate::{Handle, midi_send, midisplay, NEXT_HANDLE};
 
 use alloc::boxed::Box;
-use crate::time::Tasks;
 use alloc::string::String;
 use alloc::collections::{BTreeMap};
 use crate::sysex::Tag;
 
 pub trait Service {
-    fn start(&mut self, router: &mut Router, tasks: &mut Tasks) -> Result<(), MidiError>;
-    fn stop(&mut self, _router: &mut Router) {}
+    fn start(&mut self) -> Result<(), MidiError>;
 }
 
 #[derive(Default)]
@@ -66,7 +64,7 @@ impl Route {
     fn apply_filters(&mut self, context: &mut RouteContext) -> bool {
         for filter in &mut self.filters {
             match (filter)(context) {
-                Err(e) => rprintln!("Filter error: {:?}", e),
+                Err(e) => info!("Filter error: {:?}", e),
                 Ok(false) => return false,
                 _ => {}
             }
@@ -93,15 +91,13 @@ impl RouteContext {
 
     fn flush_strings(&mut self) -> Result<(), MidiError> {
         for s in self.strings.drain(..) {
-            if let Err(e) = crate::app::midisplay::spawn(s) {
-                rprintln!("Failed enqueue redraw {}", e)
-            }
+            midisplay(s)
         }
         Ok(())
     }
 
     fn flush_packets(&mut self, destination: Interface) -> Result<(), MidiError> {
-        crate::app::midi_send::spawn(destination, self.packets.clone())?;
+        midi_send(destination, self.packets.clone());
         // heapless Vec has no drain() method :(
         self.packets.clear();
         Ok(())
