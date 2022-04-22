@@ -1,0 +1,24 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="router (release)" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+    <option name="command" value="build --release" />
+    <option name="workingDirectory" value="file://$PROJECT_DIR$/router" />
+    <option name="channel" value="DEFAULT" />
+    <option name="requiredFeatures" value="true" />
+    <option name="allFeatures" value="false" />
+    <option name="emulateTerminal" value="false" />
+    <option name="withSudo" value="false" />
+    <option name="backtrace" value="SHORT" />
+    <envs>
+      <env name="DEFMT_LOG" value="trace" />
+    </envs>
+    <option name="isRedirectInput" value="false" />
+    <option name="redirectInputPath" value="" />
+    <method v="2" />
+  </configuration>
+  <configuration default="false" name="usbmidi-host (debug)" type="com.jetbrains.cidr.embedded.openocd.conf.type" factoryName="com.jetbrains.cidr.embedded.openocd.conf.factory" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="dw-666" TARGET_NAME="ARM" CONFIG_NAME="ARM" version="1" RUN_PATH="$PROJECT_DIR$/target/thumbv7em-none-eabihf/debug/usbmidi-route">
+    <openocd version="1" gdb-port="3333" telnet-port="4444" board-config="$PROJECT_DIR$/openocd_blackpill.cfg" reset-type="INIT" download-type="UPDATED_ONLY">
+      <debugger kind="GDB" isBundled="true" />
+    </openocd>
+    <method v="2" />
+  </configuration>
+</component>
