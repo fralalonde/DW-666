@@ -15,7 +15,7 @@
     <option name="redirectInputPath" value="" />
     <method v="2" />
   </configuration>
-  <configuration default="false" name="usbmidi-host (debug)" type="com.jetbrains.cidr.embedded.openocd.conf.type" factoryName="com.jetbrains.cidr.embedded.openocd.conf.factory" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="dw-666" TARGET_NAME="ARM" CONFIG_NAME="ARM" version="1" RUN_PATH="$PROJECT_DIR$/target/thumbv7em-none-eabihf/debug/usbmidi-route">
+  <configuration default="false" name="router (debug)" type="com.jetbrains.cidr.embedded.openocd.conf.type" factoryName="com.jetbrains.cidr.embedded.openocd.conf.factory" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="dw-666" TARGET_NAME="ARM" CONFIG_NAME="ARM" version="1" RUN_PATH="$PROJECT_DIR$/target/thumbv7em-none-eabihf/debug/usbmidi-route">
     <openocd version="1" gdb-port="3333" telnet-port="4444" board-config="$PROJECT_DIR$/openocd_blackpill.cfg" reset-type="INIT" download-type="UPDATED_ONLY">
       <debugger kind="GDB" isBundled="true" />
     </openocd>

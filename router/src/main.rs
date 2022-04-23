@@ -104,7 +104,7 @@ use runtime::Shared;
 use crate::apps::bounce::Bounce;
 use crate::pac::{CorePeripherals, Peripherals};
 
-pub const CPU_FREQ: u32 = 48_000_000;
+pub const CPU_FREQ: u32 = 96_000_000;
 
 // pub const CYCLES_PER_MICROSEC: u32 = CPU_FREQ / 1_000_000;
 // pub const CYCLES_PER_MILLISEC: u32 = CPU_FREQ / 1_000;
@@ -146,8 +146,8 @@ fn main() -> ! {
 
     let rcc = dev.RCC.constrain();
     let clocks = rcc.cfgr
-        .hclk(CPU_FREQ.MHz())
-        .sysclk(CPU_FREQ.MHz())
+        .hclk(CPU_FREQ.Hz())
+        .sysclk(CPU_FREQ.Hz())
         .pclk1(24.MHz())
         .pclk2(24.MHz())
         .freeze();

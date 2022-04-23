@@ -383,7 +383,7 @@ fn from_beatstep(dw6000: Endpoint, msg: Message, state: &mut MutexGuard<InnerSta
                         }
                     }
                 }
-                info!("lfo {:?}", &state.lfo2)
+                // info!("lfo {:?}", &state.lfo2)
             }
         _ => {}
     }

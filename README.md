@@ -5,19 +5,19 @@ with a [Korg DW-6000](https://www.vintagesynth.com/korg/dw6000.php).
 
 Provides immediate control and modern tactile UI over the sound parameters of a vintage-but-knobless synthesizer.
 
-Targets STM32F4 "blackpill" board. Uses RTIC as a real-time software platform.
+Targets STM32F4 "blackpill" board. Uses the `woke` crate for #[nostd] async Rust support.
 
-Still under development, probably forever. It all worked for some time, before I started to try and make it better [le sigh]
+Still under development, probably forever.
 
 ## Interface
 
 Each Beatstep knobs controls the value of a parameter of the DW6000. 
 
-The big top left knob controls the filter cutoff to sweeeep those sweeeet NJM2069s **anytime**. 
+Turning the big top left knob **anytime** will make those sweet NJM2069s swweeeep and swoooosh by controlling filter cutoff freq. 
 
-The small top right knob _always_ controls the filter becauPEWPEWPEW.
+The small top right knob _always_ controls filter resonance becauPEWPEWPEW.
 
-The top right 4 pads control some on/off parameters like Chorus and ??? (see code)
+The top right 4 pads control some on/off parameters like Chorus and ??? (TODO see what code says)
 
 ### Parameter pages
 

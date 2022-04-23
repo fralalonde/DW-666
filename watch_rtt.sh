@@ -8,8 +8,8 @@
 BASEDIR="$( cd "$( dirname "$0" )" && pwd )"
 TELNET_PORT=4444
 RTT_PORT=8745
-# TODO support switching target debug<>release
-ELF_FILE=$BASEDIR/target/thumbv7em-none-eabihf/debug/usbmidi-route
+BUILD=${1:-debug}
+ELF_FILE=$BASEDIR/target/thumbv7em-none-eabihf/$BUILD/usbmidi-route
 
 if ! nc -z localhost $TELNET_PORT; then
   echo "OpenOCD not running? Else make sure it is listening for telnet on port $TELNET_PORT"
@@ -46,7 +46,7 @@ fi
 #nc localhost $RTT_PORT
 
 # if using defmt over RTT
-echo "Watching RTT/defmt"
+echo "Watching RTT/defmt from '$ELF_FILE'"
 nc localhost $RTT_PORT | defmt-print -e $ELF_FILE
 
 
