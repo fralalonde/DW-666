@@ -39,9 +39,9 @@ impl<P: Ord + Copy, T: Clone, const N: usize> PriorityQueue<P, T, N> {
         }
     }
 
-    // pub fn pop(&mut self) -> Option<T> {
-    //     self.queue.pop().map(|node| node.data)
-    // }
+    pub fn pop(&mut self) -> Option<T> {
+        self.queue.pop().map(|node| node.data)
+    }
 
     pub fn pop_due(&mut self, now: P) -> Option<T> {
         if let Some(sched_time) = self.peek_priority() {

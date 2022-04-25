@@ -19,8 +19,9 @@ use embedded_time::duration::{Microseconds, Milliseconds, Nanoseconds};
 use crate::pri_queue::PriorityQueue;
 
 use cortex_m_rt::exception;
+
+use crate::SpinMutex;
 use crate::RuntimeError;
-use crate::spin::SpinMutex;
 
 pub struct SysTickClock<const FREQ: u32> {
     systick: &'static mut SYST,

@@ -6,9 +6,10 @@ readme = "README.md"
 version = "0.1.0"
 
 [dependencies]
-#woke = { path = "../woke" }
 woke = "0.0.2"
-embedded-time = { path = "../../embedded-time" }
+spin = "0.9"
+embedded-time = "0.12.1"
+critical-section = "0.2"
 
 defmt = "0.3"
 defmt-rtt = "0.3"

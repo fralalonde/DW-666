@@ -10,6 +10,7 @@ use crate::{Handle, midi_send, midisplay, NEXT_HANDLE};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::collections::{BTreeMap};
+use runtime::spawn;
 use crate::sysex::Tag;
 
 pub trait Service {
@@ -97,7 +98,7 @@ impl RouteContext {
     }
 
     fn flush_packets(&mut self, destination: Interface) -> Result<(), MidiError> {
-        midi_send(destination, self.packets.clone());
+        spawn(midi_send(destination, self.packets.clone()));
         // heapless Vec has no drain() method :(
         self.packets.clear();
         Ok(())

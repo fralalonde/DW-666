@@ -42,12 +42,14 @@ impl<T: Clone, const N: usize> ArrayQueue<T, N> {
         N - 1
     }
 
+    #[cfg(test)]
     pub fn size(&self) -> usize {
         let max_idx = self.max_read_idx.load(Relaxed);
         let read_idx = self.read_idx.load(Relaxed);
         max_idx - read_idx
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         let max_idx = self.max_read_idx.load(Relaxed);
         let read_idx = self.read_idx.load(Relaxed);

@@ -7,7 +7,8 @@ use core::task::{Context, Poll};
 
 use woke::{waker_ref, Woke};
 use crate::array_queue::ArrayQueue;
-use crate::spin::SpinMutex;
+
+use crate::SpinMutex;
 
 static mut REACTOR: MaybeUninit<Arc<Reactor>> = MaybeUninit::uninit();
 
@@ -21,7 +22,7 @@ struct Task {
 }
 
 pub struct Reactor {
-    exec_queue: Arc<ArrayQueue<Arc<Task>, 16>>,
+    exec_queue: Arc<ArrayQueue<Arc<Task>, 64>>,
 }
 
 impl Woke for Task {
@@ -54,7 +55,9 @@ impl Reactor {
     }
 
     fn enqueue(&self, task: &Arc<Task>) {
-        if self.exec_queue.push(task).is_err() { crate::warn!("Reactor queue full - is a task blocking?") }
+        if self.exec_queue.push(task).is_err() {
+            warn!("Reactor queue full - is a task blocking?")
+        }
     }
 
     pub fn process(&self) {
@@ -67,7 +70,7 @@ impl Reactor {
                     *task_future = Some(future);
                 }
             } else {
-                crate::warn!("NO FUTURE")
+                warn!("NO FUTURE")
             }
         }
     }

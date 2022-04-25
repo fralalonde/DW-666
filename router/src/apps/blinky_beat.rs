@@ -9,9 +9,10 @@ use beatstep::Pad::*;
 use crate::devices::arturia::beatstep::{SwitchMode};
 use crate::route::{Service};
 use midi::Binding::Dst;
+use runtime::SpinMutex;
 
 pub struct BlinkyBeat {
-    state: Arc<spin::Mutex<InnerState>>,
+    state: Arc<SpinMutex<InnerState>>,
 }
 
 #[derive(Debug)]
@@ -25,7 +26,7 @@ impl InnerState {}
 impl BlinkyBeat {
     pub fn new(beatstep: impl Into<Endpoint>, notes: Vec<Note>) -> Self {
         BlinkyBeat {
-            state: Arc::new(spin::Mutex::new(InnerState {
+            state: Arc::new(SpinMutex::new(InnerState {
                 beatstep: beatstep.into(),
                 notes: notes.into_iter().map(|n| (n, false)).collect(),
             })),
@@ -42,13 +43,13 @@ impl Service for BlinkyBeat {
                let mut state = state.lock();
                let bs = state.beatstep;
                for sysex in devices::arturia::beatstep::beatstep_set(PadNote(Pad(0), channel(1), Note::C1m, SwitchMode::Gate)) {
-                   midi_route(Dst(bs.interface), sysex.collect());
+                   midi_route(Dst(bs.interface), sysex.collect()).await;
                }
                for (note, ref mut on) in &mut state.notes {
                    if *on {
-                       midi_route(Dst(bs.interface), PacketList::single(note_on(bs.channel, *note, Velocity::MAX).unwrap().into()));
+                       midi_route(Dst(bs.interface), PacketList::single(note_on(bs.channel, *note, Velocity::MAX).unwrap().into())).await;
                    } else {
-                       midi_route(Dst(bs.interface), PacketList::single(note_off(bs.channel, *note, Velocity::MIN).unwrap().into()));
+                       midi_route(Dst(bs.interface), PacketList::single(note_off(bs.channel, *note, Velocity::MIN).unwrap().into())).await;
                    }
                    *on = !*on
                }

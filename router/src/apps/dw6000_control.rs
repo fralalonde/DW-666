@@ -9,7 +9,7 @@ use alloc::sync::Arc;
 use core::convert::TryFrom;
 
 use devices::korg::dw6000::*;
-use spin::MutexGuard;
+use runtime::{spawn, SpinMutex, SpinMutexGuard};
 use num_enum::TryFromPrimitive;
 use num::{Integer};
 use crate::apps::lfo::{Lfo, Waveform};
@@ -25,13 +25,13 @@ use midi::Binding::Dst;
 const SHORT_PRESS_MS: u64 = 250;
 
 pub struct Dw6000Control {
-    state: Arc<spin::Mutex<InnerState>>,
+    state: Arc<SpinMutex<InnerState>>,
 }
 
 impl Dw6000Control {
     pub fn new(dw6000: impl Into<Endpoint>, beatstep: impl Into<Endpoint>) -> Self {
         Dw6000Control {
-            state: Arc::new(spin::Mutex::new(InnerState {
+            state: Arc::new(SpinMutex::new(InnerState {
                 dw6000: dw6000.into(),
                 beatstep: beatstep.into(),
                 current_dump: None,
@@ -227,11 +227,11 @@ impl Service for Dw6000Control {
                         if let Some(ref mut dump) = &mut state.current_dump {
                             set_param_value(lfo2_param, mod_value, dump.as_mut_slice());
                             let sysex = param_to_sysex(lfo2_param, dump);
-                            midi_route(Dst(state.dw6000.interface), sysex.collect());
+                            midi_route(Dst(state.dw6000.interface), sysex.collect()).await;
                         }
                     }
                 }
-                if runtime::delay_ms(50).await.is_err() {break}
+                if runtime::delay_ms(50).await.is_err() { break; }
             }
         });
 
@@ -240,8 +240,8 @@ impl Service for Dw6000Control {
             loop {
                 let state = state.lock();
                 // periodic DW-6000 dump sync
-                midi_route(Dst(state.dw6000.interface), dump_request().collect());
-                if runtime::delay_ms(250).await.is_err() {break}
+                midi_route(Dst(state.dw6000.interface), dump_request().collect()).await;
+                if runtime::delay_ms(250).await.is_err() { break; }
             }
         });
 
@@ -249,14 +249,15 @@ impl Service for Dw6000Control {
         let beatstep = self.state.lock().beatstep;
         let dw6000 = self.state.lock().dw6000;
 
+        let state1 = self.state.clone();
+        let state2 = self.state.clone();
 
-        MIDI_ROUTER.lock_then(|router| {
-            // handle messages from controller
-            let state = self.state.clone();
+        spawn( async move {
+            let mut router = MIDI_ROUTER.lock().await;
             router.add_route(
                 Route::link(beatstep.interface, dw6000.interface)
                     .filter(move |context| {
-                        let mut state = state.lock();
+                        let mut state: SpinMutexGuard<InnerState> = state1.lock();
                         for p in context.packets.clone().iter() {
                             if let Ok(msg) = Message::try_from(*p) {
                                 from_beatstep(dw6000, msg, &mut state, context)?;
@@ -266,7 +267,7 @@ impl Service for Dw6000Control {
                     })).unwrap();
 
             // handle messages from dw6000
-            let state = self.state.clone();
+
             router.add_route(
                 Route::from(dw6000.interface)
                     .filter({
@@ -275,8 +276,8 @@ impl Service for Dw6000Control {
                     })
                     .filter(
                         move |context| {
-                            let state = state.lock();
-                            from_dw6000_dump(context, state)
+                            let state2 = state2.lock();
+                            from_dw6000_dump(context, state2)
                         }
                     )).unwrap();
         });
@@ -298,14 +299,14 @@ fn toggle_param(param: Param, dump: &mut Vec<u8>, context: &mut RouteContext) ->
     Ok(())
 }
 
-fn from_beatstep(dw6000: Endpoint, msg: Message, state: &mut MutexGuard<InnerState>, context: &mut RouteContext) -> Result<bool, MidiError> {
+fn from_beatstep(dw6000: Endpoint, msg: Message, state: &mut SpinMutexGuard<InnerState>, context: &mut RouteContext) -> Result<bool, MidiError> {
     match msg {
         Message::NoteOn(_, note, _) => {
             if let Some(bank) = note_bank(note) {
                 state.bank = Some(bank)
             } else if let Some(prog) = note_prog(note) {
                 if let Some(bank) = state.bank {
-                    // spawn.midi_send(dw6000.interface, .into())?;
+                    runtime::spawn(crate::midi_send(dw6000.interface, context.packets.clone()));
                     context.packets.clear();
                     context.packets.push(program_change(dw6000.channel, (bank * 8) + prog)?.into()).unwrap();
                 }
@@ -414,7 +415,7 @@ fn cc_to_ctl_param(cc: midi::Control, page: KnobPage) -> Option<CtlParam> {
     }
 }
 
-fn from_dw6000_dump(ctx: &mut RouteContext, mut state: MutexGuard<InnerState>) -> Result<bool, MidiError> {
+fn from_dw6000_dump(ctx: &mut RouteContext, mut state: SpinMutexGuard<InnerState>) -> Result<bool, MidiError> {
     if let Some(mut dump) = ctx.tags.remove(&Tag::Dump(26)) {
         // rewrite original values before they were modulated
         for s in &state.mod_dump {

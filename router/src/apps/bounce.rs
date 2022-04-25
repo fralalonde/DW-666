@@ -1,9 +1,10 @@
 use midi::{MidiError};
 use crate::{route};
 use alloc::sync::Arc;
+use runtime::SpinMutex;
 
 pub struct Bounce {
-    state: Arc<spin::Mutex<InnerState>>,
+    state: Arc<SpinMutex<InnerState>>,
 }
 
 #[derive(Debug)]
