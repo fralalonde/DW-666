@@ -90,18 +90,16 @@ impl RouteContext {
         self.strings = vec![];
     }
 
-    fn flush_strings(&mut self) -> Result<(), MidiError> {
+    fn flush_strings(&mut self) {
         for s in self.strings.drain(..) {
             midisplay(s)
         }
-        Ok(())
     }
 
-    fn flush_packets(&mut self, destination: Interface) -> Result<(), MidiError> {
-        spawn(midi_send(destination, self.packets.clone()));
+    async fn flush_packets(&mut self, destination: Interface) {
+        midi_send(destination, self.packets.clone()).await;
         // heapless Vec has no drain() method :(
         self.packets.clear();
-        Ok(())
     }
 }
 
@@ -114,23 +112,23 @@ pub struct Router {
 }
 
 impl Router {
-    pub fn midi_route(&mut self, packets: PacketList, binding: Binding) -> Result<(), MidiError> {
+    pub async fn midi_route(&mut self, packets: PacketList, binding: Binding) -> Result<(), MidiError> {
         // TODO preallocate static context
         let mut context = RouteContext::default();
 
         match binding {
             Binding::Dst(destination) => {
                 context.restart(packets);
-                Self::out(&mut self.egress, &mut context, destination)?
+                Self::out(&mut self.egress, &mut context, destination).await
             }
             Binding::Src(source) =>
                 if let Some(routes) = self.ingress.get_mut(&source) {
                     for route_in in routes.values_mut() {
                         context.restart(packets.clone());
                         if route_in.apply_filters(&mut context) {
-                            context.flush_strings()?;
+                            context.flush_strings();
                             if let Some(destination) = context.destination.or(route_in.destination) {
-                                Self::out(&mut self.egress, &mut context, destination)?
+                                Self::out(&mut self.egress, &mut context, destination).await
                             }
                         }
                     }
@@ -139,22 +137,20 @@ impl Router {
         Ok(())
     }
 
-    fn out(egress: &mut HashMap<Interface, RouteVec>, context: &mut RouteContext, destination: Interface) -> Result<(), MidiError> {
+    async fn out(egress: &mut HashMap<Interface, RouteVec>, context: &mut RouteContext, destination: Interface) {
         if let Some(routes) = egress.get_mut(&destination) {
             for route_out in routes.values_mut() {
                 // isolate out routes from each other
                 let mut context = context.clone();
                 if route_out.apply_filters(&mut context) {
-                    context.flush_packets(destination)?;
-                    context.flush_strings()?;
+                    context.flush_packets(destination).await;
+                    context.flush_strings();
                 }
             }
         } else {
             // no destination route, just send
-            context.flush_packets(destination)?;
+            context.flush_packets(destination).await;
         }
-
-        Ok(())
     }
 
     pub fn add_route(&mut self, route: Route) -> Result<Handle, MidiError> {

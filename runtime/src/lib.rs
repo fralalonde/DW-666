@@ -1,6 +1,5 @@
 #![feature(alloc_error_handler)]
 #![feature(future_poll_fn)]
-#![feature(generic_associated_types)]
 
 #![no_std]
 
@@ -13,24 +12,21 @@ extern crate defmt;
 
 mod time;
 mod exec;
-// mod spin_mutex;
 mod array_queue;
-mod relax;
-// mod shared;
-mod mutex;
+mod resource;
 
 pub use time::{now, now_millis, delay_until, delay_us, delay_ms, delay_ns, delay_cycles, run_scheduled};
 pub use exec::{spawn, process_queue};
 pub use spin::{Mutex as SpinMutex, MutexGuard as SpinMutexGuard};
 
 pub mod log_defmt;
+
 pub use defmt::{debug, info, warn, error, trace};
-// pub use shared::Shared;
-pub use mutex::{Shared, SharedGuard};
+pub use resource::{Shared, SharedGuard, Local};
 
 mod pri_queue;
 
-pub mod cxalloc;
+pub mod allocator;
 
 pub fn init() {
     time::init();

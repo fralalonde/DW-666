@@ -5,6 +5,7 @@ use core::alloc::{Layout, GlobalAlloc};
 use cortex_m::asm;
 
 // define what happens in an Out Of Memory (OOM) condition
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 #[alloc_error_handler]
 fn alloc_error(_layout: Layout) -> ! {
     asm::bkpt();

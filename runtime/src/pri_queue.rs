@@ -39,6 +39,7 @@ impl<P: Ord + Copy, T: Clone, const N: usize> PriorityQueue<P, T, N> {
         }
     }
 
+    #[test]
     pub fn pop(&mut self) -> Option<T> {
         self.queue.pop().map(|node| node.data)
     }
