@@ -15,6 +15,10 @@ pub struct Local<T: Sized> {
     value: UnsafeCell<MaybeUninit<T>>,
 }
 
+unsafe impl<T: Sized + Send> Send for Local<T> {}
+
+unsafe impl<T: Sized + Send> Sync for Local<T> {}
+
 impl<T: Sized + Send> Local<T> {
     /// Create a new mutex with the given value.
     pub const fn uninit() -> Self {
