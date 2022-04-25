@@ -8,7 +8,6 @@
 //! Actual capacity is N - 1 e.g. an ArrayQueue<5> can only hold 4 elements
 
 #[allow(dead_code)]
-use core::mem::MaybeUninit;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering::Relaxed;
 
@@ -17,19 +16,19 @@ pub struct ArrayQueue<T, const N: usize> {
     /// FIXME maybe Rust allows type param arithmetic?
     ///   we could internally allocate a buffer of N + 1 elements for clearer API capacity expectations
     ///   #![feature(generic_const_exprs)] does not seem to allow [T; N + 1] (yet? else how?)
-    buffer: MaybeUninit<[T; N]>,
+    buffer: [Option<T>; N],
     write_idx: AtomicUsize,
     read_idx: AtomicUsize,
     max_read_idx: AtomicUsize,
 }
 
 impl<T: Clone, const N: usize> ArrayQueue<T, N> {
-    pub const fn new() -> Self {
+    pub const fn new(blank: [Option<T>; N]) -> Self {
         Self {
             write_idx: AtomicUsize::new(0),
             read_idx: AtomicUsize::new(0),
             max_read_idx: AtomicUsize::new(0),
-            buffer: MaybeUninit::uninit(),
+            buffer: blank,
         }
     }
 
@@ -77,8 +76,9 @@ impl<T: Clone, const N: usize> ArrayQueue<T, N> {
         }
 
         // this is safe because element at write_idx is now reserved for us
-        let as_mut = unsafe { &mut *(self.buffer.as_ptr() as *mut [T; N]) };
-        as_mut[self.count_to(write_idx)] = a_data;
+        let as_mut = unsafe { &mut *(self.buffer.as_ptr() as *mut [Option<T>; N]) };
+        assert!(as_mut[self.count_to(write_idx)].is_none());
+        as_mut[self.count_to(write_idx)].replace(a_data);
 
         while self.max_read_idx.compare_exchange(write_idx, write_idx + 1, Relaxed, Relaxed).is_err() {
             // async version of queue would yield here
@@ -100,8 +100,9 @@ impl<T: Clone, const N: usize> ArrayQueue<T, N> {
 
             // try reserving read index
             if self.read_idx.compare_exchange(read_idx, read_idx + 1, Relaxed, Relaxed).is_ok() {
-                let as_mut = unsafe { &mut *(self.buffer.as_ptr() as *mut [T; N]) };
-                return Some(as_mut[self.count_to(read_idx)].clone());
+                let as_mut: &mut [Option<T>; N] = unsafe { &mut *(self.buffer.as_ptr() as *mut [Option<T>; N]) };
+                assert!(as_mut[self.count_to(read_idx)].is_some());
+                return as_mut[self.count_to(read_idx)].take();
             }
             // failed reserving read index, try again
         }

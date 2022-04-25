@@ -20,8 +20,10 @@ struct Task {
     pub future: SpinMutex<Option<Pin<Box<dyn Future<Output=()> + Send + 'static>>>>,
 }
 
+const MAX_PENDING_TASK: usize = 64;
+
 pub struct Reactor {
-    exec_queue:ArrayQueue<Arc<Task>, 64>,
+    exec_queue:ArrayQueue<Arc<Task>, MAX_PENDING_TASK>,
 }
 
 impl Woke for Task {
@@ -43,11 +45,13 @@ pub fn process_queue() {
     REACTOR.process()
 }
 
+// see https://github.com/rust-lang/rust/issues/44796
+const INIT_TASK: Option<Arc<Task>> = None;
 
 impl Reactor {
     pub fn new() -> Self {
         Self {
-            exec_queue: ArrayQueue::new(),
+            exec_queue: ArrayQueue::new([INIT_TASK; MAX_PENDING_TASK]),
         }
     }
 

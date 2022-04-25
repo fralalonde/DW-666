@@ -61,7 +61,7 @@ impl<T: Sized + Send> Local<T> {
     }
 }
 
-impl<'a, T: Sized+ Send> Deref for Local<T> {
+impl<'a, T: Sized + Send> Deref for Local<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         self.init_check();
@@ -69,24 +69,29 @@ impl<'a, T: Sized+ Send> Deref for Local<T> {
     }
 }
 
-impl<'a, T: Sized+ Send> DerefMut for Local<T> {
+impl<'a, T: Sized + Send> DerefMut for Local<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.init_check();
         unsafe { (&mut *(self.value.get())).assume_init_mut() }
     }
 }
 
+const MAX_PENDING_LOCK: usize = 2;
+
 pub struct Shared<T: Sized> {
     name: &'static str,
     init: AtomicBool,
     locked: AtomicBool,
-    wake_queue: ArrayQueue<Waker, 2>,
+    wake_queue: ArrayQueue<Waker, MAX_PENDING_LOCK>,
     value: UnsafeCell<MaybeUninit<T>>,
 }
 
 unsafe impl<T: Sized + Send> Send for Shared<T> {}
 
 unsafe impl<T: Sized + Send> Sync for Shared<T> {}
+
+// see https://github.com/rust-lang/rust/issues/44796
+const INIT_WAKER: Option<Waker> = None;
 
 impl<T: Sized> Shared<T> {
     /// Create a new mutex with the given value.
@@ -96,28 +101,26 @@ impl<T: Sized> Shared<T> {
             value: UnsafeCell::new(MaybeUninit::uninit()),
             init: AtomicBool::new(false),
             locked: AtomicBool::new(false),
-            wake_queue: ArrayQueue::new(),
+            wake_queue: ArrayQueue::new([INIT_WAKER; MAX_PENDING_LOCK]),
         }
     }
     pub fn init_with(&self, value: T) {
-        match self.init.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst) {
-            Ok(false) => unsafe {
-                let z = &mut (*self.value.get());
-                *z.assume_init_mut() = value
-            }
-            err => {
-                panic!("Mutex {} init twice: {}", self.name, err)
-            }
+        if self.init.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+            panic!("Mutex {} init twice", self.name)
+        }
+        unsafe {
+            let z = &mut (*self.value.get());
+            *z.assume_init_mut() = value
         }
     }
 
     pub async fn lock(&self) -> SharedGuard<'_, T> {
         poll_fn(|cx| {
-            if let Ok(false) = self.locked.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst) {
+            if self.locked.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
                 Poll::Ready(SharedGuard { mutex: self })
             } else {
                 if self.wake_queue.push(cx.waker().clone()).is_err() {
-                    panic!("wake queue overflow")
+                    panic!("lock wake queue overflow")
                 }
                 Poll::Pending
             }
@@ -137,7 +140,7 @@ pub struct SharedGuard<'a, T: Sized, > {
 
 impl<'a, T: Sized> Drop for SharedGuard<'a, T> {
     fn drop(&mut self) {
-        if let Ok(true) = self.mutex.locked.compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst) {
+        if self.mutex.locked.compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
             // only the previous owner of the lock may wake a pending owner (if any)
             if let Some(waker) = self.mutex.wake_queue.pop() {
                 waker.wake();

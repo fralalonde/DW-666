@@ -36,7 +36,7 @@ mod port;
 extern crate alloc;
 
 const FAST_HEAP_SIZE: usize = 16 * 1024;
-const HEAP_SIZE: usize = 48 * 1024;
+const HEAP_SIZE: usize = 32 * 1024;
 const LEAF_SIZE: usize = 16;
 
 pub static mut FAST_HEAP: [u8; FAST_HEAP_SIZE] = [0u8; FAST_HEAP_SIZE];
