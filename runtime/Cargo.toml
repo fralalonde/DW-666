@@ -8,7 +8,8 @@ version = "0.1.0"
 [dependencies]
 woke = "0.0.2"
 spin = "0.9"
-embedded-time = "0.12.1"
+#embedded-time = "0.12.1"
+fugit = "0.3"
 critical-section = "0.2"
 
 defmt = "0.3"

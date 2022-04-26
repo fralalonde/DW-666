@@ -21,6 +21,7 @@ use hashbrown::HashMap;
 use crate::filter::capture_sysex;
 use crate::sysex::Tag;
 use midi::Binding::Dst;
+use runtime::ExtU32;
 
 const SHORT_PRESS_MS: u64 = 250;
 
@@ -231,7 +232,7 @@ impl Service for Dw6000Control {
                         }
                     }
                 }
-                if runtime::delay_ms(50).await.is_err() { break; }
+                if runtime::delay(50.millis()).await.is_err() { break; }
             }
         });
 
@@ -241,7 +242,7 @@ impl Service for Dw6000Control {
                 let state = state.lock();
                 // periodic DW-6000 dump sync
                 midi_route(Dst(state.dw6000.interface), dump_request().collect()).await;
-                if runtime::delay_ms(250).await.is_err() { break; }
+                if runtime::delay(250.millis()).await.is_err() { break; }
             }
         });
 

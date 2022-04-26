@@ -1,6 +1,7 @@
 use midi::{MidiError};
 use crate::{route};
 use alloc::sync::Arc;
+use runtime::ExtU32;
 use runtime::SpinMutex;
 
 pub struct Bounce {
@@ -22,7 +23,7 @@ impl route::Service for Bounce {
                 let mut state = state.lock();
                 // midisplay::spawn(format!("{}", state.counter)).unwrap();
                 state.counter += 1;
-                if runtime::delay_ms(1000).await.is_err() {break}
+                if runtime::delay(1000.millis()).await.is_err() {break}
             }
         });
 

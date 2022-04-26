@@ -79,6 +79,8 @@ use Binding::{Src};
 
 use hal::pac;
 
+use runtime::ExtU32;
+
 use hal::{
     // bring in .khz(), .mhz()
     time::U32Ext as _,
@@ -115,7 +117,9 @@ pub const CPU_FREQ: u32 = 96_000_000;
 const IF_DW6000: Interface = Interface::Serial(0);
 const IF_BEATSTEP: Interface = Interface::Serial(1);
 
-static USB_EP_MEMORY: Local<[u32; 1024]> = Local::new("USB_EP_MEMORY", [0; 1024]);
+static CORE: Local<CorePeripherals> = Local::uninit("CORE");
+
+static USB_EP_MEMORY: Local<[u32; 1024]> = Local::uninit("USB_EP_MEMORY");
 static USB_BUS: Local<bus::UsbBusAllocator<UsbBusType>> = Local::uninit("USB_BUS");
 
 static CHAOS: Shared<nanorand::WyRand> = Shared::uninit("RANDOM");
@@ -133,11 +137,9 @@ static PORT_DW6000: Shared<SerialMidi<pac::USART2, (PA2<AF7>, PA3<AF7>)>> = Shar
 #[entry]
 fn main() -> ! {
     let mut dev = Peripherals::take().unwrap();
-    let mut core = CorePeripherals::take().unwrap();
+    let mut core = CORE.init_static(CorePeripherals::take().unwrap());
 
     info!("Initializing");
-
-    runtime::init();
 
     core.DCB.enable_trace();
     core.DWT.enable_cycle_counter();
@@ -150,11 +152,13 @@ fn main() -> ! {
         .pclk2(24.MHz())
         .freeze();
 
+    runtime::init(&mut core.SYST);
+
     let gpioa = dev.GPIOA.split();
     let gpiob = dev.GPIOB.split();
     let gpioc = dev.GPIOC.split();
 
-    ONBOARD_LED.init_with(gpioc.pc13.into_push_pull_output());
+    ONBOARD_LED.init_static(gpioc.pc13.into_push_pull_output());
 
     // Setup I2C Display
     // let scl = gpiob.pb8.into_alternate_af4().set_open_drain();
@@ -206,7 +210,7 @@ fn main() -> ! {
     ).unwrap();
     uart1.listen(serial::Event::Rxne);
 
-    PORT_BEATSTEP.init_with(SerialMidi::new(uart1, CableNumber::MIN));
+    PORT_BEATSTEP.init_static(SerialMidi::new(uart1, CableNumber::MIN));
 
     info!("BeatStep MIDI port OK");
 
@@ -220,7 +224,7 @@ fn main() -> ! {
     ).unwrap();
     uart2.listen(serial::Event::Rxne);
 
-    PORT_DW6000.init_with(SerialMidi::new(uart2, CableNumber::MIN));
+    PORT_DW6000.init_static(SerialMidi::new(uart2, CableNumber::MIN));
 
     info!("DW6000 MIDI port OK");
 
@@ -233,7 +237,8 @@ fn main() -> ! {
         hclk: clocks.hclk(),
     };
 
-    USB_BUS.init_with(UsbBus::new(usb, USB_EP_MEMORY.raw_mut()));
+    let ep_memory = USB_EP_MEMORY.init_static([0; 1024]);
+    USB_BUS.init_static(UsbBus::new(usb, ep_memory));
 
     let midi_class = port::usb::MidiClass::new(&USB_BUS);
     // USB devices init _after_ classes
@@ -241,7 +246,7 @@ fn main() -> ! {
 
     info!("USB dev OK");
 
-    PORT_USB_MIDI.init_with(port::usb::UsbMidi {
+    PORT_USB_MIDI.init_static(port::usb::UsbMidi {
         dev: usb_dev,
         midi_class,
     });
@@ -249,7 +254,7 @@ fn main() -> ! {
     // let chaos = nanorand::WyRand::new_seed(0);
     // info!("Chaos OK");
 
-    MIDI_ROUTER.init_with(Router::default());
+    MIDI_ROUTER.init_static(Router::default());
     info!("Router OK");
 
     // let _usb_echo = midi_router.add_route(
@@ -295,7 +300,7 @@ fn main() -> ! {
             let mut led = ONBOARD_LED.lock().await;
             led.toggle();
             info!("BLINK");
-            if runtime::delay_ms(500).await.is_err() { break; }
+            if runtime::delay(500.millis()).await.is_err() { break; }
         }
     });
 

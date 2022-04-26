@@ -11,6 +11,8 @@ use crate::route::{Service};
 use midi::Binding::Dst;
 use runtime::SpinMutex;
 
+use runtime::ExtU32;
+
 pub struct BlinkyBeat {
     state: Arc<SpinMutex<InnerState>>,
 }
@@ -53,7 +55,7 @@ impl Service for BlinkyBeat {
                    }
                    *on = !*on
                }
-               if runtime::delay_ms(2000).await.is_err() {break}
+               if runtime::delay(2000.millis()).await.is_err() {break}
            }
         });
 

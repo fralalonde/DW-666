@@ -10,7 +10,6 @@ use crate::{Handle, midi_send, midisplay, NEXT_HANDLE};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::collections::{BTreeMap};
-use runtime::spawn;
 use crate::sysex::Tag;
 
 pub trait Service {

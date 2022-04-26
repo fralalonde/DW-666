@@ -11,6 +11,7 @@ cortex-m = "0.7"
 cortex-m-rt = "0.7"
 
 embedded-hal = "0.2"
+#fugit = "0.3"
 #embedded-time = "0.12"
 #embedded-graphics = "0.6"
 #embedded-text = "0.4.1"

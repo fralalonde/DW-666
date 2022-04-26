@@ -7,7 +7,6 @@
 //! Actual capacity is N - 1 e.g. an ArrayQueue<5> can only hold 4 elements
 
 use heapless::Vec;
-use crate::SysInstant;
 
 struct Node<P, T> {
     priority: P,

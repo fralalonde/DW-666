@@ -15,9 +15,12 @@ mod exec;
 mod array_queue;
 mod resource;
 
-pub use time::{now, now_millis, delay_until, delay_us, delay_ms, delay_ns, delay_cycles, run_scheduled, SysInstant};
+use cortex_m::peripheral::SYST;
+pub use time::{now, now_millis, delay_until, delay, delay_cycles, run_scheduled, SysInstant};
 pub use exec::{spawn, /*repeat,*/ process_queue};
 pub use spin::{Mutex as SpinMutex, MutexGuard as SpinMutexGuard};
+
+pub use fugit::{ExtU32, Instant, Duration};
 
 pub mod log_defmt;
 
@@ -28,8 +31,8 @@ mod pri_queue;
 
 pub mod allocator;
 
-pub fn init() {
-    time::init();
+pub fn init(syst: &'static mut SYST) {
+    time::init(syst);
     debug!("time ok");
 
     exec::init();

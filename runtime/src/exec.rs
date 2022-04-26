@@ -4,21 +4,16 @@ use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use embedded_time::{Instant };
-use embedded_time::duration::Duration;
-use embedded_time::fixed_point::FixedPoint;
-
 use woke::{waker_ref, Woke};
 use crate::array_queue::ArrayQueue;
 use crate::resource::Local;
 
 use crate::{now, SpinMutex, time};
-use crate::time::{SysInstant, SysTickClock};
 
 static REACTOR: Local<Reactor> = Local::uninit("REACTOR");
 
 pub fn init() {
-    REACTOR.init_with(Reactor::new());
+    REACTOR.init_static(Reactor::new());
 }
 
 struct Task {
@@ -46,7 +41,7 @@ pub fn spawn(future: impl Future<Output=()> + 'static + Send) {
     REACTOR.enqueue(task)
 }
 
-// pub fn repeat(every: impl Duration, fun: impl FnMut(SysInstant) + 'static + Send) {
+// pub fn repeat(every: SysDuration, fun: impl FnMut(SysInstant) + 'static + Send) {
 //     time::schedule_at(now(), |now| {
 //         fun(now);
 //         time::schedule_at(now + every, fun);

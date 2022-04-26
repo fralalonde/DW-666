@@ -39,11 +39,12 @@ impl<T: Sized + Send> Local<T> {
         }
     }
 
-    pub fn init_with(&self, value: T) {
+    pub fn init_static(&self, value: T) -> &mut T {
         match self.init.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst) {
             Ok(false) => unsafe {
                 let z = &mut (*self.value.get());
-                *z.assume_init_mut() = value
+                *z.assume_init_mut() = value;
+                return self.raw_mut()
             }
             err => {
                 panic!("Mutex {} init twice: {}", self.name, err)
@@ -51,7 +52,7 @@ impl<T: Sized + Send> Local<T> {
         }
     }
 
-    pub fn raw_mut(&self) -> &mut T {
+    pub unsafe fn raw_mut(&self) -> &mut T {
         self.init_check();
         unsafe { (&mut *(self.value.get())).assume_init_mut() }
     }
@@ -104,7 +105,7 @@ impl<T: Sized> Shared<T> {
             wake_queue: ArrayQueue::new([INIT_WAKER; MAX_PENDING_LOCK]),
         }
     }
-    pub fn init_with(&self, value: T) {
+    pub fn init_static(&self, value: T) {
         if self.init.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
             panic!("Mutex {} init twice", self.name)
         }
