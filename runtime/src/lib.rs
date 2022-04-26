@@ -15,8 +15,8 @@ mod exec;
 mod array_queue;
 mod resource;
 
-pub use time::{now, now_millis, delay_until, delay_us, delay_ms, delay_ns, delay_cycles, run_scheduled};
-pub use exec::{spawn, process_queue};
+pub use time::{now, now_millis, delay_until, delay_us, delay_ms, delay_ns, delay_cycles, run_scheduled, SysInstant};
+pub use exec::{spawn, /*repeat,*/ process_queue};
 pub use spin::{Mutex as SpinMutex, MutexGuard as SpinMutexGuard};
 
 pub mod log_defmt;

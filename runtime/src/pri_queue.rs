@@ -7,6 +7,7 @@
 //! Actual capacity is N - 1 e.g. an ArrayQueue<5> can only hold 4 elements
 
 use heapless::Vec;
+use crate::SysInstant;
 
 struct Node<P, T> {
     priority: P,
@@ -44,10 +45,10 @@ impl<P: Ord + Copy, T: Clone, const N: usize> PriorityQueue<P, T, N> {
         self.queue.pop().map(|node| node.data)
     }
 
-    pub fn pop_due(&mut self, now: P) -> Option<T> {
+    pub fn pop_due(&mut self, now: P) -> Option<(P, T)> {
         if let Some(sched_time) = self.peek_priority() {
-            if  now > sched_time {
-                unsafe { return Some(self.queue.pop_unchecked().data); }
+            if now > sched_time {
+                return unsafe { Some((sched_time, self.queue.pop_unchecked().data)) };
             }
         }
         None

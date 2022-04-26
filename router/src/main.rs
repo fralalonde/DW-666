@@ -23,7 +23,6 @@ extern crate stm32f4xx_hal as hal;
 
 // use ssd1306::{Builder, I2CDIBuilder};
 
-// mod time;
 mod devices;
 mod apps;
 // mod display;
@@ -202,7 +201,7 @@ fn main() -> ! {
     let mut uart1 = dev.USART1.serial(
         (bs_tx, bs_rx),
         serial::config::Config::default()
-            .baudrate(115200.bps()),
+            .baudrate(921600.bps()),
         &clocks,
     ).unwrap();
     uart1.listen(serial::Event::Rxne);
@@ -295,9 +294,16 @@ fn main() -> ! {
         loop {
             let mut led = ONBOARD_LED.lock().await;
             led.toggle();
-            if runtime::delay_ms(2000).await.is_err() { break; }
+            info!("BLINK");
+            if runtime::delay_ms(500).await.is_err() { break; }
         }
     });
+
+    // runtime::repeat(500, |now| {
+    //         let mut led = ONBOARD_LED.lock().await;
+    //         led.toggle();
+    //         info!("BLINK");
+    //     });
 
     unsafe {
         core.NVIC.set_priority(pac::Interrupt::USART1, 3);
@@ -309,8 +315,8 @@ fn main() -> ! {
         core.NVIC.set_priority(pac::Interrupt::OTG_FS_WKUP, 3);
         pac::NVIC::unmask(pac::Interrupt::OTG_FS_WKUP);
 
-        // core.NVIC.set_priority(pac::Interrupt::OTG_FS, 3);
-        // pac::NVIC::unmask(pac::Interrupt::OTG_FS);
+        core.NVIC.set_priority(pac::Interrupt::OTG_FS, 3);
+        pac::NVIC::unmask(pac::Interrupt::OTG_FS);
     }
 
     loop {
@@ -319,7 +325,7 @@ fn main() -> ! {
         // // do things
         runtime::process_queue();
         // breathe?
-        // cortex_m::asm::delay(400);
+        // cortex_m::asm::delay(256);
     }
 }
 
@@ -332,9 +338,11 @@ fn main() -> ! {
 // #[task(binds = OTG_FS_WKUP, shared = [usb_midi], priority = 3)]
 #[interrupt]
 unsafe fn OTG_FS_WKUP() {
+    pac::NVIC::mask(pac::Interrupt::OTG_FS_WKUP);
     spawn(async {
         let mut usb = PORT_USB_MIDI.lock().await;
         usb.poll();
+        pac::NVIC::unmask(pac::Interrupt::OTG_FS_WKUP);
     })
 }
 
@@ -343,6 +351,7 @@ unsafe fn OTG_FS_WKUP() {
 // #[task(binds = OTG_FS, shared = [usb_midi], priority = 3)]
 #[interrupt]
 unsafe fn OTG_FS() {
+    pac::NVIC::mask(pac::Interrupt::OTG_FS);
     // poll() is also required here else receive may block forever
     spawn(async {
         let mut usb_midi = PORT_USB_MIDI.lock().await;
@@ -351,6 +360,7 @@ unsafe fn OTG_FS() {
                 midi_route(Src(IF_BEATSTEP), PacketList::single(packet)).await;
             }
         }
+        pac::NVIC::unmask(pac::Interrupt::OTG_FS);
     })
 }
 
@@ -358,10 +368,11 @@ unsafe fn OTG_FS() {
 // #[task(binds = USART1, shared = [beatstep], priority = 3)]
 #[interrupt]
 unsafe fn USART1() {
+    pac::NVIC::mask(pac::Interrupt::USART1);
     spawn(async {
+        let mut bstep = PORT_BEATSTEP.lock().await;
+        bstep.flush().unwrap();
         loop {
-            let mut bstep = PORT_BEATSTEP.lock().await;
-            bstep.flush().unwrap();
             match bstep.receive() {
                 Ok(Some(packet)) => {
                     debug!("MIDI from beatstep {:?}", packet);
@@ -375,6 +386,7 @@ unsafe fn USART1() {
                 _ => { break; }
             }
         }
+        pac::NVIC::unmask(pac::Interrupt::USART1);
     });
 }
 
@@ -382,6 +394,7 @@ unsafe fn USART1() {
 // #[task(binds = USART2, shared = [dw6000], priority = 3)]
 #[interrupt]
 unsafe fn USART2() {
+    pac::NVIC::mask(pac::Interrupt::USART2);
     spawn(async {
         let mut dw6000 = PORT_DW6000.lock().await;
         if let Err(err) = dw6000.flush() {
@@ -391,6 +404,7 @@ unsafe fn USART2() {
         while let Ok(Some(packet)) = dw6000.receive() {
             midi_route(Src(IF_DW6000), PacketList::single(packet)).await;
         }
+        pac::NVIC::unmask(pac::Interrupt::USART2);
     });
 }
 

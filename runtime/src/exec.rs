@@ -4,11 +4,16 @@ use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
+use embedded_time::{Instant };
+use embedded_time::duration::Duration;
+use embedded_time::fixed_point::FixedPoint;
+
 use woke::{waker_ref, Woke};
 use crate::array_queue::ArrayQueue;
 use crate::resource::Local;
 
-use crate::SpinMutex;
+use crate::{now, SpinMutex, time};
+use crate::time::{SysInstant, SysTickClock};
 
 static REACTOR: Local<Reactor> = Local::uninit("REACTOR");
 
@@ -29,7 +34,7 @@ pub struct Reactor {
 impl Woke for Task {
     fn wake_by_ref(arc_self: &Arc<Self>) {
         let cloned = arc_self.clone();
-        REACTOR.enqueue(&cloned);
+        REACTOR.enqueue(cloned);
     }
 }
 
@@ -38,8 +43,15 @@ pub fn spawn(future: impl Future<Output=()> + 'static + Send) {
     let task = Arc::new(Task {
         future: SpinMutex::new(Some(future)),
     });
-    REACTOR.enqueue(&task)
+    REACTOR.enqueue(task)
 }
+
+// pub fn repeat(every: impl Duration, fun: impl FnMut(SysInstant) + 'static + Send) {
+//     time::schedule_at(now(), |now| {
+//         fun(now);
+//         time::schedule_at(now + every, fun);
+//     })
+// }
 
 pub fn process_queue() {
     REACTOR.process()
@@ -55,8 +67,8 @@ impl Reactor {
         }
     }
 
-    fn enqueue(&self, task: &Arc<Task>) {
-        if self.exec_queue.push(task.clone()).is_err() {
+    fn enqueue(&self, task: Arc<Task>) {
+        if self.exec_queue.push(task).is_err() {
             warn!("Reactor queue full - is a task blocking?")
         }
     }

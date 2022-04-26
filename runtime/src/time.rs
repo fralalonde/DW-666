@@ -23,6 +23,8 @@ use cortex_m_rt::exception;
 use crate::SpinMutex;
 use crate::RuntimeError;
 
+pub type SysInstant = Instant<SysTickClock<SYSTICK_CYCLES>>;
+
 pub struct SysTickClock<const FREQ: u32> {
     systick: &'static mut SYST,
     past_cycles: AtomicU32,
@@ -34,10 +36,7 @@ impl<const FREQ: u32> core::fmt::Debug for SysTickClock<FREQ> {
     }
 }
 
-// const MAX_SYSTICK_CYCLES: u32 = 0x00ffffff;
-const SYSTICK_CYCLES: u32 = 48_000_000;
-
-// pub const SYSTICK_CYCLES: u32 = 48_000_000;
+const SYSTICK_CYCLES: u32 = 96_000_000;
 
 static mut CLOCK: MaybeUninit<SysTickClock<SYSTICK_CYCLES>> = MaybeUninit::uninit();
 
@@ -126,11 +125,13 @@ impl<const FREQ: u32> Clock for SysTickClock<FREQ> {
     }
 }
 
-static SCHED: SpinMutex<PriorityQueue<Instant<SysTickClock<SYSTICK_CYCLES>>, Arc<dyn Fn() + 'static + Send + Sync>, 16>> = SpinMutex::new(PriorityQueue::new());
+static SCHED: SpinMutex<PriorityQueue<SysInstant, Arc<dyn Fn(SysInstant) + 'static + Send + Sync>, 16>> = SpinMutex::new(PriorityQueue::new());
 
-pub fn schedule_at<F: Fn() + 'static + Send + Sync>(when: Instant<SysTickClock<SYSTICK_CYCLES>>, what: F) {
+pub fn schedule_at<F>(when: SysInstant, what: F)
+    where F: Fn(SysInstant) + 'static + Send + Sync,
+{
     let mut sched = SCHED.lock();
-    let f: Arc<dyn Fn() + 'static + Send + Sync> = Arc::new(what);
+    let f: Arc<dyn Fn(SysInstant) + 'static + Send + Sync> = Arc::new(what);
     if !sched.push(when, &f) {
         panic!("No scheduler slot left")
     }
@@ -138,8 +139,8 @@ pub fn schedule_at<F: Fn() + 'static + Send + Sync>(when: Instant<SysTickClock<S
 
 pub fn run_scheduled() {
     let mut sched = SCHED.lock();
-    while let Some(wake_fn) = sched.pop_due(now()) {
-        wake_fn()
+    while let Some((due_time, wake_fn)) = sched.pop_due(now()) {
+        wake_fn(due_time)
     }
 }
 
@@ -163,10 +164,10 @@ pub fn delay_cycles(duration: u64) -> AsyncDelay {
     delay_until(due_time)
 }
 
-pub fn delay_until(due_time: Instant<SysTickClock<SYSTICK_CYCLES>>) -> AsyncDelay {
+pub fn delay_until(due_time: SysInstant) -> AsyncDelay {
     let waker: Arc<SpinMutex<Option<Waker>>> = Arc::new(SpinMutex::new(None));
     let sched_waker = waker.clone();
-    schedule_at(due_time, move || {
+    schedule_at(due_time, move |time| {
         if let Some(waker) = sched_waker.lock().take() {
             waker.wake()
         }
