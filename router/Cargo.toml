@@ -49,7 +49,7 @@ stm32f4xx-hal = { version = "0.13.0", features = ["stm32f411", "rt", "usb_fs"] }
 #tinytga = { version = "0.3", features = ["graphics"] }
 
 #embedded-midi = { git = "https://github.com/fralalonde/embedded-midi.git", branch = "main", features = ["defmt"] }
-embedded-midi = { path = "../../embedded-midi", features = ["defmt"] }
+embedded-midi = { path = "../embedded-midi", features = ["defmt"] }
 runtime = { path = "../runtime" }
 
 [[bin]]
