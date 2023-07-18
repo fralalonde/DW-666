@@ -4,11 +4,12 @@ use alloc::sync::Arc;
 use runtime::ExtU32;
 use runtime::SpinMutex;
 
+#[derive(Debug, Default)]
 pub struct Bounce {
     state: Arc<SpinMutex<InnerState>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct InnerState {
     counter: u32,
 }

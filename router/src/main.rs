@@ -53,7 +53,7 @@ pub type Handle = u16;
 pub static NEXT_HANDLE: AtomicU16 = AtomicU16::new(0);
 
 
-use crate::route::{Router, Service};
+use crate::route::{Route, Router, Service};
 use crate::port::serial::SerialMidi;
 
 use crate::apps::blinky_beat::BlinkyBeat;
@@ -107,6 +107,7 @@ use runtime::allocator::CortexMSafeAlloc;
 use runtime::{Local, Shared, spawn};
 use crate::apps::bounce::Bounce;
 use crate::devices::arturia::beatstep::beatstep_control_get;
+use crate::filter::{print_message, print_packets};
 use crate::pac::{CorePeripherals, Peripherals};
 
 pub const CPU_FREQ: u32 = 96_000_000;
@@ -223,9 +224,8 @@ fn main() -> ! {
         &clocks,
     ).unwrap();
     uart2.listen(serial::Event::Rxne);
-
-    PORT_DW6000.init_static(SerialMidi::new(uart2, CableNumber::MIN));
-
+    let dw6000 = SerialMidi::new(uart2, CableNumber::MIN);
+    PORT_DW6000.init_static(dw6000);
     info!("DW6000 MIDI port OK");
 
     let usb = USB {
@@ -251,27 +251,26 @@ fn main() -> ! {
         midi_class,
     });
 
-    // let chaos = nanorand::WyRand::new_seed(0);
-    // info!("Chaos OK");
+    let chaos = nanorand::WyRand::new_seed(0);
+    info!("Chaos OK");
 
-    MIDI_ROUTER.init_static(Router::default());
-    info!("Router OK");
+    let mut midi_router = Router::default();
 
-    // let _usb_echo = midi_router.add_route(
-    //     Route::echo(Interface::USB(0))
-    //         .filter(|_now, cx| print_message(cx)));
+    let _usb_echo = midi_router.add_route(
+        Route::echo(Interface::USB(0))
+            .filter(|cx| print_message(cx)));
 
-    // let _serial_print = midi_router
-    //     .add_route(route::Route::from(DW6000)
-    //         .filter(|cx| filter::print_message(cx)));
+    let _serial_print = midi_router
+        .add_route(route::Route::from(IF_DW6000)
+            .filter(|cx| print_message(cx)));
 
-    // let _usb_print = midi_router.add_route(
-    //     Route::to(Interface::USB(0))
-    //         .filter(|_now, cx| print_packets(cx)));
+    let _usb_print = midi_router.add_route(
+        Route::to(Interface::USB(0))
+            .filter(|cx| print_packets(cx)));
 
-    // let _usb_print_in = midi_router.add_route(
-    //     Route::from(Interface::USB(0))
-    //         .filter(|_now, cx| print_packets(cx)));
+    let _usb_print_in = midi_router.add_route(
+        Route::from(Interface::USB(0))
+            .filter(|cx| print_packets(cx)));
 
     // let _evo_match = midi_router.bind(
     //     Route::from(Interface::Serial(0))
@@ -284,16 +283,20 @@ fn main() -> ! {
     //         .filter(capture_sysex(dsi_evolver::program_parameter_matcher()))
     //         .filter(print_tag())
     // );
-    // let _bstep_2_dw = midi_router.bind(Route::link(Interface::USB, Interface::Serial(0)));
+    let _bstep_2_dw = midi_router.add_route(
+        Route::link(Interface::USB(0), Interface::Serial(0)));
 
-    // let mut dwctrl = Dw6000Control::new((IF_DW6000, channel(1)), (IF_BEATSTEP, channel(1)));
-    // dwctrl.start().unwrap();
+    MIDI_ROUTER.init_static(midi_router);
+    info!("Router OK");
+
+    let mut dwctrl = Dw6000Control::new((IF_DW6000, channel(1)), (IF_BEATSTEP, channel(1)));
+    dwctrl.start().unwrap();
 
     let mut bbeat = BlinkyBeat::new((IF_BEATSTEP, channel(1)), vec![Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
     bbeat.start().unwrap();
 
-    // let mut bounce = Bounce::new();
-    // bounce.start().unwrap();
+    let mut bounce = Bounce::default();
+    bounce.start().unwrap();
 
     runtime::spawn(async {
         loop {

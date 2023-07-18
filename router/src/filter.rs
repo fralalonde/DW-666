@@ -34,7 +34,7 @@ pub fn print_message(context: &mut RouteContext) -> Result<bool, MidiError> {
 }
 
 /// Print packets to the console and continue
-pub fn _print_packets(context: &mut RouteContext) -> Result<bool, MidiError> {
+pub fn print_packets(context: &mut RouteContext) -> Result<bool, MidiError> {
     for p in context.packets.iter() {
         info!("packet {:?}", p);
     }

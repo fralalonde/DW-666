@@ -23,10 +23,8 @@ num = { version = "0.4", default-features = false }
 
 nb = "1"
 bitfield = "0.14.0"
-#async-lock = { path = "../../async-lock", feature = ["alloc"], default-features = false }
 micromath = "1"
-#rtt-target = { version = "0.3", features = ["cortex-m"] }
-#panic-rtt-target = { version = "0.1", features = ["cortex-m"] }
+
 #lvgl = "0.5.2"
 #lvgl = { path = "../../lvgl-rs/lvgl", default-features = false }
 #cstr_core = "0.2"
@@ -34,7 +32,6 @@ micromath = "1"
 #ssd1306 = "0.4"
 
 heapless = "0.7"
-#ufmt = "0.1"
 
 buddy-alloc = "0.4"
 hashbrown = "0.14"
@@ -48,7 +45,6 @@ stm32f4xx-hal = { version = "0.13.0", features = ["stm32f411", "rt", "usb_fs"] }
 #display-interface-spi = "0.4.1"
 #tinytga = { version = "0.3", features = ["graphics"] }
 
-#embedded-midi = { git = "https://github.com/fralalonde/embedded-midi.git", branch = "main", features = ["defmt"] }
 embedded-midi = { path = "../embedded-midi", features = ["defmt"] }
 runtime = { path = "../runtime" }
 
