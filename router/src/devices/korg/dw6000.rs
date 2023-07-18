@@ -94,7 +94,7 @@ pub enum Param {
     Chorus,
 }
 
-#[repr(C, packed)]
+#[repr(C)]
 #[derive(Debug)]
 pub struct Dump {
     pub assign_mode_bend_osc: AssignModeBendOsc,

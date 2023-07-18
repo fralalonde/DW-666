@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 use core::fmt::{Formatter, Pointer};
 use core::future::Future;
-use core::mem::MaybeUninit;
+// use core::mem::MaybeUninit;
 use core::pin::Pin;
 use core::sync::atomic::AtomicU32;
 
@@ -47,11 +47,11 @@ pub fn init(syst: &'static mut SYST) {
 }
 
 pub fn now() -> SysInstant {
-    unsafe { CLOCK.now() }
+    CLOCK.now()
 }
 
 pub fn later(cycles: u64) -> SysInstant {
-    unsafe { CLOCK.later(cycles) }
+    CLOCK.later(cycles)
 }
 
 pub fn now_millis() -> u64 {
@@ -107,7 +107,7 @@ impl SysClock {
 
 #[exception]
 fn SysTick() {
-    unsafe { CLOCK.rollover() };
+    CLOCK.rollover()
 }
 
 // impl<const FREQ: u32> Clock for SysClock<FREQ> {

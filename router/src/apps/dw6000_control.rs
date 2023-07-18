@@ -134,7 +134,7 @@ impl From<Lfo2Dest> for Param {
     }
 }
 
-// #[derive(Debug)]
+#[derive(Debug)]
 struct InnerState {
     dw6000: Endpoint,
     beatstep: Endpoint,

@@ -41,6 +41,17 @@ Number of patches on the DW-6000? **64**
 
 Coincidence? _I think not._
 
+## Building
+
+Requires nightly, just because `#![feature(alloc_error_handler)]` isn't stabilized. 
+See https://github.com/rust-lang/rust/issues/66740
+
+```
+rustup +nightly target add thumbv7em-none-eabihf
+cargo build 
+```
+
+
 ## TODO
 
 - Make it run again, dog magnit!

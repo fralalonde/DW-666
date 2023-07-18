@@ -2,7 +2,7 @@
 
 use embedded_hal::serial::{Write, Read};
 
-use hal::serial::{Event, Pins, Instance};
+use hal::serial::{Event, Instance, Pins};
 
 use heapless::spsc::Queue;
 use midi::{Packet, MidiError, CableNumber, Receive, Transmit, PacketList};
