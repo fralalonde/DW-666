@@ -48,9 +48,14 @@ See https://github.com/rust-lang/rust/issues/66740
 
 ```
 rustup +nightly target add thumbv7em-none-eabihf
-cargo build 
+cargo build
 ```
 
+## Running
+
+``
+probe-run
+``
 
 ## TODO
 
