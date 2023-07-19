@@ -41,21 +41,27 @@ Number of patches on the DW-6000? **64**
 
 Coincidence? _I think not._
 
-## Building
+## Build & Run
 
 Requires nightly, just because `#![feature(alloc_error_handler)]` isn't stabilized. 
 See https://github.com/rust-lang/rust/issues/66740
 
+Have an STLink/v2 or [DAP42](https://github.com/devanlai/dap42) SWD probe connected to the blackpill. 
+
 ```
 rustup +nightly target add thumbv7em-none-eabihf
-cargo build
+cargo run
 ```
 
-## Running
+To fix probe USB permissions, edit udev rules in some file like `/etc/udev/rules.d/50-usb-serial.rules`
 
-``
-probe-run
-``
+```
+# CMSIS-DAP DAP42 probe
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="da42", MODE="0666", SYMLINK+="dap42"
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="3748", MODE="0666"
+```
+
+Then reload the rules with `sudo udevadm control --reload-rules` and _reconnect_ the probe.
 
 ## TODO
 

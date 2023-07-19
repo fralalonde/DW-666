@@ -2,24 +2,24 @@
 
 use embedded_hal::serial::{Write, Read};
 
-use hal::serial::{Event, Instance, Pins};
+use hal::serial::{Event, TxISR, RxISR, CommonPins, Listen};
 
 use heapless::spsc::Queue;
 use midi::{Packet, MidiError, CableNumber, Receive, Transmit, PacketList};
 
-pub struct SerialMidi<UART, PINS> {
-    pub uart: hal::serial::Serial<UART, PINS>,
+pub struct SerialMidi<UART: CommonPins> {
+    pub uart: hal::serial::Serial<UART>,
     pub tx_fifo: Queue<u8, 64>,
     cable_number: CableNumber,
     parser: midi::PacketParser,
     last_status: Option<u8>,
 }
 
-impl<UART, PINS> SerialMidi<UART, PINS> where
-    PINS: Pins<UART>,
-    UART: Instance,
+impl<UART> SerialMidi<UART> where
+    UART: CommonPins,
+    hal::serial::Serial<UART>: TxISR + Write<u8> + Listen,
 {
-    pub fn new(uart: hal::serial::Serial<UART, PINS>, cable_number: CableNumber) -> Self {
+    pub fn new(uart: hal::serial::Serial<UART>, cable_number: CableNumber) -> Self {
         SerialMidi {
             uart,
             tx_fifo: Queue::new(),
@@ -59,9 +59,9 @@ impl<UART, PINS> SerialMidi<UART, PINS> where
     }
 }
 
-impl<UART, PINS> Receive for SerialMidi<UART, PINS> where
-    PINS: Pins<UART>,
-    UART: Instance,
+impl<UART> Receive for SerialMidi<UART> where
+    UART: CommonPins,
+    hal::serial::Serial<UART>: RxISR + Read<u8>,
 {
     fn receive(&mut self) -> Result<Option<Packet>, MidiError> {
         if self.uart.is_rx_not_empty() {
@@ -75,9 +75,9 @@ impl<UART, PINS> Receive for SerialMidi<UART, PINS> where
     }
 }
 
-impl<UART, PINS> Transmit for SerialMidi<UART, PINS> where
-    PINS: Pins<UART>,
-    UART: Instance,
+impl<UART> Transmit for SerialMidi<UART> where
+    UART: CommonPins,
+    hal::serial::Serial<UART>: TxISR + Write<u8> + Listen,
 {
     fn transmit(&mut self, packets: PacketList) -> Result<(), MidiError> {
         for packet in packets.iter() {

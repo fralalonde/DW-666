@@ -130,15 +130,15 @@ static ONBOARD_LED: Shared<PC13<Output<PushPull>>> = Shared::uninit("LED");
 static MIDI_ROUTER: Shared<route::Router> = Shared::uninit("ROUTER");
 
 static PORT_USB_MIDI: Shared<port::usb::UsbMidi> = Shared::uninit("USB_MIDI");
-static PORT_BEATSTEP: Shared<SerialMidi<pac::USART1, (PB6<AF7>, PB7<AF7>)>> = Shared::uninit("UART1_MIDI");
-static PORT_DW6000: Shared<SerialMidi<pac::USART2, (PA2<AF7>, PA3<AF7>)>> = Shared::uninit("UART2_MIDI");
+static PORT_BEATSTEP: Shared<SerialMidi<pac::USART1>> = Shared::uninit("UART1_MIDI");
+static PORT_DW6000: Shared<SerialMidi<pac::USART2>> = Shared::uninit("UART2_MIDI");
 
 // display: gui::Display<Ili9341<SPIInterface<Spi<hal::stm32::SPI1, (PA5<Alternate<hal::gpio::AF5>>, NoMiso, PA7<Alternate<hal::gpio::AF5>>)>, PB0<Output<PushPull>>, PA4<Output<PushPull>>>, PA6<Output<PushPull>>>, Rgb565>,
 
 #[entry]
 fn main() -> ! {
-    let mut dev = Peripherals::take().unwrap();
-    let mut core = CORE.init_static(CorePeripherals::take().unwrap());
+    let dev = Peripherals::take().unwrap();
+    let core = CORE.init_static(CorePeripherals::take().unwrap());
 
     info!("Initializing");
 
@@ -201,8 +201,8 @@ fn main() -> ! {
 
     info!("Screen OK");
 
-    let bs_tx = gpiob.pb6.into_alternate();
-    let bs_rx = gpiob.pb7.into_alternate();
+    let bs_tx = gpiob.pb6;
+    let bs_rx = gpiob.pb7;
     let mut uart1 = dev.USART1.serial(
         (bs_tx, bs_rx),
         serial::config::Config::default()
@@ -215,8 +215,8 @@ fn main() -> ! {
 
     info!("BeatStep MIDI port OK");
 
-    let dw_tx = gpioa.pa2.into_alternate();
-    let dw_rx = gpioa.pa3.into_alternate();
+    let dw_tx = gpioa.pa2;
+    let dw_rx = gpioa.pa3;
     let mut uart2 = dev.USART2.serial(
         (dw_tx, dw_rx),
         serial::config::Config::default()
@@ -228,14 +228,12 @@ fn main() -> ! {
     PORT_DW6000.init_static(dw6000);
     info!("DW6000 MIDI port OK");
 
-    let usb = USB {
-        usb_global: dev.OTG_FS_GLOBAL,
-        usb_device: dev.OTG_FS_DEVICE,
-        usb_pwrclk: dev.OTG_FS_PWRCLK,
-        pin_dm: gpioa.pa11.into_alternate(),
-        pin_dp: gpioa.pa12.into_alternate(),
-        hclk: clocks.hclk(),
-    };
+
+    let usb = USB::new(
+        (dev.OTG_FS_GLOBAL, dev.OTG_FS_DEVICE, dev.OTG_FS_PWRCLK),
+        (gpioa.pa11, gpioa.pa12),
+        &clocks,
+    );
 
     let ep_memory = USB_EP_MEMORY.init_static([0; 1024]);
     USB_BUS.init_static(UsbBus::new(usb, ep_memory));
