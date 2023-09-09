@@ -144,16 +144,6 @@ pub fn delay(duration: SysDuration) -> AsyncDelay {
     delay_until(due_time)
 }
 
-// pub fn delay_us(duration: u32) -> AsyncDelay {
-//     let due_time = now() + Microseconds(duration);
-//     delay_until(due_time)
-// }
-//
-// pub fn delay_ns(duration: u32) -> AsyncDelay {
-//     let due_time = now() + Nanoseconds(duration);
-//     delay_until(due_time)
-// }
-
 pub fn delay_cycles(duration: u64) -> AsyncDelay {
     let due_time = later(duration);
     delay_until(due_time)
@@ -162,7 +152,7 @@ pub fn delay_cycles(duration: u64) -> AsyncDelay {
 pub fn delay_until(due_time: SysInstant) -> AsyncDelay {
     let waker: Arc<SpinMutex<Option<Waker>>> = Arc::new(SpinMutex::new(None));
     let sched_waker = waker.clone();
-    schedule_at(due_time, move |time| {
+    schedule_at(due_time, move |_time| {
         if let Some(waker) = sched_waker.lock().take() {
             waker.wake()
         }

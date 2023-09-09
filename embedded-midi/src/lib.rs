@@ -8,7 +8,7 @@ use heapless::Vec;
 #[cfg(feature = "usb")]
 use usb_device::UsbError;
 
-pub use message::{Message, note_off, note_on, program_change};
+pub use message::{MidiMessage, note_off, note_on, program_change};
 pub use note::Note;
 pub use packet::{CableNumber, CodeIndexNumber, Packet};
 
@@ -36,13 +36,13 @@ mod ports;
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// MIDI channel, stored as 0-15
-pub struct Channel(pub u8);
+pub struct MidiChannel(pub u8);
 
 /// "Natural" channel builder, takes integers 1-16 as input, wraparound
 /// FIXME rollover fails in checked builds!
-pub fn channel(ch: impl Into<u8>) -> Channel {
+pub fn channel(ch: impl Into<u8>) -> MidiChannel {
     let ch = (ch.into() - 1).min(15);
-    Channel(ch)
+    MidiChannel(ch)
 }
 
 pub type Velocity = U7;
@@ -52,33 +52,36 @@ pub type Program = U7;
 pub type Bend = U14;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum Interface {
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum MidiInterface {
     USB(u8),
     Serial(u8),
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum Binding {
-    Src(Interface),
-    Dst(Interface),
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum MidiBinding {
+    Src(MidiInterface),
+    Dst(MidiInterface),
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct Endpoint {
-    pub interface: Interface,
-    pub channel: Channel,
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct MidiEndpoint {
+    pub interface: MidiInterface,
+    pub channel: MidiChannel,
 }
 
-impl From<(Interface, Channel)> for Endpoint {
-    fn from(pa: (Interface, Channel)) -> Self {
-        Endpoint { interface: pa.0, channel: pa.1 }
+impl From<(MidiInterface, MidiChannel)> for MidiEndpoint {
+    fn from(pa: (MidiInterface, MidiChannel)) -> Self {
+        MidiEndpoint { interface: pa.0, channel: pa.1 }
     }
 }
 
 const MAX_PACKETS: usize = 16;
 
 #[derive(Default, Debug, Clone)]
-pub struct PacketList(Vec<Packet, MAX_PACKETS>);
+pub struct PacketList(pub Vec<Packet, MAX_PACKETS>);
 
 impl Deref for PacketList {
     type Target = Vec<Packet, MAX_PACKETS>;
@@ -106,6 +109,7 @@ impl FromIterator<Packet> for PacketList {
     }
 }
 
+
 impl PacketList {
     pub fn single(packet: Packet) -> Self {
         let mut list = Vec::new();
@@ -125,7 +129,6 @@ pub trait Receive {
 
 /// Send a list of packets
 pub trait Transmit {
-    // fn is_tx_full(&self) -> bool;
     fn transmit(&mut self, packet: PacketList) -> Result<(), MidiError>;
 }
 
@@ -153,6 +156,7 @@ pub enum MidiError {
     TooManyPorts,
     InvalidPort,
     DroppedPacket,
+    UnknownInterface(MidiInterface),
 }
 
 #[cfg(feature = "usb")]
@@ -176,15 +180,15 @@ impl From<TryFromSliceError> for MidiError {
 }
 
 /// RTIC spawn error
-impl From<(Binding, PacketList)> for MidiError {
-    fn from(_: (Binding, PacketList)) -> Self {
+impl From<(MidiBinding, PacketList)> for MidiError {
+    fn from(_: (MidiBinding, PacketList)) -> Self {
         MidiError::DroppedPacket
     }
 }
 
 /// RTIC spawn error
-impl From<(Interface, PacketList)> for MidiError {
-    fn from(_: (Interface, PacketList)) -> Self {
+impl From<(MidiInterface, PacketList)> for MidiError {
+    fn from(_: (MidiInterface, PacketList)) -> Self {
         MidiError::DroppedPacket
     }
 }

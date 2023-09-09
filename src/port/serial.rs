@@ -5,12 +5,13 @@ use embedded_hal::serial::{Write, Read};
 use hal::serial::{Event, TxISR, RxISR, CommonPins, Listen};
 
 use heapless::spsc::Queue;
-use midi::{Packet, MidiError, CableNumber, Receive, Transmit, PacketList};
+use midi::{Packet, MidiError, Receive, Transmit, PacketList};
+
+// TODO use DMA? https://github.com/stm32-rs/stm32f4xx-hal/blob/master/examples/rtic-serial-dma-rx-idle.rs
 
 pub struct SerialMidi<UART: CommonPins> {
     pub uart: hal::serial::Serial<UART>,
     pub tx_fifo: Queue<u8, 64>,
-    cable_number: CableNumber,
     parser: midi::PacketParser,
     last_status: Option<u8>,
 }
@@ -19,11 +20,10 @@ impl<UART> SerialMidi<UART> where
     UART: CommonPins,
     hal::serial::Serial<UART>: TxISR + Write<u8> + Listen,
 {
-    pub fn new(uart: hal::serial::Serial<UART>, cable_number: CableNumber) -> Self {
+    pub fn new(uart: hal::serial::Serial<UART>) -> Self {
         SerialMidi {
             uart,
             tx_fifo: Queue::new(),
-            cable_number,
             parser: midi::PacketParser::default(),
             last_status: None,
         }
@@ -68,7 +68,7 @@ impl<UART> Receive for SerialMidi<UART> where
             let byte = self.uart.read()?;
             let packet = self.parser.advance(byte)?;
             if let Some(packet) = packet {
-                return Ok(Some(packet.with_cable_num(self.cable_number)));
+                return Ok(Some(packet.with_cable_num(1)));
             }
         }
         Ok(None)
@@ -82,8 +82,9 @@ impl<UART> Transmit for SerialMidi<UART> where
     fn transmit(&mut self, packets: PacketList) -> Result<(), MidiError> {
         for packet in packets.iter() {
             let mut payload = packet.payload();
-            // Apply MIDI "running status"
+
             if midi::is_channel_status(payload[0]) {
+                // Apply MIDI "running status"
                 if let Some(last_status) = self.last_status {
                     if payload[0] == last_status {
                         // same status as last time, chop out status byte
@@ -103,5 +104,3 @@ impl<UART> Transmit for SerialMidi<UART> where
         Ok(())
     }
 }
-
-

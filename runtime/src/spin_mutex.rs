@@ -14,7 +14,6 @@ use core::{
 use core::sync::atomic::{AtomicBool, Ordering};
 use crate::relax::{RelaxStrategy, Spin};
 
-
 pub struct SpinMutex<T: ?Sized, R = Spin> {
     phantom: PhantomData<R>,
     pub(crate) lock: AtomicBool,

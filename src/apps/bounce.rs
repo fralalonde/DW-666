@@ -1,34 +1,24 @@
-use midi::{MidiError};
-use crate::{route};
-use alloc::sync::Arc;
-use runtime::ExtU32;
-use runtime::SpinMutex;
+use runtime::{ExtU32, Local};
 
 #[derive(Debug, Default)]
-pub struct Bounce {
-    state: Arc<SpinMutex<InnerState>>,
-}
-
-#[derive(Debug, Default)]
-struct InnerState {
+struct BounceApp {
     counter: u32,
 }
 
-impl InnerState {}
+impl BounceApp {}
 
-impl route::Service for Bounce {
-    fn start(&mut self) -> Result<(), MidiError> {
-        let state = self.state.clone();
-        runtime::spawn(async move {
-            loop {
-                let mut state = state.lock();
-                // midisplay::spawn(format!("{}", state.counter)).unwrap();
-                state.counter += 1;
-                if runtime::delay(1000.millis()).await.is_err() {break}
-            }
-        });
+static BOUNCE: Local<BounceApp> = Local::uninit("BOUNCE");
 
-        info!("Bounce Active");
-        Ok(())
-    }
+pub fn start_app() {
+    BOUNCE.init_static(BounceApp { counter: 0 });
+
+    runtime::spawn(async move {
+        loop {
+            // midisplay::spawn(format!("{}", state.counter)).unwrap();
+            unsafe { BOUNCE.raw_mut() }.counter += 1;
+            if runtime::delay(1000.millis()).await.is_err() {break}
+        }
+    });
+
+    info!("Bounce Active");
 }

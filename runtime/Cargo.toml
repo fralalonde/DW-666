@@ -21,4 +21,5 @@ cortex-m-rt = "0.7"
 heapless  = "0.7"
 
 hash32 = "0.2.1"
-buddy-alloc = "0.4"
+buddy-alloc = "0.5"
+slotmap = { version = "1.0", default-features = false }

@@ -1,7 +1,7 @@
 use num_enum::UnsafeFromPrimitive;
 use core::convert::TryFrom;
 use crate::status::Status::*;
-use crate::{Message, MidiError};
+use crate::{MidiMessage, MidiError};
 use crate::status::Status::{SongSelect, NoteOff, NoteOn, NotePressure};
 
 pub const NOTE_OFF: u8 = 0x80;
@@ -69,27 +69,27 @@ pub enum Status {
     SystemReset = SYSTEM_RESET,
 }
 
-pub fn status_byte(msg: &Message) -> Option<u8> {
+pub fn status_byte(msg: &MidiMessage) -> Option<u8> {
     match msg {
-        Message::NoteOff(ch, ..) => Some(Status::NoteOff as u8 + ch.0),
-        Message::NoteOn(ch, ..) => Some(Status::NoteOn as u8 + ch.0),
-        Message::NotePressure(ch, ..) => Some(Status::NotePressure as u8 + ch.0),
-        Message::ChannelPressure(ch, ..) => Some(Status::ChannelPressure as u8 + ch.0),
-        Message::ProgramChange(ch, ..) => Some(Status::ProgramChange as u8 + ch.0),
-        Message::ControlChange(ch, ..) => Some(Status::ControlChange as u8 + ch.0),
-        Message::PitchBend(ch, ..) => Some(Status::PitchBend as u8 + ch.0),
+        MidiMessage::NoteOff(ch, ..) => Some(Status::NoteOff as u8 + ch.0),
+        MidiMessage::NoteOn(ch, ..) => Some(Status::NoteOn as u8 + ch.0),
+        MidiMessage::NotePressure(ch, ..) => Some(Status::NotePressure as u8 + ch.0),
+        MidiMessage::ChannelPressure(ch, ..) => Some(Status::ChannelPressure as u8 + ch.0),
+        MidiMessage::ProgramChange(ch, ..) => Some(Status::ProgramChange as u8 + ch.0),
+        MidiMessage::ControlChange(ch, ..) => Some(Status::ControlChange as u8 + ch.0),
+        MidiMessage::PitchBend(ch, ..) => Some(Status::PitchBend as u8 + ch.0),
 
-        Message::TimeCodeQuarterFrame(_) => Some(Status::TimeCodeQuarterFrame as u8),
-        Message::SongPositionPointer(_, _) => Some(Status::SongPositionPointer as u8),
-        Message::SongSelect(_) => Some(Status::SongSelect as u8),
-        Message::TuneRequest => Some(Status::TuneRequest as u8),
-        Message::TimingClock => Some(Status::TimingClock as u8),
-        Message::Start => Some(Status::Start as u8),
-        Message::Continue => Some(Status::Continue as u8),
-        Message::Stop => Some(Status::Stop as u8),
-        Message::ActiveSensing => Some(Status::ActiveSensing as u8),
-        Message::SystemReset => Some(Status::SystemReset as u8),
-        Message::MeasureEnd(_) => Some(Status::MeasureEnd as u8),
+        MidiMessage::TimeCodeQuarterFrame(_) => Some(Status::TimeCodeQuarterFrame as u8),
+        MidiMessage::SongPositionPointer(_, _) => Some(Status::SongPositionPointer as u8),
+        MidiMessage::SongSelect(_) => Some(Status::SongSelect as u8),
+        MidiMessage::TuneRequest => Some(Status::TuneRequest as u8),
+        MidiMessage::TimingClock => Some(Status::TimingClock as u8),
+        MidiMessage::Start => Some(Status::Start as u8),
+        MidiMessage::Continue => Some(Status::Continue as u8),
+        MidiMessage::Stop => Some(Status::Stop as u8),
+        MidiMessage::ActiveSensing => Some(Status::ActiveSensing as u8),
+        MidiMessage::SystemReset => Some(Status::SystemReset as u8),
+        MidiMessage::MeasureEnd(_) => Some(Status::MeasureEnd as u8),
         _ => None,
     }
 }

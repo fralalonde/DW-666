@@ -4,12 +4,12 @@
 
 #![allow(unused)]
 #![allow(clippy::upper_case_acronyms)]
-use midi::{U7, U4, Note, Program, Control, Channel, MidiError};
+use midi::{U7, U4, Note, Program, Control, MidiChannel, MidiError};
 use alloc::vec::Vec;
 
 use crate::sysex::Token::{Seq, Cap, Val};
 use crate::sysex::Tag::*;
-use crate::sysex::Sysex;
+use crate::sysex::SysexSeq;
 use crate::sysex;
 
 const ID_FORMAT: u8 = 0x40;
@@ -37,8 +37,8 @@ const BEATSTEP: &[u8] = &[0x6B, 0x7F];
 //     Sysex::new(vec![Seq(DATA_HEADER), Buf(dump)])
 // }
 
-fn parameter_set(param: u8, control: u8, value: u8) -> Sysex {
-    Sysex::new(vec![Seq(ARTURIA), Seq(BEATSTEP), Seq(&[0x42, 0x02, 0x00]), Val(param), Val(control), Val(value)])
+fn parameter_set(param: u8, control: u8, value: u8) -> SysexSeq {
+    SysexSeq::new(vec![Seq(ARTURIA), Seq(BEATSTEP), Seq(&[0x42, 0x02, 0x00]), Val(param), Val(control), Val(value)])
 }
 
 const MODE: u8 = 0x01;
@@ -48,7 +48,7 @@ const STEP_NOTE: u8 = 0x52;
 const STEP_ENABLED: u8 = 0x53;
 const SEQ: u8 = 0x50;
 
-pub fn beatstep_set(param: Param) -> Vec<Sysex> {
+pub fn beatstep_set(param: Param) -> Vec<SysexSeq> {
     match param {
         Param::PadOff(pad) =>
             vec![parameter_set(MODE, pad.control_code(), PadMode::Off as u8)],
@@ -163,12 +163,12 @@ pub fn beatstep_set(param: Param) -> Vec<Sysex> {
     }
 }
 
-pub fn beatstep_control_get(param: u8, control: u8) -> Sysex {
-    Sysex::new(vec![Seq(ARTURIA), Seq(BEATSTEP), Seq(&[0x42, 0x01, 0x00]), Val(param), Val(control)])
+pub fn beatstep_control_get(param: u8, control: u8) -> SysexSeq {
+    SysexSeq::new(vec![Seq(ARTURIA), Seq(BEATSTEP), Seq(&[0x42, 0x01, 0x00]), Val(param), Val(control)])
 }
 
-pub fn parameter_match() -> sysex::Matcher {
-    sysex::Matcher::new(vec![Seq(ARTURIA), Seq(BEATSTEP), Cap(ValueU7), Cap(ValueU7), Cap(ValueU7)])
+pub fn parameter_match() -> sysex::SysexMatcher {
+    sysex::SysexMatcher::new(vec![Seq(ARTURIA), Seq(BEATSTEP), Cap(ValueU7), Cap(ValueU7), Cap(ValueU7)])
 }
 
 #[derive(Debug)]
@@ -318,23 +318,23 @@ pub enum SeqLegato {
 pub enum Param {
     PadOff(Pad),
     PadMMC(Pad, MMC),
-    PadCC(Pad, Channel, Control, OnValue, OffValue, SwitchMode),
-    PadCCSilent(Pad, Channel, Control, OnValue, OffValue, SwitchMode),
-    PadNote(Pad, Channel, Note, SwitchMode),
-    PadProgramChange(Pad, Channel, Program, BankLSB, BankMSB),
+    PadCC(Pad, MidiChannel, Control, OnValue, OffValue, SwitchMode),
+    PadCCSilent(Pad, MidiChannel, Control, OnValue, OffValue, SwitchMode),
+    PadNote(Pad, MidiChannel, Note, SwitchMode),
+    PadProgramChange(Pad, MidiChannel, Program, BankLSB, BankMSB),
 
     KnobOff(Encoder),
-    KnobCC(Encoder, Channel, Control, Minimum, Maximum, Behavior),
-    KnobNRPN(Encoder, Channel, Granularity, BankLSB, BankMSB, NRPNType),
+    KnobCC(Encoder, MidiChannel, Control, Minimum, Maximum, Behavior),
+    KnobNRPN(Encoder, MidiChannel, Granularity, BankLSB, BankMSB, NRPNType),
 
-    GlobalMidiChannel(Channel),
-    CVGateChannel(Channel),
+    GlobalMidiChannel(MidiChannel),
+    CVGateChannel(MidiChannel),
     KnobAcceleration(Acceleration),
     PadVelocityCurve(VelocityCurve),
 
     StepNote(StepNum, Note),
     StepEnabled(StepNum, bool),
-    SeqChannel(Channel),
+    SeqChannel(MidiChannel),
     SeqTranspose(SeqTranspose),
     SeqScale(SeqScale),
     SeqMode(SeqMode),

@@ -3,6 +3,8 @@
 
 #![feature(slice_as_chunks)]
 #![feature(alloc_error_handler)]
+#![feature(async_closure)]
+#![feature(async_fn_in_trait)]
 
 #[macro_use]
 extern crate runtime;
@@ -26,7 +28,7 @@ extern crate stm32f4xx_hal as hal;
 mod devices;
 mod apps;
 // mod display;
-mod route;
+
 mod filter;
 mod sysex;
 mod port;
@@ -34,8 +36,13 @@ mod port;
 #[macro_use]
 extern crate alloc;
 
+// 16k fast Heap
 const FAST_HEAP_SIZE: usize = 16 * 1024;
+
+// 32k slow heap
 const HEAP_SIZE: usize = 32 * 1024;
+
+// 16 bytes leaf
 const LEAF_SIZE: usize = 16;
 
 pub static mut FAST_HEAP: [u8; FAST_HEAP_SIZE] = [0u8; FAST_HEAP_SIZE];
@@ -52,20 +59,14 @@ pub type Handle = u16;
 
 pub static NEXT_HANDLE: AtomicU16 = AtomicU16::new(0);
 
-
-use crate::route::{Route, Router, Service};
-use crate::port::serial::SerialMidi;
-
-use crate::apps::blinky_beat::BlinkyBeat;
-use crate::apps::dw6000_control::Dw6000Control;
+use crate::port::serial::{SerialMidi};
 
 // use crate::display::gui::{self, Display};
 
-use midi::{Receive, Transmit};
+use midi::{MidiError, Receive, Transmit};
 use usb_device::bus;
 
-use midi::{CableNumber, Interface, Binding, channel, Note, PacketList};
-use Binding::{Src};
+use midi::{MidiInterface, MidiBinding, channel, Note, PacketList};
 
 // use ili9341::Ili9341;
 // use display_interface_spi::SPIInterface;
@@ -79,7 +80,7 @@ use Binding::{Src};
 
 use hal::pac;
 
-use runtime::ExtU32;
+use runtime::{ExtU32};
 
 use hal::{
     // bring in .khz(), .mhz()
@@ -98,25 +99,17 @@ use hal::{
 };
 
 use alloc::string::String;
-use core::alloc::Layout;
-use core::ops::DerefMut;
-use cortex_m::asm;
+
 use hal::{interrupt};
-use hal::gpio::AF7;
+
 use runtime::allocator::CortexMSafeAlloc;
 use runtime::{Local, Shared, spawn};
-use crate::apps::bounce::Bounce;
-use crate::devices::arturia::beatstep::beatstep_control_get;
+use crate::apps::{blinky_beat, bounce, dw6_control};
+
 use crate::filter::{print_message, print_packets};
 use crate::pac::{CorePeripherals, Peripherals};
 
 pub const CPU_FREQ: u32 = 96_000_000;
-
-// pub const CYCLES_PER_MICROSEC: u32 = CPU_FREQ / 1_000_000;
-// pub const CYCLES_PER_MILLISEC: u32 = CPU_FREQ / 1_000;
-
-const IF_DW6000: Interface = Interface::Serial(0);
-const IF_BEATSTEP: Interface = Interface::Serial(1);
 
 static CORE: Local<CorePeripherals> = Local::uninit("CORE");
 
@@ -127,11 +120,13 @@ static CHAOS: Shared<nanorand::WyRand> = Shared::uninit("RANDOM");
 
 static ONBOARD_LED: Shared<PC13<Output<PushPull>>> = Shared::uninit("LED");
 
-static MIDI_ROUTER: Shared<route::Router> = Shared::uninit("ROUTER");
+static MIDI_USB_1_RX: Local<fn(PacketList)> = Local::uninit("MIDI_USB_1_RX");
+static MIDI_DIN_1_RX: Local<fn(PacketList)> = Local::uninit("MIDI_DIN_1_RX");
+static MIDI_DIN_2_RX: Local<fn(PacketList)> = Local::uninit("MIDI_DIN_2_RX");
 
-static PORT_USB_MIDI: Shared<port::usb::UsbMidi> = Shared::uninit("USB_MIDI");
-static PORT_BEATSTEP: Shared<SerialMidi<pac::USART1>> = Shared::uninit("UART1_MIDI");
-static PORT_DW6000: Shared<SerialMidi<pac::USART2>> = Shared::uninit("UART2_MIDI");
+static MIDI_USB_1_PORT: Local<port::usb::UsbMidi> = Local::uninit("MIDI_USB_1_PORT");
+static MIDI_DIN_1_PORT: Local<SerialMidi<pac::USART1>> = Local::uninit("MIDI_DIN_1_PORT");
+static MIDI_DIN_2_PORT: Local<SerialMidi<pac::USART2>> = Local::uninit("MIDI_DIN_2_PORT");
 
 // display: gui::Display<Ili9341<SPIInterface<Spi<hal::stm32::SPI1, (PA5<Alternate<hal::gpio::AF5>>, NoMiso, PA7<Alternate<hal::gpio::AF5>>)>, PB0<Output<PushPull>>, PA4<Output<PushPull>>>, PA6<Output<PushPull>>>, Rgb565>,
 
@@ -139,8 +134,6 @@ static PORT_DW6000: Shared<SerialMidi<pac::USART2>> = Shared::uninit("UART2_MIDI
 fn main() -> ! {
     let dev = Peripherals::take().unwrap();
     let core = CORE.init_static(CorePeripherals::take().unwrap());
-
-    info!("Initializing");
 
     core.DCB.enable_trace();
     core.DWT.enable_cycle_counter();
@@ -171,8 +164,6 @@ fn main() -> ! {
     // oled.init().unwrap();
     //
     // display::draw_logo(&mut oled).unwrap();
-
-    // let mut delay = CortexDelay {};
 
     // let sclk = gpioa.pa5.into_alternate_af5();
     // // let miso = gpioa.pa6.into_alternate_af5();
@@ -206,14 +197,14 @@ fn main() -> ! {
     let mut uart1 = dev.USART1.serial(
         (bs_tx, bs_rx),
         serial::config::Config::default()
-            .baudrate(921600.bps()),
+            // high-speed MIDI coprocessor link
+            // https://github.com/gdsports/usbhostcopro
+            .baudrate(115200.bps()),
         &clocks,
     ).unwrap();
     uart1.listen(serial::Event::Rxne);
-
-    PORT_BEATSTEP.init_static(SerialMidi::new(uart1, CableNumber::MIN));
-
-    info!("BeatStep MIDI port OK");
+    MIDI_DIN_1_PORT.init_static(SerialMidi::new(uart1));
+    info!("OK: SerialMidi 1");
 
     let dw_tx = gpioa.pa2;
     let dw_rx = gpioa.pa3;
@@ -224,10 +215,8 @@ fn main() -> ! {
         &clocks,
     ).unwrap();
     uart2.listen(serial::Event::Rxne);
-    let dw6000 = SerialMidi::new(uart2, CableNumber::MIN);
-    PORT_DW6000.init_static(dw6000);
-    info!("DW6000 MIDI port OK");
-
+    MIDI_DIN_2_PORT.init_static(SerialMidi::new(uart2));
+    info!("OK: SerialMidi 2");
 
     let usb = USB::new(
         (dev.OTG_FS_GLOBAL, dev.OTG_FS_DEVICE, dev.OTG_FS_PWRCLK),
@@ -242,61 +231,67 @@ fn main() -> ! {
     // USB devices init _after_ classes
     let usb_dev = port::usb::usb_device(&USB_BUS);
 
-    info!("USB dev OK");
+    info!("OK: USB MIDI Device");
 
-    PORT_USB_MIDI.init_static(port::usb::UsbMidi {
+    MIDI_USB_1_PORT.init_static(port::usb::UsbMidi {
         dev: usb_dev,
         midi_class,
     });
 
     let chaos = nanorand::WyRand::new_seed(0);
-    info!("Chaos OK");
+    info!("OK: Chaos");
 
-    let mut midi_router = Router::default();
+    /*    let mut midi_router = Router::default();
 
-    let _usb_echo = midi_router.add_route(
-        Route::echo(Interface::USB(0))
-            .filter(|cx| print_message(cx)));
+        let _usb_echo = midi_router
+            .echo(MidiInterface::USB(0))
+            .filter(|cx| print_message(cx))
+            .add();
 
-    let _serial_print = midi_router
-        .add_route(route::Route::from(IF_DW6000)
-            .filter(|cx| print_message(cx)));
+        let _serial_print = midi_router
+            .from(IF_DW6000)
+            .filter(|cx| print_message(cx))
+            .add();
 
-    let _usb_print = midi_router.add_route(
-        Route::to(Interface::USB(0))
-            .filter(|cx| print_packets(cx)));
+        let _usb_print = midi_router
+            .to(MidiInterface::USB(0))
+            .filter(|cx| print_packets(cx))
+            .add();
 
-    let _usb_print_in = midi_router.add_route(
-        Route::from(Interface::USB(0))
-            .filter(|cx| print_packets(cx)));
+        let _usb_print_in = midi_router
+            .from(MidiInterface::USB(0))
+            .filter(|cx| print_packets(cx))
+            .add();*/
 
-    // let _evo_match = midi_router.bind(
-    //     Route::from(Interface::Serial(0))
-    //         .filter(SysexCapture(dsi_evolver::program_parameter_matcher()))
-    //         .filter(PrintTags)
-    // );
+    // let _evo_match = midi_router
+    //     .from(MidiInterface::Serial(0))
+    //     .filter(SysexCapture(dsi_evolver::program_parameter_matcher()))
+    //     .filter(PrintTags)
+    //     .add();
+    //
+    // let _evo_match = midi_router
+    //     .from(MidiInterface::Serial(0))
+    //     .filter(capture_sysex(dsi_evolver::program_parameter_matcher()))
+    //     .filter(print_tag())
+    //     .add();
 
-    // let _evo_match = midi_router.bind(
-    //     Route::from(Interface::Serial(0))
-    //         .filter(capture_sysex(dsi_evolver::program_parameter_matcher()))
-    //         .filter(print_tag())
-    // );
-    let _bstep_2_dw = midi_router.add_route(
-        Route::link(Interface::USB(0), Interface::Serial(0)));
+    // let _bstep_2_dw = midi_router
+    //     .link(MidiInterface::USB(0), MidiInterface::Serial(0))
+    //     .add();
 
-    MIDI_ROUTER.init_static(midi_router);
+    // let mut init_ctx = InitContext {
+    //     din_1_dispatch: PacketDispatch::new(MidiInterface::Serial(0)),
+    //     din_2_dispatch: PacketDispatch::new(MidiInterface::Serial(1)),
+    //     usb_1_dispatch: PacketDispatch::new(MidiInterface::USB(0)),
+    // };
+
     info!("Router OK");
 
-    let mut dwctrl = Dw6000Control::new((IF_DW6000, channel(1)), (IF_BEATSTEP, channel(1)));
-    dwctrl.start().unwrap();
+    dw6_control::start_app();
+    bounce::start_app();
+    blinky_beat::start_app(channel(1), &[Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
 
-    let mut bbeat = BlinkyBeat::new((IF_BEATSTEP, channel(1)), vec![Note::C1m, Note::Cs1m, Note::B1m, Note::G0]);
-    bbeat.start().unwrap();
-
-    let mut bounce = Bounce::default();
-    bounce.start().unwrap();
-
-    runtime::spawn(async {
+    spawn(async {
         loop {
             let mut led = ONBOARD_LED.lock().await;
             led.toggle();
@@ -304,12 +299,6 @@ fn main() -> ! {
             if runtime::delay(500.millis()).await.is_err() { break; }
         }
     });
-
-    // runtime::repeat(500, |now| {
-    //         let mut led = ONBOARD_LED.lock().await;
-    //         led.toggle();
-    //         info!("BLINK");
-    //     });
 
     unsafe {
         core.NVIC.set_priority(pac::Interrupt::USART1, 3);
@@ -326,138 +315,103 @@ fn main() -> ! {
     }
 
     loop {
-        // // wake up
+        // wake up
         runtime::run_scheduled();
-        // // do things
+        // do things
         runtime::process_queue();
         // breathe?
-        // cortex_m::asm::delay(256);
+        // TODO sleep until next scheduled task
+        cortex_m::asm::delay(256);
     }
 }
-
-// #[idle(shared = [on_board_led])]
-// fn idle(mut cx: idle::Context) -> ! {
-//
-// }
 
 /// USB polling required every 0.125 millisecond
 // #[task(binds = OTG_FS_WKUP, shared = [usb_midi], priority = 3)]
 #[interrupt]
 unsafe fn OTG_FS_WKUP() {
     pac::NVIC::mask(pac::Interrupt::OTG_FS_WKUP);
-    spawn(async {
-        let mut usb = PORT_USB_MIDI.lock().await;
-        usb.poll();
-        pac::NVIC::unmask(pac::Interrupt::OTG_FS_WKUP);
-    })
+
+    // let cs = unsafe { critical_section::CriticalSection::new() };
+    let mut usb = unsafe { MIDI_USB_1_PORT.raw_mut() };
+    usb.poll();
+
+    pac::NVIC::unmask(pac::Interrupt::OTG_FS_WKUP);
 }
 
 /// USB receive interrupt
 /// Using LOWER priority to backoff on USB reception if Serial queues not emptying fast enough
-// #[task(binds = OTG_FS, shared = [usb_midi], priority = 3)]
 #[interrupt]
 unsafe fn OTG_FS() {
     pac::NVIC::mask(pac::Interrupt::OTG_FS);
     // poll() is also required here else receive may block forever
-    spawn(async {
-        let mut usb_midi = PORT_USB_MIDI.lock().await;
-        if usb_midi.poll() {
-            while let Some(packet) = usb_midi.receive().unwrap() {
-                midi_route(Src(IF_BEATSTEP), PacketList::single(packet)).await;
-            }
+    let mut usb = unsafe { MIDI_USB_1_PORT.raw_mut() };
+    if usb.poll() {
+        while let Some(packet) = usb.receive().unwrap() {
+            // TODO passthru?
         }
-        pac::NVIC::unmask(pac::Interrupt::OTG_FS);
-    })
+    }
+    pac::NVIC::unmask(pac::Interrupt::OTG_FS);
 }
 
-/// Serial receive interrupt
-// #[task(binds = USART1, shared = [beatstep], priority = 3)]
 #[interrupt]
 unsafe fn USART1() {
     pac::NVIC::mask(pac::Interrupt::USART1);
-    spawn(async {
-        let mut bstep = PORT_BEATSTEP.lock().await;
-        bstep.flush().unwrap();
-        loop {
-            match bstep.receive() {
-                Ok(Some(packet)) => {
-                    debug!("MIDI from beatstep {:?}", packet);
-                    midi_route(Src(IF_BEATSTEP), PacketList::single(packet)).await;
-                    continue;
-                }
-                Err(e) => {
-                    warn!("Error serial read {:?}", e);
-                    break;
-                }
-                _ => { break; }
+
+    let bstep = unsafe { MIDI_DIN_1_PORT.raw_mut() };
+
+    bstep.flush().unwrap();
+    loop {
+        match bstep.receive() {
+            Ok(Some(packet)) => {
+                debug!("MIDI from beatstep {:?}", packet);
+                (MIDI_DIN_1_RX)(PacketList::single(packet));
+                continue;
             }
+            Err(e) => {
+                warn!("Error serial read {:?}", e);
+                break;
+            }
+            _ => { break; }
         }
-        pac::NVIC::unmask(pac::Interrupt::USART1);
-    });
+    }
+    pac::NVIC::unmask(pac::Interrupt::USART1);
 }
 
-/// Serial receive interrupt
-// #[task(binds = USART2, shared = [dw6000], priority = 3)]
 #[interrupt]
 unsafe fn USART2() {
     pac::NVIC::mask(pac::Interrupt::USART2);
-    spawn(async {
-        let mut dw6000 = PORT_DW6000.lock().await;
-        if let Err(err) = dw6000.flush() {
-            warn!("Serial flush failed {:?}", err);
-        }
 
-        while let Ok(Some(packet)) = dw6000.receive() {
-            midi_route(Src(IF_DW6000), PacketList::single(packet)).await;
-        }
-        pac::NVIC::unmask(pac::Interrupt::USART2);
-    });
-}
+    let dw6000 = unsafe { MIDI_DIN_1_PORT.raw_mut() };
 
-
-// #[task(shared = [midi_router, tasks], priority = 2, capacity = 16)]
-async fn midi_route(binding: Binding, packets: PacketList) {
-    let mut router = MIDI_ROUTER.lock().await;
-    if let Err(e) = router.midi_route(packets, binding).await {
-        warn!("MIDI Routing error {}", e);
+    if let Err(err) = dw6000.flush() {
+        warn!("Serial flush failed {:?}", err);
     }
+
+    while let Ok(Some(packet)) = dw6000.receive() {
+        (MIDI_DIN_1_RX)(PacketList::single(packet));
+    }
+    pac::NVIC::unmask(pac::Interrupt::USART2);
 }
 
 // TODO split output queues (one task per interface)
 // #[task(shared = [usb_midi, dw6000, beatstep], capacity = 128, priority = 2)]
-async fn midi_send(interface: Interface, packets: PacketList) {
-    match interface {
+fn midi_send(destination: MidiInterface, packets: PacketList) {
+    let z = match destination {
         // includes BeatStep
-        Interface::USB(_) => {
-            let mut midi = PORT_USB_MIDI.lock().await;
-            if let Err(e) = midi.transmit(packets) {
-                info!("Failed to send USB MIDI: {:?}", e)
-            }
+        MidiInterface::USB(_) => unsafe { MIDI_USB_1_PORT.raw_mut() }.transmit(packets),
+        MidiInterface::Serial(1) => unsafe { MIDI_DIN_1_PORT.raw_mut() }.transmit(packets),
+        MidiInterface::Serial(2) => unsafe { MIDI_DIN_2_PORT.raw_mut() }.transmit(packets),
+        dest => {
+            Err(MidiError::UnknownInterface(destination))
         }
-
-        IF_DW6000 => {
-            let mut dw6000 = PORT_DW6000.lock().await;
-            if let Err(e) = dw6000.transmit(packets) {
-                info!("Failed to send Serial MIDI: {:?}", e)
-            }
-        }
-
-        IF_BEATSTEP => {
-            let mut bstep = PORT_BEATSTEP.lock().await;
-            if let Err(e) = bstep.transmit(packets) {
-                info!("Failed to send Serial MIDI: {:?}", e)
-            }
-        }
-
-        _ => {}
+    };
+    if let Err(err) = z {
+        info!("Failed to send MIDI: {:?}", destination)
     }
 }
 
 // Update the UI - using
 // #[task(/*local = [display],*/ capacity = 8)]
-fn midisplay(_text: String) {
+async fn midisplay(_text: String) {
     // cx.local.display.print(text).unwrap();
 }
-
-
-

@@ -9,7 +9,8 @@ version = "0.1.0"
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
-rtic = { version = "2.0.0", features = ["thumbv7-backend"] }
+#rtic = { version = "2.0.0", features = ["thumbv7-backend"] }
+#rtic-monotonics = { version = "1.0.0" }
 
 embedded-hal = "0.2"
 #fugit = "0.3"
@@ -34,11 +35,13 @@ micromath = "1"
 
 heapless = "0.7"
 
-buddy-alloc = "0.4"
+buddy-alloc = "0.5"
 hashbrown = "0.14"
 nanorand = { version = "0.7", default-features = false, features = ["wyrand"] }
 
-stm32f4xx-hal = { version = "0.17.0", features = ["stm32f411", "rt", "usb_fs"] }
+stm32f4xx-hal = { version = "0.17", features = ["stm32f411", "rt", "usb_fs"] }
+
+critical-section = "1.1"
 
 #ili9341 = "0.4"
 #display-interface = "0.4"
@@ -55,19 +58,13 @@ name = "DW_666"
 test = false
 
 [profile.dev]
+opt-level = 1
+codegen-units = 16
 debug = true
-opt-level = "z"
-#lto = true
-panic = "unwind"
-#debug-assertions = true
-#incremental = false
-#opt-level = 3
-#overflow-checks = true
+lto = false
 
 [profile.release]
-codegen-units = 1
-opt-level = "z"
-debug = false
-lto = true
-panic = "abort"
-#rpath = false
+opt-level = "z"   # optimize for size
+codegen-units = 1 # better optimizations
+debug = true      # symbols are nice and they don't increase the size on Flash
+lto = true        # better optimizations

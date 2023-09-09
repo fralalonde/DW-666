@@ -3,12 +3,10 @@
 //! Switching the LEDs on and off:
 #![allow(dead_code)]
 
-use crate::sysex::{Matcher, Token, Tag, Sysex};
+use crate::sysex::{SysexMatcher, Token, Tag, SysexSeq};
 use Token::{Seq, Cap, Val, Buf};
 use Tag::*;
 use alloc::vec::Vec;
-
-
 
 const KORG: u8 = 0x42;
 const DW_6000: u8 = 0x04;
@@ -22,41 +20,41 @@ const WRITE_ERR: u8 = 0x22;
 const ID_HEADER: &[u8] = &[KORG, ID_FORMAT];
 const DATA_HEADER: &[u8] = &[KORG, DATA_FORMAT, DW_6000];
 
-pub fn id_request() -> Sysex {
-    Sysex::new(vec![Seq(ID_HEADER)])
+pub fn id_request_sysex() -> SysexSeq {
+    SysexSeq::new(vec![Seq(ID_HEADER)])
 }
 
-pub fn id_matcher() -> Matcher {
-    Matcher::new(vec![Seq(ID_HEADER), Val(DW_6000)])
+pub fn id_matcher() -> SysexMatcher {
+    SysexMatcher::new(vec![Seq(ID_HEADER), Val(DW_6000)])
 }
 
-pub fn write(program: u8) -> Sysex {
-    Sysex::new(vec![Seq(DATA_HEADER), Val(0x11), Val(program)])
+pub fn write_program_sysex(program: u8) -> SysexSeq {
+    SysexSeq::new(vec![Seq(DATA_HEADER), Val(0x11), Val(program)])
 }
 
-pub fn load(dump: Vec<u8>) -> Sysex {
-    Sysex::new(vec![Seq(DATA_HEADER), Buf(dump)])
+pub fn load_program_sysex(dump: Vec<u8>) -> SysexSeq {
+    SysexSeq::new(vec![Seq(DATA_HEADER), Buf(dump)])
 }
 
-pub fn parameter_set(param: u8, value: u8) -> Sysex {
-    Sysex::new(vec![Seq(DATA_HEADER), Val(0x41), Val(param), Val(value)])
+pub fn set_parameter_sysex(param: u8, value: u8) -> SysexSeq {
+    SysexSeq::new(vec![Seq(DATA_HEADER), Val(0x41), Val(param), Val(value)])
 }
 
-pub fn write_matcher() -> Matcher {
-    Matcher::new(vec![Seq(DATA_HEADER), Cap(ValueU7)])
+pub fn write_matcher() -> SysexMatcher {
+    SysexMatcher::new(vec![Seq(DATA_HEADER), Cap(ValueU7)])
 }
 
-pub fn dump_request() -> Sysex {
-    Sysex::new(vec![Seq(DATA_HEADER), Val(0x10)])
+pub fn dump_request_sysex() -> SysexSeq {
+    SysexSeq::new(vec![Seq(DATA_HEADER), Val(0x10)])
 }
 
-pub fn dump_matcher() -> Matcher {
-    Matcher::new(vec![Seq(DATA_HEADER), Val(0x40), Cap(Dump(26))])
+pub fn dump_matcher() -> SysexMatcher {
+    SysexMatcher::new(vec![Seq(DATA_HEADER), Val(0x40), Cap(Dump(26))])
 }
 
 #[allow(unused)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum Param {
+pub enum Dw6Param {
     Osc1Wave,
     Osc1Level,
     Osc1Octave,
@@ -96,7 +94,7 @@ pub enum Param {
 
 #[repr(C)]
 #[derive(Debug)]
-pub struct Dump {
+pub struct Dw6Dump {
     pub assign_mode_bend_osc: AssignModeBendOsc,
     pub portamento_time: Portamento,
     pub osc1_level: Osc1Level,
@@ -130,187 +128,186 @@ pub struct Dump {
     pub osc2_interval_osc2_detune: IntervalOsc2Detune,
 }
 
-pub fn as_dump_ref_mut(buf: &mut [u8]) -> &mut Dump {
-    let p: *mut Dump = buf.as_ptr() as *mut Dump;
+pub fn as_dump_ref_mut(buf: &[u8]) -> &mut Dw6Dump {
+    let p: *mut Dw6Dump = buf.as_ptr() as *mut Dw6Dump;
     unsafe { &mut *p }
 }
 
-pub fn as_dump_ref(buf: &[u8]) -> &Dump {
-    let p: *const Dump = buf.as_ptr() as *const Dump;
+pub fn as_dump_ref(buf: &[u8]) -> &Dw6Dump {
+    let p: *const Dw6Dump = buf.as_ptr() as *const Dw6Dump;
     unsafe { &*p }
 }
 
-pub fn get_param_value(param: Param, dump_buf: &[u8]) -> u8 {
+pub fn get_param_value(param: Dw6Param, dump_buf: &[u8]) -> u8 {
     let dump = as_dump_ref(dump_buf);
     match param {
-        Param::Osc1Wave => dump.osc1_wave_osc2_wave.osc1_waveform(),
-        Param::Osc1Level => dump.osc1_level.osc1_level(),
-        Param::Osc1Octave => dump.osc1_oct_vca_eg_release.osc1_octave(),
-        Param::Osc2Wave => dump.osc1_wave_osc2_wave.osc2_waveform(),
-        Param::Osc2Level => dump.osc2_level.osc2_level(),
-        Param::Osc2Octave => dump.osc2_oct_mg_freq.osc2_octave(),
-        Param::Osc2Detune => dump.osc2_interval_osc2_detune.osc2_detune(),
-        Param::Interval => dump.osc2_interval_osc2_detune.osc2_interval(),
-        Param::Noise => dump.noise_level.noise_level(),
-        Param::Cutoff => dump.cutoff.cutoff(),
-        Param::Resonance => dump.resonance.resonance(),
-        Param::VcfInt => dump.vcf_eg_int.vcf_eg_int(),
-        Param::VcfAttack => dump.vcf_eg_attack.vcf_eg_attack(),
-        Param::VcfDecay => dump.vcf_eg_decay.vcf_eg_decay(),
-        Param::VcfBreak => dump.vcf_eg_breakpoint.vcf_eg_breakpoint(),
-        Param::VcfSlope => dump.vcf_eg_slope.vcf_eg_slope(),
-        Param::VcfSustain => dump.vcf_eg_sustain.vcf_eg_sustain(),
-        Param::VcfRelease => dump.vcf_eg_release.vcf_eg_release(),
-        Param::VcaAttack => dump.vca_eg_attack.vca_eg_attack(),
-        Param::VcaDecay => dump.vca_eg_decay.vca_eg_decay(),
-        Param::VcaBreak => dump.vca_eg_breakpoint.vca_eg_breakpoint(),
-        Param::VcaSlope => dump.vca_eg_slope.vca_eg_slope(),
-        Param::VcaSustain => dump.bend_vcf_vca_eg_sustain.vca_eg_sustain(),
-        Param::VcaRelease => dump.osc1_oct_vca_eg_release.vca_eg_release(),
-        Param::BendVcf => dump.bend_vcf_vca_eg_sustain.bend_vcf(),
-        Param::BendOsc => dump.assign_mode_bend_osc.bend_osc(),
-        Param::AssignMode => dump.assign_mode_bend_osc.assign_mode(),
-        Param::Portamento => dump.portamento_time.portamento_time(),
-        Param::MgFreq => dump.osc2_oct_mg_freq.mg_freq(),
-        Param::MgDelay => dump.kbd_track_mg_delay.mg_delay(),
-        Param::MgOsc => dump.polarity_mg_osc.mg_osc(),
-        Param::MgVcf => dump.chorus_mg_vcf.mg_vcf(),
-        Param::KbdTrack => dump.kbd_track_mg_delay.kbd_track(),
-        Param::Polarity => dump.polarity_mg_osc.polarity(),
-        Param::Chorus => dump.chorus_mg_vcf.chorus(),
+        Dw6Param::Osc1Wave => dump.osc1_wave_osc2_wave.osc1_waveform(),
+        Dw6Param::Osc1Level => dump.osc1_level.osc1_level(),
+        Dw6Param::Osc1Octave => dump.osc1_oct_vca_eg_release.osc1_octave(),
+        Dw6Param::Osc2Wave => dump.osc1_wave_osc2_wave.osc2_waveform(),
+        Dw6Param::Osc2Level => dump.osc2_level.osc2_level(),
+        Dw6Param::Osc2Octave => dump.osc2_oct_mg_freq.osc2_octave(),
+        Dw6Param::Osc2Detune => dump.osc2_interval_osc2_detune.osc2_detune(),
+        Dw6Param::Interval => dump.osc2_interval_osc2_detune.osc2_interval(),
+        Dw6Param::Noise => dump.noise_level.noise_level(),
+        Dw6Param::Cutoff => dump.cutoff.cutoff(),
+        Dw6Param::Resonance => dump.resonance.resonance(),
+        Dw6Param::VcfInt => dump.vcf_eg_int.vcf_eg_int(),
+        Dw6Param::VcfAttack => dump.vcf_eg_attack.vcf_eg_attack(),
+        Dw6Param::VcfDecay => dump.vcf_eg_decay.vcf_eg_decay(),
+        Dw6Param::VcfBreak => dump.vcf_eg_breakpoint.vcf_eg_breakpoint(),
+        Dw6Param::VcfSlope => dump.vcf_eg_slope.vcf_eg_slope(),
+        Dw6Param::VcfSustain => dump.vcf_eg_sustain.vcf_eg_sustain(),
+        Dw6Param::VcfRelease => dump.vcf_eg_release.vcf_eg_release(),
+        Dw6Param::VcaAttack => dump.vca_eg_attack.vca_eg_attack(),
+        Dw6Param::VcaDecay => dump.vca_eg_decay.vca_eg_decay(),
+        Dw6Param::VcaBreak => dump.vca_eg_breakpoint.vca_eg_breakpoint(),
+        Dw6Param::VcaSlope => dump.vca_eg_slope.vca_eg_slope(),
+        Dw6Param::VcaSustain => dump.bend_vcf_vca_eg_sustain.vca_eg_sustain(),
+        Dw6Param::VcaRelease => dump.osc1_oct_vca_eg_release.vca_eg_release(),
+        Dw6Param::BendVcf => dump.bend_vcf_vca_eg_sustain.bend_vcf(),
+        Dw6Param::BendOsc => dump.assign_mode_bend_osc.bend_osc(),
+        Dw6Param::AssignMode => dump.assign_mode_bend_osc.assign_mode(),
+        Dw6Param::Portamento => dump.portamento_time.portamento_time(),
+        Dw6Param::MgFreq => dump.osc2_oct_mg_freq.mg_freq(),
+        Dw6Param::MgDelay => dump.kbd_track_mg_delay.mg_delay(),
+        Dw6Param::MgOsc => dump.polarity_mg_osc.mg_osc(),
+        Dw6Param::MgVcf => dump.chorus_mg_vcf.mg_vcf(),
+        Dw6Param::KbdTrack => dump.kbd_track_mg_delay.kbd_track(),
+        Dw6Param::Polarity => dump.polarity_mg_osc.polarity(),
+        Dw6Param::Chorus => dump.chorus_mg_vcf.chorus(),
     }
 }
 
-pub fn set_param_value(param: Param, value: u8, dump_buf: &mut [u8]) {
+pub fn set_param_value(param: Dw6Param, value: u8, dump_buf: &[u8]) {
     let dump = as_dump_ref_mut(dump_buf);
     match param {
-        Param::Osc1Wave => dump.osc1_wave_osc2_wave.set_osc1_waveform(value),
-        Param::Osc1Level => dump.osc1_level.set_osc1_level(value),
-        Param::Osc1Octave => dump.osc1_oct_vca_eg_release.set_osc1_octave(value),
-        Param::Osc2Wave => dump.osc1_wave_osc2_wave.set_osc2_waveform(value),
-        Param::Osc2Level => dump.osc2_level.set_osc2_level(value),
-        Param::Osc2Octave => dump.osc2_oct_mg_freq.set_osc2_octave(value),
-        Param::Osc2Detune => dump.osc2_interval_osc2_detune.set_osc2_detune(value),
-        Param::Interval => dump.osc2_interval_osc2_detune.set_osc2_interval(value),
-        Param::Noise => dump.noise_level.set_noise_level(value),
-        Param::Cutoff => dump.cutoff.set_cutoff(value),
-        Param::Resonance => dump.resonance.set_resonance(value),
-        Param::VcfInt => dump.vcf_eg_int.set_vcf_eg_int(value),
-        Param::VcfAttack => dump.vcf_eg_attack.set_vcf_eg_attack(value),
-        Param::VcfDecay => dump.vcf_eg_decay.set_vcf_eg_decay(value),
-        Param::VcfBreak => dump.vcf_eg_breakpoint.set_vcf_eg_breakpoint(value),
-        Param::VcfSlope => dump.vcf_eg_slope.set_vcf_eg_slope(value),
-        Param::VcfSustain => dump.vcf_eg_sustain.set_vcf_eg_sustain(value),
-        Param::VcfRelease => dump.vcf_eg_release.set_vcf_eg_release(value),
-        Param::VcaAttack => dump.vca_eg_attack.set_vca_eg_attack(value),
-        Param::VcaDecay => dump.vca_eg_decay.set_vca_eg_decay(value),
-        Param::VcaBreak => dump.vca_eg_breakpoint.set_vca_eg_breakpoint(value),
-        Param::VcaSlope => dump.vca_eg_slope.set_vca_eg_slope(value),
-        Param::VcaSustain => dump.bend_vcf_vca_eg_sustain.set_vca_eg_sustain(value),
-        Param::VcaRelease => dump.osc1_oct_vca_eg_release.set_vca_eg_release(value),
-        Param::BendVcf => dump.bend_vcf_vca_eg_sustain.set_bend_vcf(value),
-        Param::BendOsc => dump.assign_mode_bend_osc.set_bend_osc(value),
-        Param::AssignMode => dump.assign_mode_bend_osc.set_assign_mode(value),
-        Param::Portamento => dump.portamento_time.set_portamento_time(value),
-        Param::MgFreq => dump.osc2_oct_mg_freq.set_mg_freq(value),
-        Param::MgDelay => dump.kbd_track_mg_delay.set_mg_delay(value),
-        Param::MgOsc => dump.polarity_mg_osc.set_mg_osc(value),
-        Param::MgVcf => dump.chorus_mg_vcf.set_mg_vcf(value),
-        Param::KbdTrack => dump.kbd_track_mg_delay.set_kbd_track(value),
-        Param::Polarity => dump.polarity_mg_osc.set_polarity(value),
-        Param::Chorus => dump.chorus_mg_vcf.set_chrorus(value),
+        Dw6Param::Osc1Wave => dump.osc1_wave_osc2_wave.set_osc1_waveform(value),
+        Dw6Param::Osc1Level => dump.osc1_level.set_osc1_level(value),
+        Dw6Param::Osc1Octave => dump.osc1_oct_vca_eg_release.set_osc1_octave(value),
+        Dw6Param::Osc2Wave => dump.osc1_wave_osc2_wave.set_osc2_waveform(value),
+        Dw6Param::Osc2Level => dump.osc2_level.set_osc2_level(value),
+        Dw6Param::Osc2Octave => dump.osc2_oct_mg_freq.set_osc2_octave(value),
+        Dw6Param::Osc2Detune => dump.osc2_interval_osc2_detune.set_osc2_detune(value),
+        Dw6Param::Interval => dump.osc2_interval_osc2_detune.set_osc2_interval(value),
+        Dw6Param::Noise => dump.noise_level.set_noise_level(value),
+        Dw6Param::Cutoff => dump.cutoff.set_cutoff(value),
+        Dw6Param::Resonance => dump.resonance.set_resonance(value),
+        Dw6Param::VcfInt => dump.vcf_eg_int.set_vcf_eg_int(value),
+        Dw6Param::VcfAttack => dump.vcf_eg_attack.set_vcf_eg_attack(value),
+        Dw6Param::VcfDecay => dump.vcf_eg_decay.set_vcf_eg_decay(value),
+        Dw6Param::VcfBreak => dump.vcf_eg_breakpoint.set_vcf_eg_breakpoint(value),
+        Dw6Param::VcfSlope => dump.vcf_eg_slope.set_vcf_eg_slope(value),
+        Dw6Param::VcfSustain => dump.vcf_eg_sustain.set_vcf_eg_sustain(value),
+        Dw6Param::VcfRelease => dump.vcf_eg_release.set_vcf_eg_release(value),
+        Dw6Param::VcaAttack => dump.vca_eg_attack.set_vca_eg_attack(value),
+        Dw6Param::VcaDecay => dump.vca_eg_decay.set_vca_eg_decay(value),
+        Dw6Param::VcaBreak => dump.vca_eg_breakpoint.set_vca_eg_breakpoint(value),
+        Dw6Param::VcaSlope => dump.vca_eg_slope.set_vca_eg_slope(value),
+        Dw6Param::VcaSustain => dump.bend_vcf_vca_eg_sustain.set_vca_eg_sustain(value),
+        Dw6Param::VcaRelease => dump.osc1_oct_vca_eg_release.set_vca_eg_release(value),
+        Dw6Param::BendVcf => dump.bend_vcf_vca_eg_sustain.set_bend_vcf(value),
+        Dw6Param::BendOsc => dump.assign_mode_bend_osc.set_bend_osc(value),
+        Dw6Param::AssignMode => dump.assign_mode_bend_osc.set_assign_mode(value),
+        Dw6Param::Portamento => dump.portamento_time.set_portamento_time(value),
+        Dw6Param::MgFreq => dump.osc2_oct_mg_freq.set_mg_freq(value),
+        Dw6Param::MgDelay => dump.kbd_track_mg_delay.set_mg_delay(value),
+        Dw6Param::MgOsc => dump.polarity_mg_osc.set_mg_osc(value),
+        Dw6Param::MgVcf => dump.chorus_mg_vcf.set_mg_vcf(value),
+        Dw6Param::KbdTrack => dump.kbd_track_mg_delay.set_kbd_track(value),
+        Dw6Param::Polarity => dump.polarity_mg_osc.set_polarity(value),
+        Dw6Param::Chorus => dump.chorus_mg_vcf.set_chrorus(value),
     }
 }
 
-impl Param {
+impl Dw6Param {
     pub fn max_value(&self) -> u8 {
         match self {
-            Param::Osc2Detune | Param::Interval |
-            Param::Osc1Wave | Param::Osc2Wave => 7,
+            Dw6Param::Osc2Detune | Dw6Param::Interval |
+            Dw6Param::Osc1Wave | Dw6Param::Osc2Wave => 7,
 
-            Param::AssignMode | Param::KbdTrack |
-            Param::Osc1Octave | Param::Osc2Octave => 3,
+            Dw6Param::AssignMode | Dw6Param::KbdTrack |
+            Dw6Param::Osc1Octave | Dw6Param::Osc2Octave => 3,
 
-            Param::Cutoff => 63,
+            Dw6Param::Cutoff => 63,
 
-            Param::Resonance |
-            Param::Portamento |
-            Param::Osc2Level | Param::Osc1Level | Param::Noise |
-            Param::MgFreq | Param::MgDelay | Param::MgOsc | Param::MgVcf |
-            Param::VcfInt | Param::VcfAttack | Param::VcfDecay | Param::VcfBreak | Param::VcfSlope | Param::VcfSustain | Param::VcfRelease |
-            Param::VcaAttack | Param::VcaDecay | Param::VcaBreak | Param::VcaSlope | Param::VcaSustain | Param::VcaRelease => 31,
+            Dw6Param::Resonance |
+            Dw6Param::Portamento |
+            Dw6Param::Osc2Level | Dw6Param::Osc1Level | Dw6Param::Noise |
+            Dw6Param::MgFreq | Dw6Param::MgDelay | Dw6Param::MgOsc | Dw6Param::MgVcf |
+            Dw6Param::VcfInt | Dw6Param::VcfAttack | Dw6Param::VcfDecay | Dw6Param::VcfBreak | Dw6Param::VcfSlope | Dw6Param::VcfSustain | Dw6Param::VcfRelease |
+            Dw6Param::VcaAttack | Dw6Param::VcaDecay | Dw6Param::VcaBreak | Dw6Param::VcaSlope | Dw6Param::VcaSustain | Dw6Param::VcaRelease => 31,
 
-            Param::Polarity | Param::Chorus | Param::BendVcf => 1,
+            Dw6Param::Polarity | Dw6Param::Chorus | Dw6Param::BendVcf => 1,
 
-            Param::BendOsc => 15,
+            Dw6Param::BendOsc => 15,
         }
     }
 
 
     pub fn dump_index(&self) -> usize {
         match self {
-            Param::AssignMode | Param::BendOsc => 0,
-            Param::Portamento => 1,
-            Param::Osc1Level => 2,
-            Param::Osc2Level => 3,
-            Param::Noise => 4,
-            Param::Cutoff => 5,
-            Param::Resonance => 6,
-            Param::VcfInt => 7,
-            Param::VcfAttack => 8,
-            Param::VcfDecay => 9,
-            Param::VcfBreak => 10,
-            Param::VcfSlope => 11,
-            Param::VcfSustain => 12,
-            Param::VcfRelease => 13,
-            Param::VcaAttack => 14,
-            Param::VcaDecay => 15,
-            Param::VcaBreak => 16,
-            Param::VcaSlope => 17,
-            Param::BendVcf | Param::VcaSustain => 18,
-            Param::Osc1Octave | Param::VcaRelease => 19,
-            Param::Osc2Octave | Param::MgFreq => 20,
-            Param::KbdTrack | Param::MgDelay => 21,
-            Param::Polarity | Param::MgOsc => 22,
-            Param::Chorus | Param::MgVcf => 23,
-            Param::Osc1Wave | Param::Osc2Wave => 24,
-            Param::Osc2Detune | Param::Interval => 25,
+            Dw6Param::AssignMode | Dw6Param::BendOsc => 0,
+            Dw6Param::Portamento => 1,
+            Dw6Param::Osc1Level => 2,
+            Dw6Param::Osc2Level => 3,
+            Dw6Param::Noise => 4,
+            Dw6Param::Cutoff => 5,
+            Dw6Param::Resonance => 6,
+            Dw6Param::VcfInt => 7,
+            Dw6Param::VcfAttack => 8,
+            Dw6Param::VcfDecay => 9,
+            Dw6Param::VcfBreak => 10,
+            Dw6Param::VcfSlope => 11,
+            Dw6Param::VcfSustain => 12,
+            Dw6Param::VcfRelease => 13,
+            Dw6Param::VcaAttack => 14,
+            Dw6Param::VcaDecay => 15,
+            Dw6Param::VcaBreak => 16,
+            Dw6Param::VcaSlope => 17,
+            Dw6Param::BendVcf | Dw6Param::VcaSustain => 18,
+            Dw6Param::Osc1Octave | Dw6Param::VcaRelease => 19,
+            Dw6Param::Osc2Octave | Dw6Param::MgFreq => 20,
+            Dw6Param::KbdTrack | Dw6Param::MgDelay => 21,
+            Dw6Param::Polarity | Dw6Param::MgOsc => 22,
+            Dw6Param::Chorus | Dw6Param::MgVcf => 23,
+            Dw6Param::Osc1Wave | Dw6Param::Osc2Wave => 24,
+            Dw6Param::Osc2Detune | Dw6Param::Interval => 25,
         }
     }
 
     pub fn dump_value(&self, dump_buf: &[u8]) -> u8 {
         let dump = as_dump_ref(dump_buf);
         match self {
-            Param::AssignMode | Param::BendOsc => dump.assign_mode_bend_osc.0,
-            Param::Portamento => dump.portamento_time.0,
-            Param::Osc1Level => dump.osc1_level.0,
-            Param::Osc2Level => dump.osc2_level.0,
-            Param::Noise => dump.noise_level.0,
-            Param::Cutoff => dump.cutoff.0,
-            Param::Resonance => dump.resonance.0,
-            Param::VcfInt => dump.vcf_eg_int.0,
-            Param::VcfAttack => dump.vcf_eg_attack.0,
-            Param::VcfDecay => dump.vcf_eg_decay.0,
-            Param::VcfBreak => dump.vcf_eg_breakpoint.0,
-            Param::VcfSlope => dump.vcf_eg_slope.0,
-            Param::VcfSustain => dump.vcf_eg_sustain.0,
-            Param::VcfRelease => dump.vcf_eg_release.0,
-            Param::VcaAttack => dump.vca_eg_attack.0,
-            Param::VcaDecay => dump.vca_eg_decay.0,
-            Param::VcaBreak => dump.vca_eg_breakpoint.0,
-            Param::VcaSlope => dump.vca_eg_slope.0,
-            Param::BendVcf | Param::VcaSustain => dump.bend_vcf_vca_eg_sustain.0,
-            Param::Osc1Octave | Param::VcaRelease => dump.osc1_oct_vca_eg_release.0,
-            Param::Osc2Octave | Param::MgFreq => dump.osc2_oct_mg_freq.0,
-            Param::KbdTrack | Param::MgDelay => dump.kbd_track_mg_delay.0,
-            Param::Polarity | Param::MgOsc => dump.polarity_mg_osc.0,
-            Param::Chorus | Param::MgVcf => dump.chorus_mg_vcf.0,
-            Param::Osc1Wave | Param::Osc2Wave => dump.osc1_wave_osc2_wave.0,
-            Param::Osc2Detune | Param::Interval => dump.osc2_interval_osc2_detune.0,
+            Dw6Param::AssignMode | Dw6Param::BendOsc => dump.assign_mode_bend_osc.0,
+            Dw6Param::Portamento => dump.portamento_time.0,
+            Dw6Param::Osc1Level => dump.osc1_level.0,
+            Dw6Param::Osc2Level => dump.osc2_level.0,
+            Dw6Param::Noise => dump.noise_level.0,
+            Dw6Param::Cutoff => dump.cutoff.0,
+            Dw6Param::Resonance => dump.resonance.0,
+            Dw6Param::VcfInt => dump.vcf_eg_int.0,
+            Dw6Param::VcfAttack => dump.vcf_eg_attack.0,
+            Dw6Param::VcfDecay => dump.vcf_eg_decay.0,
+            Dw6Param::VcfBreak => dump.vcf_eg_breakpoint.0,
+            Dw6Param::VcfSlope => dump.vcf_eg_slope.0,
+            Dw6Param::VcfSustain => dump.vcf_eg_sustain.0,
+            Dw6Param::VcfRelease => dump.vcf_eg_release.0,
+            Dw6Param::VcaAttack => dump.vca_eg_attack.0,
+            Dw6Param::VcaDecay => dump.vca_eg_decay.0,
+            Dw6Param::VcaBreak => dump.vca_eg_breakpoint.0,
+            Dw6Param::VcaSlope => dump.vca_eg_slope.0,
+            Dw6Param::BendVcf | Dw6Param::VcaSustain => dump.bend_vcf_vca_eg_sustain.0,
+            Dw6Param::Osc1Octave | Dw6Param::VcaRelease => dump.osc1_oct_vca_eg_release.0,
+            Dw6Param::Osc2Octave | Dw6Param::MgFreq => dump.osc2_oct_mg_freq.0,
+            Dw6Param::KbdTrack | Dw6Param::MgDelay => dump.kbd_track_mg_delay.0,
+            Dw6Param::Polarity | Dw6Param::MgOsc => dump.polarity_mg_osc.0,
+            Dw6Param::Chorus | Dw6Param::MgVcf => dump.chorus_mg_vcf.0,
+            Dw6Param::Osc1Wave | Dw6Param::Osc2Wave => dump.osc1_wave_osc2_wave.0,
+            Dw6Param::Osc2Detune | Dw6Param::Interval => dump.osc2_interval_osc2_detune.0,
         }
     }
 }
-
 
 bitfield! {
     pub struct AssignModeBendOsc(u8);

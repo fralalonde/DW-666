@@ -1,11 +1,14 @@
-use midi::{Packet, Message};
+use midi::{Packet, MidiMessage, PacketList};
 use alloc::vec::Vec;
 
-use midi::Message::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, SysexCont, SysexEmpty, SysexSingleByte};
+use midi::MidiMessage::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, SysexCont, SysexEmpty, SysexSingleByte};
 
 use core::convert::TryFrom;
 use heapless::spsc::Queue;
 use alloc::collections::BTreeMap;
+use core::iter::FromIterator;
+use crate::sysex::SysexCapture::{Pending, Captured};
+use crate::sysex::SysexError::{BufferOverflow, SpuriousContinuation, SpuriousEnd};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum Tag {
@@ -35,10 +38,101 @@ impl Tag {
     }
 }
 
+pub enum SysexCapture {
+    Captured,
+    Pending,
+}
+
+pub enum SysexError {
+    BufferOverflow,
+    SpuriousContinuation,
+    SpuriousEnd,
+}
+
+// TODO heapless: pub fn capture_sysex<const SIZE: usize>(sysex_buffer: &mut heapless::Vec<u8, SIZE>, message: MidiMessage) -> Result<bool, u8> {
+pub fn capture_sysex(buffer: &mut Vec<u8>, message: MidiMessage) -> Result<SysexCapture, SysexError> {
+    match message {
+        SysexBegin(byte0, byte1) => {
+            buffer.clear();
+            if buffer.len() + 2 > buffer.capacity()  {
+                return Err(BufferOverflow)
+            }
+            buffer.push(byte0);
+            buffer.push(byte1);
+            Ok(Pending)
+        }
+        SysexSingleByte(byte0) => {
+            buffer.clear();
+            if buffer.len() + 1 > buffer.capacity()  {
+                return Err(BufferOverflow)
+            }
+            buffer.push(byte0);
+            Ok(Captured)
+        }
+        SysexEmpty => {
+            buffer.clear();
+            Ok(Captured)
+        }
+        SysexCont(byte0, byte1, byte2) => {
+            if buffer.is_empty() {
+                // there should be _some_ data buffered from previous messages
+                return Err(SpuriousContinuation);
+            }
+            if buffer.len() + 3 > buffer.capacity()  {
+                // prevent mangled message
+                buffer.clear();
+                return Err(BufferOverflow)
+            }
+            buffer.push(byte0);
+            buffer.push(byte1);
+            buffer.push(byte2);
+            Ok(Captured)
+        }
+        SysexEnd => {
+            if buffer.is_empty() {
+                // there should be _some_ data buffered from previous messages
+                return Err(SpuriousEnd);
+            }
+            Ok(Captured)
+        }
+        SysexEnd1(byte0) => {
+            if buffer.is_empty() {
+                return Err(SpuriousEnd);
+            }
+            if buffer.len() + 1 > buffer.capacity()  {
+                // prevent mangled message
+                buffer.clear();
+                return Err(BufferOverflow)
+            }
+            buffer.push(byte0);
+            Ok(Captured)
+        }
+        SysexEnd2(byte0, byte1) => {
+            if buffer.is_empty() {
+                return Err(SpuriousEnd);
+            }
+            if buffer.len() + 2 > buffer.capacity()  {
+                // prevent mangled message
+                buffer.clear();
+                return Err(BufferOverflow)
+            }
+            buffer.push(byte0);
+            buffer.push(byte1);
+            Ok(Captured)
+        }
+        _ => {
+            // message is not part a sysex sequence
+            buffer.clear();
+            Ok(Pending)
+        }
+    }
+}
+
+
 /// Used to send sysex
 /// Accepts same Token as matcher for convenience, but only Match and Val value are sent
 // #[derive(Debug)]
-pub struct Sysex {
+pub struct SysexSeq {
     tokens: Vec<Token>,
     // current token to produce from
     tok_idx: usize,
@@ -47,9 +141,9 @@ pub struct Sysex {
     window: Queue<u8, 64>,
 }
 
-impl Sysex {
+impl SysexSeq {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Sysex {
+        SysexSeq {
             tokens/*: buffer*/,
             tok_idx: 0,
             byte_idx: 0,
@@ -58,7 +152,13 @@ impl Sysex {
     }
 }
 
-impl Iterator for Sysex {
+impl From<SysexSeq> for PacketList {
+    fn from(value: SysexSeq) -> Self {
+        PacketList::from_iter(value)
+    }
+}
+
+impl Iterator for SysexSeq {
     type Item = Packet;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -111,6 +211,7 @@ impl Iterator for Sysex {
     }
 }
 
+
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub enum Token {
@@ -124,7 +225,7 @@ pub enum Token {
 pub type CaptureBuffer = BTreeMap<Tag, Vec<u8>>;
 
 #[derive(Debug)]
-pub struct Matcher {
+pub struct SysexMatcher {
     pattern: Vec<Token>,
     matching: bool,
     // current token to produce from
@@ -134,9 +235,9 @@ pub struct Matcher {
     captured: CaptureBuffer,
 }
 
-impl Matcher {
+impl SysexMatcher {
     pub fn new(pattern: Vec<Token>) -> Self {
-        Matcher {
+        SysexMatcher {
             pattern,
             matching: false,
             tok_idx: 0,
@@ -146,7 +247,7 @@ impl Matcher {
     }
 
     pub fn match_packet(&mut self, packet: Packet) -> Option<CaptureBuffer> {
-        if let Ok(message) = Message::try_from(packet) {
+        if let Ok(message) = MidiMessage::try_from(packet) {
             let mut sysex_end = true;
             match message {
                 SysexBegin(byte0, byte1) => {

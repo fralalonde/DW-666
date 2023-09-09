@@ -44,7 +44,7 @@ impl<T: Sized + Send> Local<T> {
             Ok(false) => unsafe {
                 let z = &mut (*self.value.get());
                 *z.assume_init_mut() = value;
-                return self.raw_mut()
+                return self.raw_mut();
             }
             err => {
                 panic!("Mutex {} init twice: {}", self.name, err)
@@ -76,6 +76,38 @@ impl<'a, T: Sized + Send> DerefMut for Local<T> {
         unsafe { (&mut *(self.value.get())).assume_init_mut() }
     }
 }
+
+// pub struct Critical<T>  ( Local<critical_section::Mutex<RefCell<T>>>);
+
+// pub struct Critical<T: Sized> {
+//     name: &'static str,
+//     init: AtomicBool,
+//     value: UnsafeCell<MaybeUninit<Mutex<RefCell<T>>>>,
+// }
+//
+// unsafe impl<T: Sized + Send> Send for Critical<T> {}
+//
+// unsafe impl<T: Sized + Send> Sync for Critical<T> {}
+//
+// impl<T: Sized + Send> Critical<T> {
+//     /// Create a new mutex with the given value.
+//     pub const fn uninit(name: &'static str) -> Self {
+//         Self (Local::uninit(name))
+//     }
+//     pub fn init_static(&self, value: T) {
+//         self.0.init_static(Mutex::new(RefCell::new(value)));
+//     }
+//
+//     pub unsafe fn raw_mut(&self) -> &mut Mutex<RefCell<T>> {
+//         self.0.raw_mut()
+//     }
+//
+//     // pub fn with<F: FnMut(&mut T)>(&self, mut fun: F) {
+//     //     let cs = unsafe { CriticalSection::new() };
+//     //     let mut z = unsafe { self.raw_mut().borrow_ref_mut(cs) };
+//     //     (fun)(&mut z)
+//     // }
+// }
 
 const MAX_PENDING_LOCK: usize = 2;
 

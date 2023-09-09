@@ -1,21 +1,21 @@
 use core::convert::{TryFrom, TryInto};
-use Message::*;
+use MidiMessage::*;
 use CodeIndexNumber::{SystemCommonLen1, SystemCommonLen2, SystemCommonLen3};
-use crate::{Channel, Note, Velocity, Pressure, Program, Control, U7, Bend, CodeIndexNumber, Packet, Status, MidiError, Cull};
+use crate::{MidiChannel, Note, Velocity, Pressure, Program, Control, U7, Bend, CodeIndexNumber, Packet, Status, MidiError, Cull};
 use crate::status::{SYSEX_END, is_non_status, SYSEX_START};
 
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(unused)]
-pub enum Message {
-    NoteOff(Channel, Note, Velocity),
-    NoteOn(Channel, Note, Velocity),
+pub enum MidiMessage {
+    NoteOff(MidiChannel, Note, Velocity),
+    NoteOn(MidiChannel, Note, Velocity),
 
-    NotePressure(Channel, Note, Pressure),
-    ChannelPressure(Channel, Pressure),
-    ProgramChange(Channel, Program),
-    ControlChange(Channel, Control, U7),
-    PitchBend(Channel, Bend),
+    NotePressure(MidiChannel, Note, Pressure),
+    ChannelPressure(MidiChannel, Pressure),
+    ProgramChange(MidiChannel, Program),
+    ControlChange(MidiChannel, Control, U7),
+    PitchBend(MidiChannel, Bend),
 
     // System
     TimeCodeQuarterFrame(U7),
@@ -44,7 +44,7 @@ pub enum Message {
     SysexSingleByte(u8),
 }
 
-pub fn note_on(channel: Channel, note: impl TryInto<Note>, velocity: impl TryInto<Velocity>) -> Result<Message, MidiError> {
+pub fn note_on(channel: MidiChannel, note: impl TryInto<Note>, velocity: impl TryInto<Velocity>) -> Result<MidiMessage, MidiError> {
     Ok(NoteOn(
         channel,
         note.try_into().map_err(|_| MidiError::InvalidNote)?,
@@ -52,7 +52,7 @@ pub fn note_on(channel: Channel, note: impl TryInto<Note>, velocity: impl TryInt
     )
 }
 
-pub fn note_off(channel: Channel, note: impl TryInto<Note>, velocity: impl TryInto<Velocity>) -> Result<Message, MidiError> {
+pub fn note_off(channel: MidiChannel, note: impl TryInto<Note>, velocity: impl TryInto<Velocity>) -> Result<MidiMessage, MidiError> {
     Ok(NoteOff(
         channel,
         note.try_into().map_err(|_| MidiError::InvalidNote)?,
@@ -60,14 +60,15 @@ pub fn note_off(channel: Channel, note: impl TryInto<Note>, velocity: impl TryIn
     )
 }
 
-pub fn program_change(channel: Channel, program: impl TryInto<Program>) -> Result<Message, MidiError> {
+pub fn program_change(channel: MidiChannel, program: impl TryInto<Program>) -> Result<MidiMessage, MidiError> {
     Ok(ProgramChange(
         channel,
         program.try_into().map_err(|_| MidiError::InvalidProgram)?,
     ))
 }
 
-impl TryFrom<Packet> for Message {
+
+impl TryFrom<Packet> for MidiMessage {
     type Error = MidiError;
 
     fn try_from(packet: Packet) -> Result<Self, Self::Error> {

@@ -13,6 +13,8 @@ mod time;
 mod exec;
 mod array_queue;
 mod resource;
+mod mutex;
+mod waker_set;
 
 use cortex_m::peripheral::SYST;
 pub use time::{now, now_millis, delay_until, delay, delay_cycles, run_scheduled, SysInstant};
@@ -25,6 +27,8 @@ pub mod log_defmt;
 
 pub use defmt::{debug, info, warn, error, trace};
 pub use resource::{Shared, SharedGuard, Local};
+pub use mutex::{AsyncMutex, AsyncMutexGuard};
+pub use array_queue::ArrayQueue;
 
 mod pri_queue;
 

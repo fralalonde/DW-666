@@ -1,9 +1,9 @@
 //! USB-MIDI Event Packet definitions
 //! USB-MIDI is a superset of the MIDI protocol
 
-use crate::message::Message;
+use crate::message::MidiMessage;
 use core::convert::{TryFrom};
-use crate::{MidiError, Channel, channel};
+use crate::{MidiError, MidiChannel, channel};
 use crate::status::{Status, status_byte, SYSEX_START, SYSEX_END};
 use CodeIndexNumber::*;
 
@@ -44,7 +44,7 @@ impl Packet {
         }
     }
 
-    pub fn channel(&self) -> Option<Channel> {
+    pub fn channel(&self) -> Option<MidiChannel> {
         let byte = self.bytes[1];
         if byte < NoteOff as u8 {
             None
@@ -85,82 +85,82 @@ impl Packet {
     }
 }
 
-impl From<Message> for Packet {
-    fn from(message: Message) -> Self {
+impl From<MidiMessage> for Packet {
+    fn from(message: MidiMessage) -> Self {
         let mut packet = [0; 4];
         packet[0] = CodeIndexNumber::from(message) as u8;
         if let Some(byte) = status_byte(&message) {
             packet[1] = byte;
         }
         match message {
-            Message::NoteOff(_ch, note, vel) => {
+            MidiMessage::NoteOff(_ch, note, vel) => {
                 packet[2] = note as u8;
                 packet[3] = u8::from(vel);
             }
-            Message::NoteOn(_, note, vel) => {
+            MidiMessage::NoteOn(_, note, vel) => {
                 packet[2] = note as u8;
                 packet[3] = u8::from(vel);
             }
-            Message::NotePressure(_, note, pres) => {
+            MidiMessage::NotePressure(_, note, pres) => {
                 packet[2] = note as u8;
                 packet[3] = u8::from(pres);
             }
-            Message::ChannelPressure(_, pres) => {
+            MidiMessage::ChannelPressure(_, pres) => {
                 packet[2] = u8::from(pres);
             }
-            Message::ProgramChange(_, patch) => {
+            MidiMessage::ProgramChange(_, patch) => {
                 packet[2] = u8::from(patch);
             }
-            Message::ControlChange(_, ctrl, val) => {
+            MidiMessage::ControlChange(_, ctrl, val) => {
                 packet[2] = u8::from(ctrl);
                 packet[3] = u8::from(val);
             }
-            Message::PitchBend(_, bend) => {
+            MidiMessage::PitchBend(_, bend) => {
                 let (lsb, msb) = bend.into();
                 packet[2] = u8::from(lsb);
                 packet[3] = u8::from(msb);
             }
-            Message::TimeCodeQuarterFrame(val) => {
+            MidiMessage::TimeCodeQuarterFrame(val) => {
                 packet[2] = u8::from(val);
             }
-            Message::SongPositionPointer(p1, p2) => {
+            MidiMessage::SongPositionPointer(p1, p2) => {
                 packet[2] = u8::from(p1);
                 packet[3] = u8::from(p2);
             }
-            Message::SongSelect(song) => {
+            MidiMessage::SongSelect(song) => {
                 packet[2] = u8::from(song);
             }
 
             // Sysex packets will probably not be generated from messages,
             // but let's support it for completeness
-            Message::SysexBegin(b1, b2) => {
+            MidiMessage::SysexBegin(b1, b2) => {
                 packet[1] = SYSEX_START;
                 packet[2] = b1;
                 packet[3] = b2;
             }
-            Message::SysexCont(b1, b2, b3) => {
+            MidiMessage::SysexCont(b1, b2, b3) => {
                 packet[1] = b1;
                 packet[2] = b2;
                 packet[3] = b3;
             }
-            Message::SysexEnd => {
+            MidiMessage::SysexEnd => {
                 packet[1] = SYSEX_END;
             }
-            Message::SysexEnd1(b1) => {
+            MidiMessage::SysexEnd1(b1) => {
                 packet[1] = b1;
                 packet[2] = SYSEX_END;
             }
-            Message::SysexEnd2(b1, b2) => {
+            MidiMessage::SysexEnd2(b1, b2) => {
                 packet[1] = b1;
                 packet[2] = b2;
                 packet[3] = SYSEX_END;
             }
 
-            Message::SysexEmpty => {
+            MidiMessage::SysexEmpty => {
                 packet[1] = SYSEX_START;
                 packet[2] = SYSEX_END;
             }
-            Message::SysexSingleByte(b1) => {
+            MidiMessage::SysexSingleByte(b1) => {
                 packet[1] = SYSEX_START;
                 packet[2] = b1;
                 packet[3] = SYSEX_END;
@@ -242,35 +242,35 @@ impl From<Status> for CodeIndexNumber {
     }
 }
 
-impl From<Message> for CodeIndexNumber {
-    fn from(message: Message) -> Self {
+impl From<MidiMessage> for CodeIndexNumber {
+    fn from(message: MidiMessage) -> Self {
         match message {
-            Message::NoteOff(_, _, _) => CodeIndexNumber::NoteOff,
-            Message::NoteOn(_, _, _) => CodeIndexNumber::NoteOn,
-            Message::NotePressure(_, _, _) => CodeIndexNumber::PolyKeypress,
-            Message::ChannelPressure(_, _) => CodeIndexNumber::ChannelPressure,
-            Message::ProgramChange(_, _) => CodeIndexNumber::ProgramChange,
-            Message::ControlChange(_, _, _) => CodeIndexNumber::ControlChange,
-            Message::PitchBend(_, _) => CodeIndexNumber::PitchbendChange,
-            Message::TimeCodeQuarterFrame(_) => CodeIndexNumber::SystemCommonLen2,
-            Message::SongPositionPointer(_, _) => CodeIndexNumber::SystemCommonLen3,
-            Message::SongSelect(_) => CodeIndexNumber::SystemCommonLen2,
-            Message::TuneRequest => CodeIndexNumber::SystemCommonLen1,
-            Message::TimingClock => CodeIndexNumber::SystemCommonLen1,
-            Message::MeasureEnd(_) => CodeIndexNumber::SystemCommonLen2,
-            Message::Start => CodeIndexNumber::SystemCommonLen1,
-            Message::Continue => CodeIndexNumber::SystemCommonLen1,
-            Message::Stop => CodeIndexNumber::SystemCommonLen1,
-            Message::ActiveSensing => CodeIndexNumber::SystemCommonLen1,
-            Message::SystemReset => CodeIndexNumber::NoteOn,
+            MidiMessage::NoteOff(_, _, _) => CodeIndexNumber::NoteOff,
+            MidiMessage::NoteOn(_, _, _) => CodeIndexNumber::NoteOn,
+            MidiMessage::NotePressure(_, _, _) => CodeIndexNumber::PolyKeypress,
+            MidiMessage::ChannelPressure(_, _) => CodeIndexNumber::ChannelPressure,
+            MidiMessage::ProgramChange(_, _) => CodeIndexNumber::ProgramChange,
+            MidiMessage::ControlChange(_, _, _) => CodeIndexNumber::ControlChange,
+            MidiMessage::PitchBend(_, _) => CodeIndexNumber::PitchbendChange,
+            MidiMessage::TimeCodeQuarterFrame(_) => CodeIndexNumber::SystemCommonLen2,
+            MidiMessage::SongPositionPointer(_, _) => CodeIndexNumber::SystemCommonLen3,
+            MidiMessage::SongSelect(_) => CodeIndexNumber::SystemCommonLen2,
+            MidiMessage::TuneRequest => CodeIndexNumber::SystemCommonLen1,
+            MidiMessage::TimingClock => CodeIndexNumber::SystemCommonLen1,
+            MidiMessage::MeasureEnd(_) => CodeIndexNumber::SystemCommonLen2,
+            MidiMessage::Start => CodeIndexNumber::SystemCommonLen1,
+            MidiMessage::Continue => CodeIndexNumber::SystemCommonLen1,
+            MidiMessage::Stop => CodeIndexNumber::SystemCommonLen1,
+            MidiMessage::ActiveSensing => CodeIndexNumber::SystemCommonLen1,
+            MidiMessage::SystemReset => CodeIndexNumber::NoteOn,
 
-            Message::SysexBegin(..) => CodeIndexNumber::Sysex,
-            Message::SysexCont(..) => CodeIndexNumber::Sysex,
-            Message::SysexEnd => CodeIndexNumber::SystemCommonLen1,
-            Message::SysexEnd1(..) => CodeIndexNumber::SysexEndsNext2,
-            Message::SysexEnd2(..) => CodeIndexNumber::SysexEndsNext3,
-            Message::SysexEmpty => CodeIndexNumber::SysexEndsNext2,
-            Message::SysexSingleByte(..) => CodeIndexNumber::SysexEndsNext3,
+            MidiMessage::SysexBegin(..) => CodeIndexNumber::Sysex,
+            MidiMessage::SysexCont(..) => CodeIndexNumber::Sysex,
+            MidiMessage::SysexEnd => CodeIndexNumber::SystemCommonLen1,
+            MidiMessage::SysexEnd1(..) => CodeIndexNumber::SysexEndsNext2,
+            MidiMessage::SysexEnd2(..) => CodeIndexNumber::SysexEndsNext3,
+            MidiMessage::SysexEmpty => CodeIndexNumber::SysexEndsNext2,
+            MidiMessage::SysexSingleByte(..) => CodeIndexNumber::SysexEndsNext3,
         }
     }
 }
